@@ -36,6 +36,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { TinyDropdown } from "@/components/ui/TinyDropdown";
 import { fmtBRL, fmtBRLCompact, fmtData } from "../clientes/frv-utils";
 import { supabase } from "@/lib/supabase";
+import { buildAvatarResolver } from "@/lib/avatar-by-code";
 
 // ── Config ───────────────────────────────────────────────────────────────────
 const NOW = new Date();
@@ -248,7 +249,7 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
     dir: "desc",
   });
   const [cliPage, setCliPage] = useState(1);
-  const [avatarsMap, setAvatarsMap] = useState<Record<string, string>>({});
+  const [avatarRows, setAvatarRows] = useState<{ operator_code: string | null; avatar: string | null }[]>([]);
   // Usuários (para montar os times: supervisor via responsavel_id + operator_code)
   const [usuariosOrg, setUsuariosOrg] = useState<
     { id: string; operator_code: string | null; name: string | null; responsavel_id: string | null }[]
@@ -314,17 +315,13 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
         console.error("[CarteiraView] Erro ao carregar avatars dos vendedores:", error);
       }
       if (cancelled || !data) return;
-      const map: Record<string, string> = {};
-      data.forEach((u) => {
-        const code = normCod(u.operator_code);
-        if (code && u.avatar) {
-          map[code] = u.avatar;
-        }
-      });
-      setAvatarsMap(map);
+      setAvatarRows(data);
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // Resolve avatar por código de vendedor sem colisão de zeros à esquerda.
+  const getAvatar = useMemo(() => buildAvatarResolver(avatarRows), [avatarRows]);
 
   // Carrega os usuários para montar os times (supervisor = responsável por ≥1 pessoa).
   useEffect(() => {
@@ -797,8 +794,8 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
               </button>
             )}
             <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center overflow-hidden shrink-0 border border-primary/10">
-              {avatarsMap[normCod(carteiraSel.cod)] ? (
-                <img src={avatarsMap[normCod(carteiraSel.cod)]} alt={carteiraSel.nome} className="w-full h-full object-cover" />
+              {getAvatar(carteiraSel.cod) ? (
+                <img src={getAvatar(carteiraSel.cod)} alt={carteiraSel.nome} className="w-full h-full object-cover" />
               ) : (
                 <UserSquare2 className="w-5 h-5 text-primary" />
               )}
@@ -1226,8 +1223,8 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
                   <td className="px-5 py-4">
                     <div className="flex items-center gap-3">
                       <div className="w-9 h-9 shrink-0 rounded-xl bg-primary/10 flex items-center justify-center border border-primary/10 overflow-hidden">
-                        {avatarsMap[normCod(v.cod)] ? (
-                          <img src={avatarsMap[normCod(v.cod)]} alt={v.nome} className="w-full h-full object-cover" />
+                        {getAvatar(v.cod) ? (
+                          <img src={getAvatar(v.cod)} alt={v.nome} className="w-full h-full object-cover" />
                         ) : (
                           <UserSquare2 className="w-4 h-4 text-primary" />
                         )}

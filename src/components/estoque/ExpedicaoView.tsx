@@ -19,6 +19,7 @@ import {
 import { cn } from "@/lib/utils";
 import { apiSeparacao, apiConferencia, type ExpedicaoResponse } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
+import { buildAvatarResolver } from "@/lib/avatar-by-code";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -56,10 +57,6 @@ function parseOperador(op: string) {
   return { cod: "", nome: op.replace(/^\s*-\s*/, "").trim() || "—" };
 }
 
-const normCod = (s?: string) => {
-  const t = String(s || "").trim();
-  return t.replace(/^0+/, "") || t;
-};
 
 const getLocalIcon = (localName: string) => {
   const norm = localName.trim().toUpperCase();
@@ -144,7 +141,7 @@ export function ExpedicaoView({ tipo }: { tipo: Tipo }) {
   const [erro, setErro] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
   const [activeTab, setActiveTab] = useState<TabId>("hoje");
-  const [avatarsMap, setAvatarsMap] = useState<Record<string, string>>({});
+  const [avatarRows, setAvatarRows] = useState<{ operator_code: string | null; avatar: string | null }[]>([]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -175,17 +172,13 @@ export function ExpedicaoView({ tipo }: { tipo: Tipo }) {
         console.error("[ExpedicaoView] Erro ao carregar avatars dos operadores:", error);
       }
       if (cancelled || !data) return;
-      const map: Record<string, string> = {};
-      data.forEach((u) => {
-        const code = normCod(u.operator_code);
-        if (code && u.avatar) {
-          map[code] = u.avatar;
-        }
-      });
-      setAvatarsMap(map);
+      setAvatarRows(data);
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // Resolve avatar por código de operador sem colisão de zeros à esquerda.
+  const getAvatar = useMemo(() => buildAvatarResolver(avatarRows), [avatarRows]);
 
   const listaFiltrada = useMemo(() => {
     if (!data) return [];
@@ -371,8 +364,8 @@ export function ExpedicaoView({ tipo }: { tipo: Tipo }) {
                             <td className="py-3 px-3 font-semibold text-foreground whitespace-nowrap">
                               <div className="flex items-center gap-2">
                                 <div className="w-6 h-6 rounded-full bg-secondary border border-border flex items-center justify-center shrink-0 overflow-hidden">
-                                  {avatarsMap[normCod(cod)] ? (
-                                    <img src={avatarsMap[normCod(cod)]} alt={nome} className="w-full h-full object-cover" />
+                                  {getAvatar(cod) ? (
+                                    <img src={getAvatar(cod)} alt={nome} className="w-full h-full object-cover" />
                                   ) : (
                                     <User className="w-3.5 h-3.5 text-muted-foreground" />
                                   )}
@@ -436,8 +429,8 @@ export function ExpedicaoView({ tipo }: { tipo: Tipo }) {
                             <td className="py-3 px-5">
                               <div className="flex items-center gap-2.5">
                                 <div className="w-8 h-8 rounded-full bg-secondary border border-border flex items-center justify-center shrink-0 overflow-hidden">
-                                  {avatarsMap[normCod(cod)] ? (
-                                    <img src={avatarsMap[normCod(cod)]} alt={nome} className="w-full h-full object-cover" />
+                                  {getAvatar(cod) ? (
+                                    <img src={getAvatar(cod)} alt={nome} className="w-full h-full object-cover" />
                                   ) : (
                                     <User className="w-4 h-4 text-muted-foreground" />
                                   )}
