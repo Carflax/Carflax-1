@@ -3,6 +3,9 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 
 export default defineConfig({
+  // Fixa a raiz na pasta do projeto (onde está o index.html), independentemente
+  // do diretório de onde o Vite for lançado (ex.: a partir do monorepo pai).
+  root: __dirname,
   plugins: [react()],
   resolve: {
     alias: {
@@ -10,6 +13,8 @@ export default defineConfig({
     },
   },
   server: {
+    // Respeita a porta atribuída pelo ambiente (PORT); mantém 5173 no dev local.
+    port: Number(process.env.PORT) || 5173,
     proxy: {
       '/api-marketing': {
         target: 'https://marketing-carflax.velbav.easypanel.host',

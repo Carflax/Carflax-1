@@ -14,10 +14,13 @@ import {
   UserCheck,
   Building2,
   Briefcase,
-  Camera
+  Camera,
+  Phone,
+  Puzzle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TinyDropdown } from "@/components/ui/TinyDropdown";
+import { gerarRamaisPDF } from "@/lib/ramais-pdf";
 
 interface User {
   id: string;
@@ -451,6 +454,35 @@ export function UsersView() {
             </p>
           </div>
 
+          <div className="flex items-center gap-2">
+          <button
+            onClick={() => gerarRamaisPDF(users)}
+            title="Abrir lista de ramais em PDF (A4)"
+            className="h-8 w-8 shrink-0 bg-card border border-border rounded-lg text-muted-foreground hover:text-blue-600 hover:border-blue-600/50 transition-all flex items-center justify-center shadow-sm active:scale-95"
+          >
+            <Phone className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => {
+              const a = document.createElement("a");
+              a.href = "/ramais-extension.zip";
+              a.download = "ramais-extension.zip";
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              setTimeout(
+                () =>
+                  alert(
+                    "Extensão de ramais baixada!\n\nComo instalar no Chrome/Edge:\n1) Descompacte o arquivo .zip\n2) Abra chrome://extensions (ou edge://extensions)\n3) Ative o \"Modo do desenvolvedor\"\n4) Clique em \"Carregar sem compactação\" e selecione a pasta descompactada"
+                  ),
+                400
+              );
+            }}
+            title="Baixar extensão de ramais (Chrome/Edge)"
+            className="h-8 w-8 shrink-0 bg-card border border-border rounded-lg text-muted-foreground hover:text-blue-600 hover:border-blue-600/50 transition-all flex items-center justify-center shadow-sm active:scale-95"
+          >
+            <Puzzle className="w-3.5 h-3.5" />
+          </button>
           <button
             onClick={() => {
               setEditingUser(null);
@@ -489,6 +521,7 @@ export function UsersView() {
             <UserPlus className="w-3.5 h-3.5" />
             Novo Usuário
           </button>
+          </div>
         </div>
 
         {/* FILTERS BAR (Simplified with TinyDropdown) */}

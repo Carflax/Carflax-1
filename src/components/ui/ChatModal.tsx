@@ -334,7 +334,7 @@ export function ChatModal({
       });
     };
 
-    const channel = supabase
+    let chatChannel = supabase
       .channel(`chat_room_${cleanDoc}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'crm_conversas' },
         (payload) => handleNewMsg(payload.new as CrmConversa))
@@ -343,8 +343,9 @@ export function ChatModal({
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
           console.warn(`[Chat] Realtime ${cleanDoc} desconectado, reconectando...`);
           setTimeout(() => {
-            supabase.removeChannel(channel);
-            supabase.channel(`chat_room_${cleanDoc}`)
+            supabase.removeChannel(chatChannel);
+            chatChannel = supabase
+              .channel(`chat_room_${cleanDoc}_${Date.now()}`)
               .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'crm_conversas' },
                 (payload) => handleNewMsg(payload.new as CrmConversa))
               .subscribe();
@@ -387,7 +388,7 @@ export function ChatModal({
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(chatChannel);
       supabase.removeChannel(typingChannel);
       clearInterval(chatPoll);
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
