@@ -19,9 +19,19 @@ import {
   ArrowLeftRight,
   X,
   Check,
+  Cake,
+  MessageCircle,
+  ClipboardList,
+  Loader2,
 } from "lucide-react";
 import { cn, formatTeamName } from "@/lib/utils";
-import { apiCarteira, apiTransferirCliente, type CarteiraResponse, type CarteiraCliente } from "@/lib/api";
+import {
+  apiCarteira,
+  apiTransferirCliente,
+  apiAtualizarCadastroCliente,
+  type CarteiraResponse,
+  type CarteiraCliente,
+} from "@/lib/api";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { TinyDropdown } from "@/components/ui/TinyDropdown";
 import { fmtBRL, fmtBRLCompact, fmtData } from "../clientes/frv-utils";
@@ -77,6 +87,12 @@ const getRecenciaDias = (ultimaCompra: string | null) => {
   const diffTime = Math.abs(NOW.getTime() - d.getTime());
   return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 };
+
+// ── Pendências de cadastro ────────────────────────────────────────────────────
+// Nascimento só é cobrado de pessoa física; WhatsApp (celular) de todos.
+const pendNascimento = (c: CarteiraCliente) => !!c.pessoa_fisica && !c.data_nascimento;
+const pendWhatsapp = (c: CarteiraCliente) => !c.celular;
+const isPendente = (c: CarteiraCliente) => pendNascimento(c) || pendWhatsapp(c);
 
 const formatPhone = (phone?: string | null) => {
   if (!phone) return "";
@@ -243,6 +259,14 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
   const [destinoCod, setDestinoCod] = useState("");
   const [transferLoading, setTransferLoading] = useState(false);
   const [transferErro, setTransferErro] = useState<string | null>(null);
+
+  // Modo "completar cadastro": lista só clientes com nascimento/WhatsApp faltando,
+  // com edição inline para preencher e gravar no ERP.
+  const [soPendentes, setSoPendentes] = useState(false);
+  const [editNasc, setEditNasc] = useState<Record<string, string>>({});
+  const [editWpp, setEditWpp] = useState<Record<string, string>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [saveErro, setSaveErro] = useState<Record<string, string>>({});
 
   // Elevado (is_leader/gestor/admin): carrega usuários e habilita ações de gestão.
   const isAdmin =
@@ -493,10 +517,23 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
     }
   }, [loading, isAdmin, carteirasVisiveis, selecionado]);
 
+  // Nº de clientes com cadastro pendente (nascimento p/ PF e/ou WhatsApp)
+  const pendentesCount = useMemo(
+    () => (carteiraSel ? carteiraSel.clientes.filter(isPendente).length : 0),
+    [carteiraSel]
+  );
+
+  // Sai do modo pendências ao trocar de vendedor
+  useEffect(() => {
+    setSoPendentes(false);
+    setSaveErro({});
+  }, [selecionado]);
+
   // Clientes do vendedor selecionado
   const clientesSel = useMemo(() => {
     if (!carteiraSel) return [];
     let arr = carteiraSel.clientes;
+    if (soPendentes) arr = arr.filter(isPendente);
     const q = buscaCli.trim().toLowerCase();
     if (q) arr = arr.filter((c) => (c.nome_cliente || "").toLowerCase().includes(q));
     const { key, dir } = cliSort;
@@ -511,11 +548,11 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
       if (key === "conversao") return (taxaConversao(a) - taxaConversao(b)) * mult;
       return (((a[key] as number) || 0) - ((b[key] as number) || 0)) * mult;
     });
-  }, [carteiraSel, buscaCli, cliSort]);
+  }, [carteiraSel, buscaCli, cliSort, soPendentes]);
 
   useEffect(() => {
     setCliPage(1);
-  }, [buscaCli, cliSort, selecionado]);
+  }, [buscaCli, cliSort, selecionado, soPendentes]);
 
   const cliTotalPages = Math.max(1, Math.ceil(clientesSel.length / CLI_POR_PAGINA));
   const cliPageSafe = Math.min(cliPage, cliTotalPages);
@@ -564,6 +601,57 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
       setTransferErro("Não foi possível transferir o cliente no ERP. Tente novamente.");
     } finally {
       setTransferLoading(false);
+    }
+  };
+
+  // Salva nascimento/WhatsApp de um cliente no ERP e reflete localmente.
+  const handleSalvarCadastro = async (c: CarteiraCliente) => {
+    const id = c.cliente_id;
+    if (savingId) return;
+
+    const nascInput = pendNascimento(c) ? (editNasc[id] || "").trim() : "";
+    const wppInput = pendWhatsapp(c) ? (editWpp[id] || "").trim() : "";
+    if (!nascInput && !wppInput) return;
+
+    // Validação leve do WhatsApp (10 ou 11 dígitos)
+    if (wppInput) {
+      const digits = wppInput.replace(/\D/g, "");
+      if (digits.length < 10 || digits.length > 11) {
+        setSaveErro((s) => ({ ...s, [id]: "WhatsApp inválido (DDD + número)" }));
+        return;
+      }
+    }
+
+    setSavingId(id);
+    setSaveErro((s) => { const n = { ...s }; delete n[id]; return n; });
+    try {
+      const resp = await apiAtualizarCadastroCliente(id, {
+        dataNascimento: nascInput || undefined,
+        telefoneCelular: wppInput || undefined,
+      });
+      // Reflete no estado local para a pendência sumir sem recarregar tudo
+      setData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          clientes: prev.clientes.map((cli) =>
+            cli.cliente_id === id
+              ? {
+                  ...cli,
+                  data_nascimento: resp.data_nascimento ?? cli.data_nascimento,
+                  celular: resp.celular ?? cli.celular,
+                }
+              : cli
+          ),
+        };
+      });
+      setEditNasc((s) => { const n = { ...s }; delete n[id]; return n; });
+      setEditWpp((s) => { const n = { ...s }; delete n[id]; return n; });
+    } catch (err) {
+      console.error("Erro ao salvar cadastro do cliente:", err);
+      setSaveErro((s) => ({ ...s, [id]: "Não foi possível salvar no ERP. Tente novamente." }));
+    } finally {
+      setSavingId(null);
     }
   };
 
@@ -726,15 +814,40 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
             </div>
           </div>
 
-          {/* Pesquisar Cliente (Lá em cima) */}
-          <div className="relative w-64 shrink-0">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              value={buscaCli}
-              onChange={(e) => setBuscaCli(e.target.value)}
-              placeholder="Pesquisar cliente..."
-              className="w-full pl-9 pr-3 h-10 rounded-xl border border-border/80 bg-card/50 text-xs font-semibold text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-            />
+          <div className="flex items-center gap-3 shrink-0">
+            {/* Toggle: completar cadastro (nascimento/WhatsApp) */}
+            <button
+              onClick={() => setSoPendentes((v) => !v)}
+              title="Clientes sem data de nascimento (pessoa física) ou WhatsApp cadastrado"
+              className={cn(
+                "inline-flex items-center gap-2 px-3.5 h-10 rounded-xl border text-[11px] font-black uppercase tracking-widest transition-all cursor-pointer active:scale-95",
+                soPendentes
+                  ? "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                  : "border-border/80 bg-card/50 text-muted-foreground hover:text-foreground hover:border-border"
+              )}
+            >
+              <ClipboardList className="w-4 h-4" />
+              Completar cadastro
+              {pendentesCount > 0 && (
+                <span className={cn(
+                  "inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-black tabular-nums",
+                  soPendentes ? "bg-amber-500 text-white" : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                )}>
+                  {pendentesCount}
+                </span>
+              )}
+            </button>
+
+            {/* Pesquisar Cliente (Lá em cima) */}
+            <div className="relative w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                value={buscaCli}
+                onChange={(e) => setBuscaCli(e.target.value)}
+                placeholder="Pesquisar cliente..."
+                className="w-full pl-9 pr-3 h-10 rounded-xl border border-border/80 bg-card/50 text-xs font-semibold text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+              />
+            </div>
           </div>
         </div>
 
@@ -746,7 +859,123 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
           <KpiCard label="Total Pedidos" value={String(carteiraSel.pedidos)} icon={ShoppingCart} colorClass="text-amber-500 bg-amber-500/10 border-amber-500/20" sub={`Ticket Médio: ${fmtBRL(carteiraSel.ticketMedio)}`} />
         </div>
 
+        {/* Tabela de completar cadastro (nascimento / WhatsApp) */}
+        {soPendentes && (
+          <div className="bg-card border border-amber-500/25 rounded-2xl overflow-hidden shadow-sm">
+            <div className="flex items-center gap-2 px-5 py-3 border-b border-amber-500/20 bg-amber-500/5">
+              <ClipboardList className="w-4 h-4 text-amber-500" />
+              <p className="text-[11px] font-black uppercase tracking-widest text-amber-600 dark:text-amber-400">
+                Completar cadastro
+              </p>
+              <span className="text-[10px] font-bold text-muted-foreground normal-case tracking-normal">
+                Preencha os dados faltantes e salve direto no ERP. Nascimento é cobrado só de pessoa física.
+              </span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border bg-muted/40 text-[10px] uppercase font-black tracking-widest text-muted-foreground">
+                    <th className="text-left px-5 py-3.5">
+                      <SortHeader label="Cliente / Razão Social" active={cliSort.key === "nome_cliente"} direction={cliSort.dir} onClick={() => toggleCliSort("nome_cliente")} />
+                    </th>
+                    <th className="text-left px-5 py-3.5">
+                      <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground select-none">
+                        <Cake className="w-3.5 h-3.5" /> Nascimento
+                      </span>
+                    </th>
+                    <th className="text-left px-5 py-3.5">
+                      <span className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground select-none">
+                        <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
+                      </span>
+                    </th>
+                    <th className="text-right px-5 py-3.5">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground select-none">Ação</span>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/65">
+                  {clientesPagina.map((c) => {
+                    const id = c.cliente_id;
+                    const precisaNasc = pendNascimento(c);
+                    const precisaWpp = pendWhatsapp(c);
+                    const nascVal = editNasc[id] ?? "";
+                    const wppVal = editWpp[id] ?? "";
+                    const podeSalvar =
+                      (precisaNasc && nascVal.trim() !== "") || (precisaWpp && wppVal.trim() !== "");
+                    const salvando = savingId === id;
+                    return (
+                      <tr key={id} className="hover:bg-muted/30 transition-colors align-top">
+                        <td className="px-5 py-4">
+                          <p className="font-black text-foreground leading-snug">{c.nome_cliente}</p>
+                          <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mt-1">
+                            Cód. {id} · {c.pessoa_fisica ? "Pessoa Física" : "Pessoa Jurídica"}
+                          </p>
+                          {saveErro[id] && (
+                            <p className="text-[10px] font-bold text-rose-600 dark:text-rose-400 mt-1">{saveErro[id]}</p>
+                          )}
+                        </td>
+                        <td className="px-5 py-4">
+                          {precisaNasc ? (
+                            <input
+                              type="date"
+                              value={nascVal}
+                              onChange={(e) => setEditNasc((s) => ({ ...s, [id]: e.target.value }))}
+                              className="w-40 px-3 h-9 rounded-lg border border-border bg-card text-xs font-semibold text-foreground outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                            />
+                          ) : c.data_nascimento ? (
+                            <span className="font-bold text-foreground tabular-nums">{fmtData(c.data_nascimento)}</span>
+                          ) : (
+                            <span className="text-muted-foreground/45 font-medium">N/A</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-4">
+                          {precisaWpp ? (
+                            <input
+                              type="tel"
+                              inputMode="numeric"
+                              value={wppVal}
+                              onChange={(e) => setEditWpp((s) => ({ ...s, [id]: e.target.value }))}
+                              placeholder="11 91234-5678"
+                              className="w-44 px-3 h-9 rounded-lg border border-border bg-card text-xs font-semibold text-foreground placeholder:text-muted-foreground/60 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                            />
+                          ) : (
+                            <span className="font-bold text-foreground tabular-nums">{formatPhone(c.celular)}</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-4 text-right">
+                          <button
+                            onClick={() => handleSalvarCadastro(c)}
+                            disabled={!podeSalvar || salvando}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-[10px] font-black uppercase tracking-widest hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-95"
+                          >
+                            {salvando ? (
+                              <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Salvando</>
+                            ) : (
+                              <><Check className="w-3.5 h-3.5" /> Salvar</>
+                            )}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {clientesSel.length === 0 && (
+                    <tr>
+                      <td colSpan={4} className="px-5 py-16 text-center text-xs font-bold text-muted-foreground uppercase tracking-widest bg-muted/5">
+                        {pendentesCount === 0
+                          ? "Nenhuma pendência de cadastro nesta carteira 🎉"
+                          : "Nenhum cliente pendente encontrado na busca"}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <Pagination page={cliPageSafe} totalItems={clientesSel.length} perPage={CLI_POR_PAGINA} onPage={setCliPage} />
+          </div>
+        )}
+
         {/* Tabela de clientes */}
+        {!soPendentes && (
         <div className="bg-card border border-border/80 rounded-2xl overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
@@ -831,6 +1060,7 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
           </div>
           <Pagination page={cliPageSafe} totalItems={clientesSel.length} perPage={CLI_POR_PAGINA} onPage={setCliPage} />
         </div>
+        )}
 
         {transferindo &&
           createPortal(

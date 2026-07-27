@@ -582,6 +582,9 @@ export interface CarteiraCliente {
   orc_fechados?: number; // orçamentos convertidos em pedido
   orc_valor_total?: number; // R$ orçado
   orc_valor_fechado?: number; // R$ convertido
+  pessoa_fisica?: boolean; // true = PF (nascimento faz sentido); false = PJ
+  data_nascimento?: string | null; // 'YYYY-MM-DD' ou null
+  celular?: string | null; // WhatsApp cadastrado ou null
 }
 
 export interface CarteiraResponse {
@@ -602,6 +605,19 @@ export interface TransferirClienteResponse {
 // Transfere um cliente para outro vendedor (PATCH parcial no ERP)
 export const apiTransferirCliente = (clienteId: string, codigoVendedor: string) =>
   post<TransferirClienteResponse>("/api/crm/carteira/transferir", { clienteId, codigoVendedor });
+
+export interface AtualizarCadastroResponse {
+  ok: boolean;
+  cliente_id: string;
+  data_nascimento: string | null;
+  celular: string | null;
+}
+
+// Completa dados de cadastro faltantes (nascimento/WhatsApp) — PATCH parcial no ERP
+export const apiAtualizarCadastroCliente = (
+  clienteId: string,
+  dados: { dataNascimento?: string | null; telefoneCelular?: string | null }
+) => post<AtualizarCadastroResponse>("/api/crm/carteira/atualizar-cadastro", { clienteId, ...dados });
 
 // ── Mix de Produtos por Cliente (por marca) ──────────────────────────────────
 export type MixMarcaStatus = "perdida" | "nova" | "caindo" | "crescendo" | "estavel";
