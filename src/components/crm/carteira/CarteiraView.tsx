@@ -90,9 +90,9 @@ const getRecenciaDias = (ultimaCompra: string | null) => {
 };
 
 // ── Pendências de cadastro ────────────────────────────────────────────────────
-// Nascimento só é cobrado de pessoa física; WhatsApp (celular) de todos.
+// Nascimento e WhatsApp só são cobrados de pessoa física; PJ (CNPJ) não entra.
 const pendNascimento = (c: CarteiraCliente) => !!c.pessoa_fisica && !c.data_nascimento;
-const pendWhatsapp = (c: CarteiraCliente) => !c.celular;
+const pendWhatsapp = (c: CarteiraCliente) => !!c.pessoa_fisica && !c.celular;
 const isPendente = (c: CarteiraCliente) => pendNascimento(c) || pendWhatsapp(c);
 
 const formatPhone = (phone?: string | null) => {
