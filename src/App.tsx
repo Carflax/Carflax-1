@@ -1362,7 +1362,7 @@ function DashboardContent({
               userProfile={userProfile || undefined}
               subquadroId={activeItem.slice(ESTEIRA_SUBQUADRO_PREFIX.length)}
             />
-          ) : ["Entregas", "Romaneios"].includes(activeItem) ? (
+          ) : ["Entregas", "Romaneios", "Relatórios Entregas"].includes(activeItem) ? (
             <EntregasView activeTab={activeItem} userProfile={userProfile || undefined} />
           ) : ["Coletor", "Painel Coletor"].includes(activeItem) ? (
             <div className="p-6 pt-4 h-full overflow-y-auto scrollbar-hide">

@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { RomaneiosView } from "./romaneios/RomaneiosView";
 import { ConcluidasView } from "./concluidas/ConcluidasView";
 import { MotoristaView } from "./motorista/MotoristaView";
+import { RelatorioRomaneiosView } from "./relatorio/RelatorioRomaneiosView";
 
 interface EntregasViewProps {
   activeTab?: string;
@@ -9,7 +10,7 @@ interface EntregasViewProps {
 }
 
 export function EntregasView({ activeTab: externalTab, userProfile }: EntregasViewProps) {
-  const [internalTab, setInternalTab] = useState<"romaneios" | "concluidas" | "motorista">("romaneios");
+  const [internalTab, setInternalTab] = useState<"romaneios" | "concluidas" | "motorista" | "relatorio">("romaneios");
 
   // Sincroniza o estado interno se a navegação externa (sidebar) mudar
   useEffect(() => {
@@ -17,6 +18,7 @@ export function EntregasView({ activeTab: externalTab, userProfile }: EntregasVi
       if (externalTab === "Romaneios") setInternalTab("romaneios");
       if (externalTab === "Concluídas") setInternalTab("concluidas");
       if (externalTab === "Motorista") setInternalTab("motorista");
+      if (externalTab === "Relatórios Entregas") setInternalTab("relatorio");
     }, 0);
     return () => clearTimeout(timer);
   }, [externalTab]);
@@ -28,6 +30,8 @@ export function EntregasView({ activeTab: externalTab, userProfile }: EntregasVi
           <RomaneiosView userProfile={userProfile} />
         ) : internalTab === "concluidas" ? (
           <ConcluidasView />
+        ) : internalTab === "relatorio" ? (
+          <RelatorioRomaneiosView />
         ) : (
           <MotoristaView />
         )}

@@ -219,8 +219,37 @@ export const apiEntregasConcluidas = () =>
 export const apiEntregasDetalhes = (nf: string) => 
   get<DetalhesEntregaResponse>(`/api/entregas/detalhes/${nf}`);
 
-export const apiMotoristas = () => 
+export const apiMotoristas = () =>
   get<DetalhesEntregaResponse>("/api/entregas");
+
+// ── Relatório de Romaneios ────────────────────────────────────────────────────
+export interface RelatorioRomaneios {
+  periodo: { inicio: string; fim: string };
+  totais: {
+    entregas: number;
+    dias: number;
+    mediaPorDia: number;
+    maxPorDia: number;
+    cidades: number;
+    valor: number;
+    peso: number;
+  };
+  porCidade: { cidade: string; uf: string; entregas: number; valor: number }[];
+  // Bairros agrupados por cidade. Chave: `${cidade}||${uf}`.
+  bairrosPorCidade: Record<string, { bairro: string; entregas: number }[]>;
+  serieDiaria: { data: string; entregas: number }[];
+  porDiaSemana: number[]; // 7 posições: 0=Dom ... 6=Sáb
+  motoristas: {
+    mediaPorDia: number;
+    maxPorDia: number;
+    totalMotoristas: number;
+    recorde: { cod: string; nome: string; avatar?: string | null; data: string; entregas: number } | null;
+    lista: { cod: string; nome: string; avatar?: string | null; entregas: number; dias: number; mediaDia: number; maxDia: number }[];
+  };
+}
+
+export const apiRelatorioRomaneios = (inicio: string, fim: string) =>
+  get<RelatorioRomaneios>("/api/entregas/romaneios/relatorio", { inicio, fim });
 
 // ── CRM ───────────────────────────────────────────────────────────────────────
 
