@@ -962,12 +962,29 @@ interface UserProfile {
   operatorCode?: string;
 }
 
+// Interface mínima do provider de WhatsApp (só o que esta tela consome). Permite
+// injetar o Evolution v2 (padrão, comercial) OU o Evolution GO, mantendo o mesmo
+// design. Ambos os clientes satisfazem estes métodos.
+export interface WhatsappApi {
+  getInstanceInfo(): Promise<{ instance?: { owner?: string; profilePictureUrl?: string } }>;
+  getProfilePic(jid: string): Promise<string | null>;
+  getChats(): Promise<unknown[]>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  connectWebSocket(): { on: (e: string, cb: (...args: any[]) => void) => void; off: (e: string, cb: (...args: any[]) => void) => void };
+  sendText(jid: string, text: string, quoted?: unknown): Promise<{ key?: { id?: string } }>;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sendDocument(jid: string, ...args: any[]): Promise<{ key?: { id?: string } }>;
+  subscribePresence(jid: string): Promise<void>;
+}
+
 export function WhatsappView({
   vendedorId,
   userProfile,
+  api = evolutionApi as unknown as WhatsappApi,
 }: {
   vendedorId?: string;
   userProfile?: UserProfile | null;
+  api?: WhatsappApi;
 }) {
   const { showNotification } = useNotification();
   const [chats, setChats] = useState<Chat[]>([]);
@@ -1184,11 +1201,11 @@ export function WhatsappView({
 
   // Busca a foto da própria instância (Trafego)
   useEffect(() => {
-    evolutionApi.getInstanceInfo().then((data) => {
+    api.getInstanceInfo().then((data) => {
       if (data?.instance?.profilePictureUrl) {
         setMyAvatar(data.instance.profilePictureUrl);
       } else if (data?.instance?.owner) {
-        evolutionApi.getProfilePic(data.instance.owner).then((url) => {
+        api.getProfilePic(data.instance.owner).then((url) => {
           if (url) setMyAvatar(url);
         });
       }
@@ -1202,7 +1219,7 @@ export function WhatsappView({
     }
 
     try {
-      const url = await evolutionApi.getProfilePic(remoteJid);
+      const url = await api.getProfilePic(remoteJid);
       const finalUrl = url || "";
       // Cap: remove a entrada mais antiga quando ultrapassa 300 contatos
       if (avatarCache.size >= 300)
@@ -1297,7 +1314,7 @@ export function WhatsappView({
 
       // 2. Sincronização em segundo plano (Não trava o usuário)
       if (mappedChats.length > 0) {
-        evolutionApi.getChats().then(async (evoData) => {
+        api.getChats().then(async (evoData) => {
           const evoChats = evoData as EvoChatResponse[];
           const updates: import("@/lib/marketing-service").MarketingCliente[] =
             [];
@@ -1646,7 +1663,7 @@ export function WhatsappView({
   useEffect(() => {
     const currentTimers = tempClassifyTimers.current;
     // Conecta ao WebSocket para receber mensagens em tempo real
-    const socket = evolutionApi.connectWebSocket();
+    const socket = api.connectWebSocket();
 
     const processMessage = async (message: EvoMessageResponse) => {
       const remoteJid = message.key?.remoteJid;
@@ -2691,7 +2708,7 @@ export function WhatsappView({
         prev ? { ...prev, vendedor_id: vendedorId } : null,
       );
 
-      const sendResp = await evolutionApi.sendText(
+      const sendResp = await api.sendText(
         selectedChat.id,
         textToSend,
         quoted,
@@ -2797,7 +2814,7 @@ export function WhatsappView({
           );
         }
 
-        const docResp = await evolutionApi.sendDocument(
+        const docResp = await api.sendDocument(
           selectedChat.id,
           base64,
           file.type,
@@ -3262,7 +3279,7 @@ export function WhatsappView({
     }
     setLoadingMessages(true);
     setSaleValue("");
-    evolutionApi.subscribePresence(chat.id);
+    api.subscribePresence(chat.id);
 
     setHasMoreMessages(false);
     setLoadingMoreMessages(false);

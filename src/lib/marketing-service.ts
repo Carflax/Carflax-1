@@ -395,11 +395,13 @@ export const marketingService = {
 
   async updateMessageStatus(messageId: string, status: string) {
     // Usa upsert via message_id para evitar CORS com PATCH em alguns ambientes
+    // maybeSingle: um status pode chegar para uma mensagem que ainda não está no
+    // banco (ex.: enviada por outro dispositivo). Com .single() isso retornava 406.
     const { data: existing } = await supabase
       .from("marketing_whatsapp")
       .select("message_id, remote_jid, sender, timestamp")
       .eq("message_id", messageId)
-      .single();
+      .maybeSingle();
 
     if (!existing) return;
 
@@ -424,7 +426,7 @@ export const marketingService = {
         .from("marketing_clientes")
         .select("mensagens_nao_lidas")
         .eq("remote_jid", remoteJid)
-        .single();
+        .maybeSingle();
       if (data) {
         await supabase
           .from("marketing_clientes")
@@ -676,12 +678,20 @@ export const marketingService = {
         return null;
       }
 
-      // Retorna a URL pública
+      // Retorna a URL pública. Em DEV, o client aponta para o proxy do Vite
+      // (location.origin/supabase), o que gravaria uma URL "localhost" no banco e
+      // quebraria em produção (Mixed Content / connection refused). Corrige para a
+      // URL real do Supabase antes de retornar — mesma proteção do uploadImage.
       const { data: publicUrlData } = supabase.storage
         .from('whatsapp-media')
         .getPublicUrl(data.path);
 
-      return publicUrlData.publicUrl;
+      let publicUrl = publicUrlData.publicUrl;
+      if (import.meta.env.DEV && publicUrl.includes("/supabase/storage/")) {
+        const realSupabaseUrl = import.meta.env.VITE_SUPABASE_URL || "https://zwfvrmqffxcqurxpfewi.supabase.co";
+        publicUrl = publicUrl.replace(`${window.location.origin}/supabase`, realSupabaseUrl);
+      }
+      return publicUrl;
     } catch (error) {
       console.error('[MarketingService] Erro ao processar mídia:', error);
       return null;

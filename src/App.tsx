@@ -405,8 +405,14 @@ function DashboardContent({
   const activeItemRef = useRef(activeItem);
   useEffect(() => { activeItemRef.current = activeItem; }, [activeItem]);
 
+  // Só quem tem acesso ao WhatsApp no HUB recebe as notificações globais dele.
+  // Sem isso, qualquer usuário logado (com permissão de notificação no navegador)
+  // recebia push das mensagens do Evolution mesmo sem ter o WhatsApp liberado.
+  const podeReceberWhatsapp = canAccessSection(userProfile, "Whatsapp Evolution");
+
   useEffect(() => {
     if (!userProfile?.id) return;
+    if (!podeReceberWhatsapp) return; // sem acesso ao WhatsApp → sem socket nem notificação
 
     if ("Notification" in window && Notification.permission === "default") {
       Notification.requestPermission();
@@ -460,7 +466,7 @@ function DashboardContent({
       socket.off('message', handleGlobalMessage);
       socket.off('message-received', handleGlobalMessage);
     };
-  }, [userProfile?.id]);
+  }, [userProfile?.id, podeReceberWhatsapp]);
 
   // ── Web Push — Service Worker + Subscrição persistente ──────────────
   const pushSetupDone = useRef(false);
@@ -1264,6 +1270,7 @@ function DashboardContent({
   const isMarketingView = [
     "Marketing",
     "Whatsapp Evolution",
+    "Whatsapp GO",
     "Automação",
     "Blog Marketing",
     "Blog Cards",

@@ -1,9 +1,31 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 /**
  * Evolution GO — whatsmeow-based WhatsApp API client
- * Endpoints seguem o Swagger oficial do EvolutionAPI/evolution-go
+ * Endpoints seguem o Swagger oficial do EvolutionAPI/evolution-go.
+ * Cliente de fronteira: os payloads da API externa são JSON dinâmico, então `any`
+ * é intencional nos pontos de desserialização.
  */
 
 import { marketingService } from "./marketing-service";
+import { supabase } from "./supabase";
+
+// Filtro do realtime GO: só emite eventos das mensagens deste vendedor (a
+// instância GO grava no Supabase marcada com vendedor_id). A tela GO define isso
+// antes de conectar, para não misturar com as conversas do comercial (v2).
+let goRealtimeVendedorId: string | null = null;
+export function setGoRealtimeVendedor(id: string | null) {
+  goRealtimeVendedorId = id;
+}
+
+// Socket "falso" mínimo (EventEmitter) para o shim de realtime — expõe a mesma
+// superfície (on/off/connected/disconnect) que o socket.io do Evolution v2, para
+// a tela clonada funcionar sem alterações.
+interface FakeSocket {
+  on: (event: string, cb: (payload: unknown) => void) => void;
+  off: (event: string, cb: (payload: unknown) => void) => void;
+  connected: boolean;
+  disconnect: () => void;
+}
 
 export interface GoSendResponse {
   id: string;
@@ -78,23 +100,36 @@ export interface GoNewsletter {
 
 
 
-async function fetchBackend<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const baseUrl = "/api-marketing/api/whatsapp";
-  const url = `${baseUrl}${path.startsWith('/') ? path : `/${path}`}`;
-  
-  const headers = {
-    'Content-Type': 'application/json',
-    ...options.headers,
-  };
 
-  const response = await fetch(url, { ...options, headers });
+// ─── Cliente direto do servidor Evolution GO (whatsmeow) ─────────────────────
+// Auth por instância: header `apikey: <token da instância>`. Rotas reais do
+// Swagger: /send/text, /send/media, /message/presence, /user/avatar, /user/check,
+// /instance/status.
+const GO_CONFIG = {
+  url: import.meta.env.VITE_EVO_GO_URL as string,
+  token: import.meta.env.VITE_EVO_GO_API_KEY as string,
+};
 
+async function fetchGo<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const url = `${GO_CONFIG.url}${path.startsWith('/') ? path : `/${path}`}`;
+  const response = await fetch(url, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': GO_CONFIG.token,
+      ...options.headers,
+    },
+  });
   if (!response.ok) {
     const error = await response.text();
-    throw new Error(`Backend Official WhatsApp API Error (${response.status}): ${error}`);
+    throw new Error(`Evolution GO Error (${response.status}): ${error}`);
   }
-
   return response.json();
+}
+
+// Extrai o ID real da mensagem da resposta do whatsmeow ({data:{Info:{ID}}}).
+function goMsgId(res: any): string {
+  return res?.data?.Info?.ID || res?.key?.id || `msg_${Date.now()}`;
 }
 
 export const evolutionGoApi = {
@@ -182,54 +217,167 @@ export const evolutionGoApi = {
   // ─── MESSAGES ────────────────────────────────────────────────────────────────
 
   async sendText(to: string, text: string): Promise<GoSendResponse> {
-    const res = await fetchBackend<any>('/send', {
+    const res = await fetchGo<any>('/send/text', {
       method: 'POST',
-      body: JSON.stringify({
-        to: to,
-        text: text,
-        type: 'text'
-      }),
+      body: JSON.stringify({ number: to, text, delay: 0 }),
     });
-    return { id: res.key?.id || `msg_${Date.now()}`, status: "sent" };
+    return { id: goMsgId(res), status: "sent" };
   },
 
   async sendImage(to: string, url: string, caption?: string): Promise<GoSendResponse> {
-    const res = await fetchBackend<any>('/send', {
+    const res = await fetchGo<any>('/send/media', {
       method: 'POST',
-      body: JSON.stringify({
-        to: to,
-        text: caption || '',
-        type: 'image',
-        mediaUrl: url
-      }),
+      body: JSON.stringify({ number: to, url, type: 'image', caption: caption || '' }),
     });
-    return { id: res.key?.id || `msg_${Date.now()}`, status: "sent" };
+    return { id: goMsgId(res), status: "sent" };
   },
 
   async sendDocument(to: string, url: string, filename: string, caption?: string): Promise<GoSendResponse> {
-    const res = await fetchBackend<any>('/send', {
+    const res = await fetchGo<any>('/send/media', {
       method: 'POST',
-      body: JSON.stringify({
-        to: to,
-        text: caption || filename,
-        type: 'document',
-        mediaUrl: url,
-        filename: filename
-      }),
+      body: JSON.stringify({ number: to, url, type: 'document', filename, caption: caption || '' }),
     });
-    return { id: res.key?.id || `msg_${Date.now()}`, status: "sent" };
+    return { id: goMsgId(res), status: "sent" };
   },
 
   async sendAudio(to: string, url: string): Promise<GoSendResponse> {
-    const res = await fetchBackend<any>('/send', {
+    const res = await fetchGo<any>('/send/media', {
       method: 'POST',
-      body: JSON.stringify({
-        to: to,
-        type: 'audio',
-        mediaUrl: url
-      }),
+      body: JSON.stringify({ number: to, url, type: 'audio' }),
     });
-    return { id: res.key?.id || `msg_${Date.now()}`, status: "sent" };
+    return { id: goMsgId(res), status: "sent" };
+  },
+
+  // Presença ("digitando…"/gravando). state: composing | recording | paused
+  async setPresence(number: string, state: 'composing' | 'recording' | 'paused'): Promise<void> {
+    try {
+      await fetchGo('/message/presence', {
+        method: 'POST',
+        body: JSON.stringify({ number, state, isAudio: state === 'recording' }),
+      });
+    } catch { /* não crítico */ }
+  },
+
+  // Foto de perfil de um contato.
+  async getProfilePic(number: string): Promise<string | null> {
+    try {
+      const res = await fetchGo<any>('/user/avatar', {
+        method: 'POST',
+        body: JSON.stringify({ number, preview: false }),
+      });
+      return res?.data?.URL || res?.data?.url || res?.URL || res?.url || null;
+    } catch {
+      return null;
+    }
+  },
+
+  // Verifica quais números existem no WhatsApp.
+  async checkNumber(numbers: string[]): Promise<Array<{ JID: string; IsInWhatsapp: boolean }>> {
+    try {
+      const res = await fetchGo<any>('/user/check', {
+        method: 'POST',
+        body: JSON.stringify({ number: numbers }),
+      });
+      return res?.data?.Users || [];
+    } catch {
+      return [];
+    }
+  },
+
+  // Status/infra da instância conectada.
+  async getInstanceStatus(): Promise<any> {
+    try {
+      return await fetchGo('/instance/status');
+    } catch {
+      return null;
+    }
+  },
+
+  // ─── Drop-in do Evolution v2 (mesmas assinaturas usadas pela tela) ───────────
+
+  // A lista de conversas da tela vem do Supabase; getChats no v2 é só um sync de
+  // nomes em segundo plano. No GO não há endpoint equivalente → no-op seguro.
+  async getChats(): Promise<unknown[]> {
+    return [];
+  },
+
+  // Infra da instância no formato que a tela espera ({ instance: { owner, ... } }).
+  // Usa /instance/status (autentica com o token da instância). O /instance/all é
+  // endpoint ADMIN e rejeita o token da instância (401). /instance/status não traz
+  // o jid/owner — o avatar da própria instância é cosmético e é apenas pulado.
+  async getInstanceInfo(): Promise<{ instance?: { owner?: string; profilePictureUrl?: string; profileName?: string } }> {
+    try {
+      const st = await fetchGo<any>('/instance/status');
+      return { instance: { owner: undefined, profilePictureUrl: undefined, profileName: st?.data?.Name } };
+    } catch {
+      return { instance: {} };
+    }
+  },
+
+  // No v2 "subscribe" abre o canal de presença do contato. No GO a presença chega
+  // via webhook → não precisa assinar. No-op para manter a interface.
+  async subscribePresence(_remoteJid: string): Promise<void> {
+    return Promise.resolve();
+  },
+
+  // Shim de realtime: em vez do socket.io do Evolution, escuta o realtime do
+  // Supabase na marketing_whatsapp (onde o webhook do GO já grava) e re-emite os
+  // eventos no MESMO formato que a tela consome (messages.upsert / messages.update).
+  connectWebSocket(): FakeSocket {
+    const listeners = new Map<string, Set<(p: unknown) => void>>();
+    const emit = (event: string, payload: unknown) => {
+      listeners.get(event)?.forEach((cb) => { try { cb(payload); } catch { /* ignore */ } });
+    };
+
+    const rowToEvo = (row: any) => ({
+      key: { id: row.message_id, remoteJid: row.remote_jid, fromMe: row.sender === 'me' },
+      pushName: undefined,
+      message: { conversation: row.texto || '' },
+      messageTimestamp: Math.floor(new Date(row.timestamp).getTime() / 1000),
+    });
+    const passaFiltro = (row: any) =>
+      !goRealtimeVendedorId || row?.vendedor_id === goRealtimeVendedorId;
+
+    const channel = supabase
+      .channel(`go_wpp_${Date.now()}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'marketing_whatsapp' }, (p) => {
+        const row = p.new as any;
+        if (!passaFiltro(row)) return;
+        emit('messages.upsert', { data: rowToEvo(row) });
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'marketing_whatsapp' }, (p) => {
+        const row = p.new as any;
+        if (!passaFiltro(row)) return;
+        const status = row.status === 'read' ? 'READ' : row.status === 'delivered' ? 'DELIVERY_ACK' : row.status;
+        emit('messages.update', { data: { keyId: row.message_id, status } });
+      })
+      .subscribe();
+
+    // Canal SEPARADO para presença ("escrevendo…"): o backend retransmite o
+    // CHAT_PRESENCE do GO por broadcast no canal fixo "go-presence". O nome do
+    // canal precisa bater exatamente para o broadcast chegar.
+    const presenceChannel = supabase
+      .channel('go-presence')
+      .on('broadcast', { event: 'presence' }, ({ payload }) => {
+        // payload é o `data` cru do presence.update ({ id, presences: {...} }) —
+        // a tela parseia esse formato nativamente.
+        if (!payload) return;
+        emit('presence.update', { data: payload });
+      })
+      .subscribe();
+
+    return {
+      on: (event, cb) => {
+        if (!listeners.has(event)) listeners.set(event, new Set());
+        listeners.get(event)!.add(cb);
+      },
+      off: (event, cb) => { listeners.get(event)?.delete(cb); },
+      connected: true,
+      disconnect: () => {
+        supabase.removeChannel(channel);
+        supabase.removeChannel(presenceChannel);
+      },
+    };
   },
 
   // ─── CHAT ────────────────────────────────────────────────────────────────────

@@ -37,6 +37,7 @@ import {
   Warehouse,
   PackageCheck,
   ClipboardCheck,
+  Rocket,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -78,6 +79,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "Relatórios Mkt": FileBarChart,
   Marketing: Megaphone,
   "Whatsapp Evolution": Smartphone,
+  "Whatsapp GO": Rocket,
   "Automação": Bot,
   Leads: Users,
   Cronograma: Calendar,
