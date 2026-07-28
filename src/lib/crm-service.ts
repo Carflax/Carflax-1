@@ -109,6 +109,14 @@ export interface CrmConversa {
   // null = sem destinatário resolvido (ex: vendedor ainda sem responsável definido) — a mensagem
   // fica registrada, mas não aparece na caixa de entrada de ninguém.
   destino?: string | null;
+  // ── Auditoria de entrega/leitura (modelo WhatsApp) ──────────────────────────
+  // created_at  = ENVIADA  (servidor recebeu; imutável, default now())
+  // entregue_em = ENTREGUE (chegou no app do destinatário, ele logado)
+  // lida_em     = VISTA    (o balão apareceu de fato na tela dele)
+  created_at?: string | null;
+  entregue_em?: string | null;
+  lida_em?: string | null;
+  escalado_em?: string | null;
 }
 
 // ─── Supabase helpers ────────────────────────────────────────────────────────
@@ -188,6 +196,33 @@ export async function getConversasOcultas(
     if (row.documento) mapa.set(row.documento, row.ocultado_em);
   }
   return mapa;
+}
+
+// Marca ENTREGUE: a mensagem chegou no app deste destinatário (ele está logado).
+// Só grava `entregue_em` uma vez (não sobrescreve). Idempotente por lista de ids.
+export async function marcarEntregue(ids: string[]): Promise<void> {
+  const limpos = [...new Set(ids.filter(Boolean))];
+  if (limpos.length === 0) return;
+  const { error } = await supabase
+    .from("crm_conversas")
+    .update({ entregue_em: new Date().toISOString() })
+    .in("id", limpos)
+    .is("entregue_em", null);
+  if (error) console.error("[CRM] erro ao marcar entregue:", error.message);
+}
+
+// Marca VISTA: o balão apareceu de fato na tela do destinatário. Esta é a ÚNICA
+// forma de uma mensagem virar "lida" — fechar a conversa NÃO marca mais como lida.
+// Grava `lida_em` só uma vez e sincroniza o booleano `lida` (retrocompatibilidade).
+export async function marcarVista(ids: string[]): Promise<void> {
+  const limpos = [...new Set(ids.filter(Boolean))];
+  if (limpos.length === 0) return;
+  const { error } = await supabase
+    .from("crm_conversas")
+    .update({ lida_em: new Date().toISOString(), lida: true })
+    .in("id", limpos)
+    .is("lida_em", null);
+  if (error) console.error("[CRM] erro ao marcar vista:", error.message);
 }
 
 export async function addConversa(conversa: Omit<CrmConversa, "id">): Promise<void> {

@@ -16,7 +16,7 @@ import {
   EmployeeOfMonthCard,
 } from "@/components/dashboard/Geral/RightPanelComponents";
 import { type VendedorResumo, type CrmItem, apiGerarComunicadoRecebimentos } from "@/lib/api";
-import { type CrmConversa } from "@/lib/crm-service";
+import { marcarEntregue, type CrmConversa } from "@/lib/crm-service";
 import { GeralView } from "@/components/dashboard/Geral/GeralView";
 import { LayoutGrid } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -266,22 +266,25 @@ function DashboardContent({
     );
   }, []);
 
-  const markChatRead = useCallback(async (doc: string) => {
+  // Abrir/ter o chat aberto marca a mensagem como ENTREGUE (chegou no meu app), NÃO
+  // como lida. "Lida/Vista" agora só é gravada pelo IntersectionObserver do ChatModal,
+  // quando o balão realmente aparece na tela — impede o "abri, fechei e não vi".
+  const markChatDelivered = useCallback(async (doc: string) => {
     if (!userProfile?.id) return;
     try {
       await supabase
         .from("crm_conversas")
-        .update({ lida: true })
+        .update({ entregue_em: new Date().toISOString() })
         .eq("documento", doc)
-        .eq("lida", false)
+        .is("entregue_em", null)
         .neq("enviado_por", userProfile.id)
         .eq("destino", userProfile.id);
     } catch { /* silently fail */ }
   }, [userProfile?.id]);
 
   useEffect(() => {
-    openChatDocs.forEach((doc) => markChatRead(doc));
-  }, [openChatDocs, markChatRead]);
+    openChatDocs.forEach((doc) => markChatDelivered(doc));
+  }, [openChatDocs, markChatDelivered]);
 
   useEffect(() => {
     localStorage.setItem("carflax-active-chats", JSON.stringify(activeChats));
@@ -640,7 +643,7 @@ function DashboardContent({
         while (true) {
           const { data } = await supabase
             .from("crm_conversas")
-            .select("id, documento, empresa, obs, enviado_por, enviado_por_nome, timestamp, lida, fechada, destino")
+            .select("id, documento, empresa, obs, enviado_por, enviado_por_nome, timestamp, lida, fechada, destino, created_at, entregue_em, lida_em")
             .or(orConditions.join(","))
             .order("timestamp", { ascending: false })
             .range(page * pageSize, (page + 1) * pageSize - 1);
@@ -651,6 +654,16 @@ function DashboardContent({
         }
 
         if (!allMsgs || allMsgs.length === 0) return;
+
+        // ENTREGUE: ao entrar (mesmo que estivesse com o HUB fechado), tudo que é
+        // endereçado a mim e ainda não tinha sido entregue passa a constar como
+        // entregue agora. Não marca "vista" — isso só acontece com o balão na tela.
+        const idsParaEntregar = allMsgs
+          .filter((m) => m.destino === myId && m.enviado_por !== myId && !m.entregue_em && m.id)
+          .map((m) => m.id as string);
+        if (idsParaEntregar.length > 0) {
+          marcarEntregue(idsParaEntregar).catch(() => {});
+        }
 
         // Agrupa por documento
         const byDoc: Record<string, CrmConversa[]> = {};
@@ -918,6 +931,11 @@ function DashboardContent({
           const isForMe = newMsg.destino === myId;
 
           if (isForMe) {
+            // ENTREGUE: chegou no meu app em tempo real (estou logado).
+            if (newMsg.id && !newMsg.entregue_em) {
+              marcarEntregue([newMsg.id]).catch(() => {});
+            }
+
             const isSystem =
               newMsg.enviado_por_nome?.toUpperCase() === "SISTEMA";
 
@@ -1072,7 +1090,7 @@ function DashboardContent({
       try {
         const { data } = await supabase
           .from("crm_conversas")
-          .select("id, documento, empresa, obs, enviado_por, enviado_por_nome, timestamp, lida, fechada, destino")
+          .select("id, documento, empresa, obs, enviado_por, enviado_por_nome, timestamp, lida, fechada, destino, created_at, entregue_em, lida_em")
           .gt("timestamp", lastSeenTimestamp)
           .or(`destino.eq.${myId},destino.eq.todos`)
           .neq("enviado_por", myId)
@@ -1095,7 +1113,7 @@ function DashboardContent({
         try {
           const { data } = await supabase
             .from("crm_conversas")
-            .select("id, documento, empresa, obs, enviado_por, enviado_por_nome, timestamp, lida, fechada, destino")
+            .select("id, documento, empresa, obs, enviado_por, enviado_por_nome, timestamp, lida, fechada, destino, created_at, entregue_em, lida_em")
             .gt("timestamp", lastSeenTimestamp)
             .or(`destino.eq.${myId},destino.eq.todos`)
             .neq("enviado_por", myId)
@@ -1484,23 +1502,14 @@ function DashboardContent({
 
           if (userProfile?.id) {
             // Oculta na central deste usuário (persiste entre dispositivos, sem
-            // afetar os outros participantes) e marca como lidas.
+            // afetar os outros participantes). NÃO marca como lida — fechar/ocultar
+            // não é o mesmo que ler. "Vista" só é gravada quando o balão aparece na
+            // tela (IntersectionObserver do ChatModal).
             try {
               const { ocultarConversas } = await import("@/lib/crm-service");
               await ocultarConversas(userProfile.id, [doc]);
             } catch (err) {
               console.error("[ChatCenter] Falha ao ocultar conversa no banco:", err);
-            }
-            try {
-              await supabase
-                .from("crm_conversas")
-                .update({ lida: true })
-                .eq("documento", doc)
-                .eq("lida", false)
-                .neq("enviado_por", userProfile.id)
-                .eq("destino", userProfile.id);
-            } catch (err) {
-              console.error("[ChatCenter] Falha ao marcar lidas no fechamento da lista:", err);
             }
           }
         }}

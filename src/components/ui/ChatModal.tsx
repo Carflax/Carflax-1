@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   X,
   Send,
@@ -15,7 +15,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { cn, formatBrTime } from "@/lib/utils";
-import { getConversas, addConversa, getResponsavelIdForVendedor, type CrmConversa } from "@/lib/crm-service";
+import { getConversas, addConversa, getResponsavelIdForVendedor, marcarVista, type CrmConversa } from "@/lib/crm-service";
 import { supabase } from "@/lib/supabase";
 import { apiCrmOrcamentos, mapCrmItem, type CrmItem } from "@/lib/api";
 
@@ -334,10 +334,25 @@ export function ChatModal({
       });
     };
 
+    // Atualiza os "ticks" (entregue/vista) ao vivo quando a outra parte recebe/lê.
+    const handleMsgUpdate = (upd: CrmConversa) => {
+      const msgDoc = (upd.documento || "").replace("#", "").trim();
+      if (msgDoc !== cleanDoc) return;
+      setConversas((prev) =>
+        prev.map((m) =>
+          m.id === upd.id
+            ? { ...m, lida: upd.lida, lida_em: upd.lida_em, entregue_em: upd.entregue_em }
+            : m
+        )
+      );
+    };
+
     let chatChannel = supabase
       .channel(`chat_room_${cleanDoc}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'crm_conversas' },
         (payload) => handleNewMsg(payload.new as CrmConversa))
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'crm_conversas' },
+        (payload) => handleMsgUpdate(payload.new as CrmConversa))
       .subscribe((status) => {
         console.log(`[Chat] Realtime ${cleanDoc} status:`, status);
         if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
@@ -608,6 +623,73 @@ export function ChatModal({
     [conversas]
   );
 
+  // ── VISTA: só marca "lida" quando o balão fica ~1s de fato na tela ────────────
+  // Substitui o antigo "marcar tudo lido ao fechar" (que permitia o vendedor abrir,
+  // fechar e depois alegar que não viu). Agora `lida`/`lida_em` só gravam via este
+  // observer, quando a mensagem endereçada a mim aparece visível na tela.
+  const observerRef = useRef<IntersectionObserver | null>(null);
+  const dwellTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const vistaEnviadaRef = useRef<Set<string>>(new Set());
+  const pendingElsRef = useRef<Set<HTMLDivElement>>(new Set());
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const dwellTimers = dwellTimersRef.current;
+    const marcar = (id: string) => {
+      if (vistaEnviadaRef.current.has(id)) return;
+      vistaEnviadaRef.current.add(id);
+      setConversas((prev) =>
+        prev.map((m) =>
+          m.id === id ? { ...m, lida: true, lida_em: m.lida_em || new Date().toISOString() } : m
+        )
+      );
+      marcarVista([id]).catch(() => {});
+    };
+    const obs = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const el = entry.target as HTMLElement;
+          const id = el.dataset.msgId;
+          if (!id) continue;
+          if (entry.isIntersecting) {
+            if (!dwellTimers.has(id)) {
+              const t = setTimeout(() => {
+                marcar(id);
+                obs.unobserve(el);
+                dwellTimers.delete(id);
+              }, 1000);
+              dwellTimers.set(id, t);
+            }
+          } else {
+            const t = dwellTimers.get(id);
+            if (t) { clearTimeout(t); dwellTimers.delete(id); }
+          }
+        }
+      },
+      { threshold: 0.6 }
+    );
+    observerRef.current = obs;
+    // Observa balões que já montaram antes do observer existir (corrida no 1º render).
+    pendingElsRef.current.forEach((el) => obs.observe(el));
+    return () => {
+      obs.disconnect();
+      dwellTimers.forEach((t) => clearTimeout(t));
+      dwellTimers.clear();
+      observerRef.current = null;
+    };
+  }, [isOpen]);
+
+  // Reseta a trava de "já marquei vista" ao trocar de conversa.
+  useEffect(() => {
+    vistaEnviadaRef.current = new Set();
+  }, [documento]);
+
+  const observeBubble = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return;
+    pendingElsRef.current.add(el);
+    if (observerRef.current) observerRef.current.observe(el);
+  }, []);
+
   if (!isOpen) return null;
 
   const handleToggleItems = async () => {
@@ -726,6 +808,29 @@ export function ChatModal({
     } catch {
       return "";
     }
+  };
+
+  const formatFull = (ts?: string | null) => {
+    if (!ts) return "";
+    try {
+      return new Date(ts).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+    } catch {
+      return "";
+    }
+  };
+
+  // Status de entrega/leitura das mensagens que EU enviei (ticks estilo WhatsApp).
+  const deliveryStatus = (msg: CrmConversa) => {
+    const vista = !!msg.lida_em || !!msg.lida;
+    const entregue = !!msg.entregue_em;
+    const tooltip = [
+      `Enviada: ${formatFull(msg.created_at || msg.timestamp) || "—"}`,
+      `Entregue: ${msg.entregue_em ? formatFull(msg.entregue_em) : "—"}`,
+      `Vista: ${msg.lida_em ? formatFull(msg.lida_em) : (msg.lida ? "sim" : "—")}`,
+    ].join("\n");
+    if (vista) return { label: `✓✓ Vista${msg.lida_em ? " " + formatTime(msg.lida_em) : ""}`, cls: "text-emerald-500", tooltip };
+    if (entregue) return { label: "✓✓ Entregue", cls: "text-muted-foreground", tooltip };
+    return { label: "✓ Enviada", cls: "text-muted-foreground/70", tooltip };
   };
 
   const formatDateSeparator = (ts?: string) => {
@@ -1043,21 +1148,9 @@ export function ChatModal({
 
   const handleClose = async () => {
     if (isForced) return;
-    const unreadIds = conversas
-      .filter(m => !m.lida && m.destino === userProfile?.id)
-      .map(m => m.id)
-      .filter(Boolean);
-
-    if (unreadIds.length > 0) {
-      // Executa a atualização no banco em background sem travar a interface
-      supabase
-        .from("crm_conversas")
-        .update({ lida: true })
-        .in("id", unreadIds)
-        .then(({ error }) => {
-          if (error) console.error("[Chat] Falha ao marcar como lidas:", error);
-        });
-    }
+    // IMPORTANTE: fechar NÃO marca mais como lida. "Lida/Vista" agora só é gravada
+    // pelo IntersectionObserver, quando o balão realmente apareceu na tela — assim
+    // não dá para abrir, fechar e depois alegar que não recebeu/viu.
     onClose();
   };
 
@@ -1240,8 +1333,15 @@ export function ChatModal({
                               })()}
                             </span>
                           )}
-                          <div className={cn(
-                            "rounded-2xl max-w-full shadow-xl leading-relaxed transition-all", 
+                          <div
+                            ref={
+                              !isMe(msg) && msg.destino === userProfile?.id && !msg.lida_em && msg.id && !String(msg.id).startsWith("tmp-")
+                                ? observeBubble
+                                : undefined
+                            }
+                            data-msg-id={msg.id}
+                            className={cn(
+                            "rounded-2xl max-w-full shadow-xl leading-relaxed transition-all",
                             isMaximized ? "p-4 text-[15px] font-bold" : "p-3.5 text-[13px] font-semibold",
                             isMe(msg) ? "bg-blue-600 text-white rounded-tr-none" : "bg-secondary/80 text-foreground/90 rounded-tl-none border border-border/40"
                           )}>
@@ -1249,7 +1349,10 @@ export function ChatModal({
                           </div>
                           <div className={cn("flex items-center gap-2", isMe(msg) ? "mr-1" : "ml-1")}>
                             <span className="text-[9px] font-black text-muted-foreground uppercase opacity-50">{formatTime(msg.timestamp)}</span>
-                            {isMe(msg) && <span className={cn("text-[9px] font-black uppercase", msg.lida ? "text-emerald-500" : "text-muted-foreground")}>{msg.lida ? "✓ Lida" : "✓✓"}</span>}
+                            {isMe(msg) && (() => {
+                              const s = deliveryStatus(msg);
+                              return <span title={s.tooltip} className={cn("text-[9px] font-black uppercase", s.cls)}>{s.label}</span>;
+                            })()}
                           </div>
                         </div>
                       );
