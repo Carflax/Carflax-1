@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { QRCodeCanvas } from "qrcode.react";
-import { Star, Download, Check, Trophy, ScanLine, Loader2, Plus, Trash2, X, Settings, Ticket, History, Gift, ImagePlus } from "lucide-react";
+import { Star, Download, Check, Trophy, ScanLine, Loader2, Plus, Trash2, X, Settings, Ticket, History, Gift, ImagePlus, Copy } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   type VendedorScore, type CanalScore, type AvaliacaoScan,
@@ -22,6 +22,38 @@ function baixarQR(wrap: HTMLElement | null, nome: string) {
   a.href = canvas.toDataURL("image/png");
   a.download = `qr-avaliacao-${slug(nome)}.png`;
   a.click();
+}
+
+// Botão de copiar o link da avaliação (com feedback "Copiado"). Usa a Clipboard API
+// e cai num fallback via <textarea> quando ela não está disponível (http/permissão).
+function CopyLinkButton({ url }: { url: string }) {
+  const [copied, setCopied] = useState(false);
+  const copiar = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      const ta = document.createElement("textarea");
+      ta.value = url;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); } catch { /* ignore */ }
+      document.body.removeChild(ta);
+    }
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+  return (
+    <button
+      onClick={copiar}
+      title="Copiar link da avaliação"
+      className="px-3 py-1.5 rounded-lg border border-border text-[9px] font-black uppercase tracking-widest text-muted-foreground hover:border-blue-500 hover:text-blue-600 transition-all flex items-center gap-1.5"
+    >
+      {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+      {copied ? "Copiado" : "Copiar link"}
+    </button>
+  );
 }
 
 // Card do vendedor: QR (baixável) + nº de avaliações (scans).
@@ -48,12 +80,15 @@ function VendedorCard({ score, baseUrl, rank, onHistorico }: { score: VendedorSc
         <QRCodeCanvas value={url} size={132} level="M" includeMargin={false} />
       </div>
 
-      <button
-        onClick={() => baixarQR(wrapRef.current, score.vendedor_nome)}
-        className="mt-3 px-3 py-1.5 rounded-lg border border-border text-[9px] font-black uppercase tracking-widest text-muted-foreground hover:border-blue-500 hover:text-blue-600 transition-all flex items-center gap-1.5"
-      >
-        <Download className="w-3 h-3" /> Baixar QR
-      </button>
+      <div className="flex items-center gap-2 mt-3">
+        <button
+          onClick={() => baixarQR(wrapRef.current, score.vendedor_nome)}
+          className="px-3 py-1.5 rounded-lg border border-border text-[9px] font-black uppercase tracking-widest text-muted-foreground hover:border-blue-500 hover:text-blue-600 transition-all flex items-center gap-1.5"
+        >
+          <Download className="w-3 h-3" /> Baixar QR
+        </button>
+        <CopyLinkButton url={url} />
+      </div>
 
       <div className="w-full mt-4 pt-4 border-t border-border/50">
         <p className="text-2xl font-black text-blue-600 dark:text-blue-400 tracking-tighter leading-none">{score.scans}</p>
@@ -82,12 +117,15 @@ function CanalCard({ canal, baseUrl, onRemove }: { canal: CanalScore; baseUrl: s
         <QRCodeCanvas value={url} size={132} level="M" includeMargin={false} />
       </div>
 
-      <button
-        onClick={() => baixarQR(wrapRef.current, canal.nome)}
-        className="mt-3 px-3 py-1.5 rounded-lg border border-border text-[9px] font-black uppercase tracking-widest text-muted-foreground hover:border-blue-500 hover:text-blue-600 transition-all flex items-center gap-1.5"
-      >
-        <Download className="w-3 h-3" /> Baixar QR
-      </button>
+      <div className="flex items-center gap-2 mt-3">
+        <button
+          onClick={() => baixarQR(wrapRef.current, canal.nome)}
+          className="px-3 py-1.5 rounded-lg border border-border text-[9px] font-black uppercase tracking-widest text-muted-foreground hover:border-blue-500 hover:text-blue-600 transition-all flex items-center gap-1.5"
+        >
+          <Download className="w-3 h-3" /> Baixar QR
+        </button>
+        <CopyLinkButton url={url} />
+      </div>
 
       <div className="w-full mt-4 pt-4 border-t border-border/50">
         <p className="text-2xl font-black text-blue-600 dark:text-blue-400 tracking-tighter leading-none">{canal.scans}</p>
