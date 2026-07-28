@@ -298,7 +298,7 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
 
     // Permissões específicas do departamento de MARKETING
     const isMarketingDept = userProfile?.department?.toUpperCase() === 'MARKETING';
-    const marketingItems = ["Marketing", "Whatsapp Evolution", "Leads", "Blog Marketing", "Blog Cards", "Cronograma", "Eventos Marketing", "Avaliações", "Relatórios Mkt"];
+    const marketingItems = ["Marketing", "Whatsapp Evolution", "Whatsapp GO", "Leads", "Blog Marketing", "Blog Cards", "Cronograma", "Eventos Marketing", "Avaliações", "Relatórios Mkt"];
     if (isMarketingDept && marketingItems.includes(label)) return true;
 
     // Permissões específicas do departamento de VENDAS/COMERCIAL
@@ -498,6 +498,12 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
                                 <img 
                                   src="https://meta-q.cdn.bubble.io/f1735656025985x589899456761148800/evolution-logo.png" 
                                   alt="Evolution Logo" 
+                                  className="w-3.5 h-3.5 object-contain shrink-0" 
+                                />
+                              ) : (sub.value || sub.label) === "Whatsapp GO" ? (
+                                <img 
+                                  src="/go.png" 
+                                  alt="WhatsApp GO Logo" 
                                   className="w-3.5 h-3.5 object-contain shrink-0" 
                                 />
                               ) : (

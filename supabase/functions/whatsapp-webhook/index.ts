@@ -40,6 +40,46 @@ Deno.serve(async (req: Request) => {
     }
 
     const raw = payload.data ?? payload;
+
+    // ── MESSAGES.UPDATE (ACK / delivery / read) ──────────────────────────────
+    // O Evolution GO envia eventos de status com event = "messages.update".
+    // Formato: { event, data: [{ keyId, status, remoteJid }] }
+    //      ou: { event, data: { key: { id }, update: { status } } }
+    const event = payload.event as string | undefined;
+    if (event === 'messages.update' || event === 'MESSAGES_UPDATE') {
+      const items: Record<string, unknown>[] = Array.isArray(raw) ? raw : [raw];
+      for (const item of items) {
+        // Formato plano: { keyId, status }
+        const flatId = item.keyId as string | undefined;
+        const nestedKey = item.key as Record<string, unknown> | undefined;
+        const nestedUpdate = item.update as Record<string, unknown> | undefined;
+        const msgId = flatId || (nestedKey?.id as string | undefined);
+        const rawStatus = (item.status ?? nestedUpdate?.status) as string | number | undefined;
+
+        if (!msgId || rawStatus === undefined || rawStatus === null) continue;
+
+        let newStatus: string | undefined;
+        if (rawStatus === 2 || rawStatus === 'DELIVERY_ACK') newStatus = 'delivered';
+        if (rawStatus === 3 || rawStatus === 'READ' || rawStatus === 4 || rawStatus === 'PLAYED') newStatus = 'read';
+        // status 1 = SERVER_ACK (enviado ao servidor) — mapeamos como "sent"
+        if (rawStatus === 1 || rawStatus === 'SERVER_ACK') newStatus = 'sent';
+
+        if (!newStatus) continue;
+
+        try {
+          await supabase
+            .from('marketing_whatsapp')
+            .update({ status: newStatus })
+            .eq('message_id', msgId);
+        } catch (e) {
+          console.error('Erro ao atualizar status da mensagem:', e);
+        }
+      }
+      return new Response(JSON.stringify({ ok: true, event: 'messages.update' }), {
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
     const messages: Record<string, unknown>[] = Array.isArray(raw) ? raw : [raw];
 
     for (const msg of messages) {
