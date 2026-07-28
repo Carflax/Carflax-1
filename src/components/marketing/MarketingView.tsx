@@ -60,7 +60,7 @@ export function MarketingView({ activeTab, userProfile }: MarketingViewProps) {
   }
 
   if (activeTab === "Avaliações") {
-    return <AvaliacoesView />;
+    return <AvaliacoesView userProfile={userProfile} />;
   }
 
   if (activeTab === "Pós-Venda") {

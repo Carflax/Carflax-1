@@ -6,8 +6,14 @@ import {
   type VendedorScore, type CanalScore, type AvaliacaoScan,
   fetchVendedoresCampanha, fetchScoreboard, fetchCanaisScore,
   getPremioSorteio, setPremioSorteio,
-  getPremioImagem, setPremioImagem, criarCanal, removerCanal, fetchScansVendedor,
+  getPremioImagem, setPremioImagem, criarCanal, removerCanal, fetchScansVendedor, removerScan,
 } from "@/lib/avaliacoes";
+
+interface UserProfile {
+  id?: string;
+  name: string;
+  role: string;
+}
 import { uploadImage } from "@/lib/uploadImage";
 
 // slug do nome do arquivo do QR
@@ -136,15 +142,30 @@ function CanalCard({ canal, baseUrl, onRemove }: { canal: CanalScore; baseUrl: s
 }
 
 // Histórico de avaliações (scans) de um vendedor.
-function HistoricoModal({ cod, nome, onClose }: { cod: string; nome: string; onClose: () => void }) {
+function HistoricoModal({ cod, nome, podeExcluir, onChanged, onClose }: { cod: string; nome: string; podeExcluir: boolean; onChanged: () => void; onClose: () => void }) {
   const [scans, setScans] = useState<AvaliacaoScan[]>([]);
   const [loading, setLoading] = useState(true);
+  const [excluindo, setExcluindo] = useState<string | null>(null);
 
   useEffect(() => {
     fetchScansVendedor(cod).then(setScans).catch(() => setScans([])).finally(() => setLoading(false));
   }, [cod]);
 
   const fmt = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
+
+  const excluir = async (s: AvaliacaoScan) => {
+    if (!confirm(`Excluir esta avaliação de "${s.cliente_nome || "Cliente não identificado"}"? Essa ação não pode ser desfeita.`)) return;
+    setExcluindo(s.id);
+    try {
+      await removerScan(s.id);
+      setScans(prev => prev.filter(x => x.id !== s.id));
+      onChanged(); // atualiza a contagem no card do vendedor
+    } catch (e) {
+      alert("Falha ao excluir: " + (e instanceof Error ? e.message : String(e)));
+    } finally {
+      setExcluindo(null);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
@@ -173,7 +194,19 @@ function HistoricoModal({ cod, nome, onClose }: { cod: string; nome: string; onC
                     <p className="text-xs font-black text-foreground truncate">{s.cliente_nome || "Cliente não identificado"}</p>
                     {s.cliente_telefone && <p className="text-[10px] font-bold text-muted-foreground">{s.cliente_telefone}</p>}
                   </div>
-                  <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest shrink-0">{fmt(s.created_at)}</span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">{fmt(s.created_at)}</span>
+                    {podeExcluir && (
+                      <button
+                        onClick={() => excluir(s)}
+                        disabled={excluindo === s.id}
+                        title="Excluir avaliação"
+                        className="p-1.5 rounded-md border border-border text-muted-foreground hover:border-rose-500 hover:text-rose-500 transition-colors disabled:opacity-40"
+                      >
+                        {excluindo === s.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -184,7 +217,9 @@ function HistoricoModal({ cod, nome, onClose }: { cod: string; nome: string; onC
   );
 }
 
-export function AvaliacoesView() {
+export function AvaliacoesView({ userProfile }: { userProfile?: UserProfile | null }) {
+  // Exclusão de avaliação é restrita ao Danilo Oliveira.
+  const podeExcluir = (userProfile?.name || "").trim().toLowerCase() === "danilo oliveira";
   const [scores, setScores] = useState<VendedorScore[]>([]);
   const [canais, setCanais] = useState<CanalScore[]>([]);
   const [loading, setLoading] = useState(true);
@@ -498,7 +533,13 @@ export function AvaliacoesView() {
       )}
 
       {historico && (
-        <HistoricoModal cod={historico.cod} nome={historico.nome} onClose={() => setHistorico(null)} />
+        <HistoricoModal
+          cod={historico.cod}
+          nome={historico.nome}
+          podeExcluir={podeExcluir}
+          onChanged={carregar}
+          onClose={() => setHistorico(null)}
+        />
       )}
     </div>
   );

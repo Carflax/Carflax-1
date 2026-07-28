@@ -8,8 +8,8 @@ import {
 // Página pública (sem login) aberta por QR. Duas origens:
 //   /avaliar?vendedor=COD  → atendimento de um vendedor (mostra nome)
 //   /avaliar?canal=ID      → canal avulso, ex. cupom da NF
-// O cliente informa nome/telefone (para o sorteio) e vai ao Google. Os campos
-// são opcionais — não condicionamos a avaliação ao cadastro (política do Google).
+// O cliente PRECISA informar nome e telefone (para o sorteio e captação do lead)
+// antes de ir ao Google — o botão fica travado até preencher os dois campos.
 export function AvaliarPublicView() {
   const [vendedorNome, setVendedorNome] = useState<string | null>(null);
   const [reviewUrl, setReviewUrl] = useState("");
@@ -71,7 +71,14 @@ export function AvaliarPublicView() {
     })();
   }, [cod, canalId]);
 
+  // Require: nome (>=2 letras) e telefone (>=10 dígitos) obrigatórios para avançar.
+  const telDigits = telefone.replace(/\D/g, "");
+  const nomeOk = nome.trim().length >= 2;
+  const telOk = telDigits.length >= 10;
+  const formOk = nomeOk && telOk;
+
   const irParaGoogle = async () => {
+    if (!formOk) return;
     setIndo(true);
     // Enriquece o MESMO scan com os dados do cliente (não cria outro).
     if (scanIdRef.current && (nome.trim() || telefone.trim())) {
@@ -111,7 +118,7 @@ export function AvaliarPublicView() {
                 Atendimento de <span className="text-white">{vendedorNome}</span>
               </p>
             )}
-            <p className="text-[11px] font-bold text-blue-300/80 mb-4">Preencha para concorrer ao sorteio 🎁</p>
+            <p className="text-[11px] font-bold text-blue-300/80 mb-4">Preencha seus dados para avaliar e concorrer ao sorteio 🎁</p>
 
             {premio && (
               <div className="flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl p-3 mb-6 text-left">
@@ -127,7 +134,7 @@ export function AvaliarPublicView() {
 
             <div className="space-y-3 text-left mb-6">
               <div>
-                <label className="text-[9px] font-black text-white/40 uppercase tracking-widest block mb-1 ml-1">Seu nome</label>
+                <label className="text-[9px] font-black text-white/40 uppercase tracking-widest block mb-1 ml-1">Seu nome <span className="text-rose-400">*</span></label>
                 <input
                   value={nome}
                   onChange={(e) => setNome(e.target.value)}
@@ -136,7 +143,7 @@ export function AvaliarPublicView() {
                 />
               </div>
               <div>
-                <label className="text-[9px] font-black text-white/40 uppercase tracking-widest block mb-1 ml-1">Telefone / WhatsApp</label>
+                <label className="text-[9px] font-black text-white/40 uppercase tracking-widest block mb-1 ml-1">Telefone / WhatsApp <span className="text-rose-400">*</span></label>
                 <input
                   value={telefone}
                   onChange={handleTelefone}
@@ -149,15 +156,21 @@ export function AvaliarPublicView() {
 
             <button
               onClick={irParaGoogle}
-              disabled={indo}
-              className="w-full py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-black uppercase tracking-widest transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+              disabled={indo || !formOk}
+              className="w-full py-3.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-black uppercase tracking-widest transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {indo ? <Loader2 className="w-4 h-4 animate-spin" /> : <Star className="w-4 h-4 fill-current" />}
               Avaliar no Google
             </button>
-            <p className="text-[9px] font-bold text-white/30 mt-4 leading-relaxed">
-              Você será levado à página de avaliações do Google. Leva menos de um minuto. 💙
-            </p>
+            {!formOk ? (
+              <p className="text-[10px] font-bold text-amber-300/80 mt-3 leading-relaxed">
+                Preencha seu nome e telefone para liberar a avaliação.
+              </p>
+            ) : (
+              <p className="text-[9px] font-bold text-white/30 mt-4 leading-relaxed">
+                Você será levado à página de avaliações do Google. Leva menos de um minuto. 💙
+              </p>
+            )}
           </>
         )}
       </div>

@@ -122,6 +122,15 @@ export async function fetchScansVendedor(cod: string): Promise<AvaliacaoScan[]> 
   return (data || []) as AvaliacaoScan[];
 }
 
+// Exclui um scan (avaliação) do histórico. Se ele estava casado a uma review,
+// solta o vínculo na review antes (mantém a review, evita ponteiro órfão).
+export async function removerScan(id: string): Promise<void> {
+  await supabase.from("avaliacao_reviews")
+    .update({ scan_id: null }).eq("scan_id", id);
+  const { error } = await supabase.from("avaliacao_scans").delete().eq("id", id);
+  if (error) throw error;
+}
+
 export async function resolverCanal(id: string): Promise<{ nome: string | null }> {
   const { data } = await supabase
     .from("avaliacao_canais").select("nome").eq("id", id).maybeSingle();
