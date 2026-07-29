@@ -37,7 +37,6 @@ import {
   Warehouse,
   PackageCheck,
   ClipboardCheck,
-  Rocket,
   MessageCircle,
   type LucideIcon,
 } from "lucide-react";
@@ -79,8 +78,6 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Relatórios: FileBarChart,
   "Relatórios Mkt": FileBarChart,
   Marketing: Megaphone,
-  "Whatsapp Evolution": Smartphone,
-  "Whatsapp GO": Rocket,
   "Whatsapp API": MessageCircle,
   "Automação": Bot,
   Leads: Users,
@@ -300,7 +297,7 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
 
     // Permissões específicas do departamento de MARKETING
     const isMarketingDept = userProfile?.department?.toUpperCase() === 'MARKETING';
-    const marketingItems = ["Marketing", "Whatsapp Evolution", "Whatsapp GO", "Whatsapp API", "Leads", "Blog Marketing", "Blog Cards", "Cronograma", "Eventos Marketing", "Avaliações", "Relatórios Mkt"];
+    const marketingItems = ["Marketing", "Whatsapp API", "Leads", "Blog Marketing", "Blog Cards", "Cronograma", "Eventos Marketing", "Avaliações", "Relatórios Mkt"];
     if (isMarketingDept && marketingItems.includes(label)) return true;
 
     // Permissões específicas do departamento de VENDAS/COMERCIAL
@@ -496,19 +493,7 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
                                   : "text-muted-foreground hover:text-foreground hover:bg-secondary/50 dark:hover:bg-slate-800/50 dark:hover:text-slate-200",
                               )}
                             >
-                              {(sub.value || sub.label) === "Whatsapp Evolution" ? (
-                                <img 
-                                  src="https://meta-q.cdn.bubble.io/f1735656025985x589899456761148800/evolution-logo.png" 
-                                  alt="Evolution Logo" 
-                                  className="w-3.5 h-3.5 object-contain shrink-0" 
-                                />
-                              ) : (sub.value || sub.label) === "Whatsapp GO" ? (
-                                <img
-                                  src="/go.png"
-                                  alt="WhatsApp GO Logo"
-                                  className="w-3.5 h-3.5 object-contain shrink-0"
-                                />
-                              ) : (sub.value || sub.label) === "Whatsapp API" ? (
+                              {(sub.value || sub.label) === "Whatsapp API" ? (
                                 <svg
                                   viewBox="0 0 24 24"
                                   className="w-3.5 h-3.5 shrink-0"

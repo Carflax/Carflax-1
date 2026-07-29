@@ -10,9 +10,16 @@
  */
 
 import { supabase } from "./supabase";
-import { whatsappOfficialService } from "./whatsapp-official-service";
 import { marketingService } from "./marketing-service";
 import { API_BASE } from "./api";
+import { evolutionGoApi } from "./evolution-go";
+import { evolutionApi } from "./evolution-v2";
+
+// Identidade do número oficial (público, não é segredo). Usado só no cabeçalho da
+// tela. Evita consultar a tabela `whatsapp_official_config` (que não existe) — o
+// token/credenciais reais ficam no backend (env), nunca no frontend.
+const OFFICIAL_NUMBER = "+55 11 98966-9122";
+const OFFICIAL_NAME = "Carflax Hidráulica E Elétrica";
 
 interface FakeSocket {
   on: (event: string, cb: (payload: unknown) => void) => void;
@@ -41,22 +48,42 @@ async function sendOfficial(
 export const whatsappOfficialApi = {
   // Info do número oficial (a tela usa `instance.owner` como identificação).
   async getInstanceInfo(): Promise<{ instance?: { owner?: string; profilePictureUrl?: string; profileName?: string } }> {
-    try {
-      const cfg = await whatsappOfficialService.getConfig();
-      return {
-        instance: {
-          owner: cfg?.phone_number || undefined,
-          profilePictureUrl: undefined,
-          profileName: cfg?.business_name,
-        },
-      };
-    } catch {
-      return { instance: {} };
-    }
+    return {
+      instance: {
+        owner: OFFICIAL_NUMBER,
+        profilePictureUrl: undefined,
+        profileName: OFFICIAL_NAME,
+      },
+    };
   },
 
-  // A Cloud API não expõe foto de perfil de contatos por uma chamada simples.
-  async getProfilePic(): Promise<string | null> {
+  // A Meta Cloud API oficial não fornece a foto de perfil de contatos por privacidade.
+  // Como fallback, buscamos primeiro no Supabase (marketing_clientes) e, se não houver,
+  // consultamos a Evolution API / Evolution GO (caso configuradas).
+  async getProfilePic(remoteJid: string): Promise<string | null> {
+    if (!remoteJid) return null;
+    try {
+      // 1. Tenta buscar foto salva previamente no banco de dados
+      const { data } = await supabase
+        .from("marketing_clientes")
+        .select("foto_url")
+        .eq("remote_jid", remoteJid)
+        .maybeSingle();
+
+      if (data?.foto_url) {
+        return data.foto_url;
+      }
+
+      // 2. Fallback: consulta Evolution GO
+      const goPic = await evolutionGoApi.getProfilePic(remoteJid).catch(() => null);
+      if (goPic) return goPic;
+
+      // 3. Fallback: consulta Evolution v2
+      const v2Pic = await evolutionApi.getProfilePic(remoteJid).catch(() => null);
+      if (v2Pic) return v2Pic;
+    } catch {
+      /* silencia erros */
+    }
     return null;
   },
 
@@ -71,8 +98,21 @@ export const whatsappOfficialApi = {
     return Promise.resolve();
   },
 
-  async sendText(to: string, text: string): Promise<{ key?: { id?: string } }> {
-    const res = await sendOfficial({ to, text, type: "text" });
+  // quoted (opcional) = mensagem sendo respondida, no formato { key: { id } } que a
+  // tela monta. Vira `context.message_id` na Cloud API (o balãozinho de resposta).
+  async sendText(
+    to: string,
+    text: string,
+    quoted?: { key?: { id?: string } },
+  ): Promise<{ key?: { id?: string } }> {
+    const contextMessageId = quoted?.key?.id;
+    const res = await sendOfficial({ to, text, type: "text", ...(contextMessageId ? { contextMessageId } : {}) });
+    return { key: res?.key };
+  },
+
+  // Reação (like/emoji) a uma mensagem. emoji "" remove a reação.
+  async sendReaction(to: string, messageId: string, emoji: string): Promise<{ key?: { id?: string } }> {
+    const res = await sendOfficial({ to, type: "reaction", messageId, emoji });
     return { key: res?.key };
   },
 
@@ -86,26 +126,33 @@ export const whatsappOfficialApi = {
     mimeType?: string,
     fileName?: string,
     caption?: string,
+    quoted?: { key?: { id?: string } },
   ): Promise<{ key?: { id?: string } }> {
-    const isImage = (mimeType || "").startsWith("image/");
-    const isAudio = (mimeType || "").startsWith("audio/");
-    const type = isImage ? "image" : isAudio ? "audio" : "document";
+    const mt = mimeType || "";
+    // .webp entra como FIGURINHA (sticker); demais imagens como image.
+    const isSticker = mt === "image/webp";
+    const isImage = !isSticker && mt.startsWith("image/");
+    const isAudio = mt.startsWith("audio/");
+    const type = isSticker ? "sticker" : isImage ? "image" : isAudio ? "audio" : "document";
 
     let mediaUrl = media;
     if (media && !/^https?:\/\//i.test(media)) {
-      const ext = (fileName?.split(".").pop() || (mimeType || "").split("/")[1] || "bin").split(";")[0];
+      const ext = (fileName?.split(".").pop() || mt.split("/")[1] || "bin").split(";")[0];
       const filename = `official_${Date.now()}.${ext}`;
       const uploaded = await marketingService.uploadMedia(media, mimeType || "application/octet-stream", filename);
       if (!uploaded) throw new Error("Falha ao subir a mídia para envio pela API Oficial.");
       mediaUrl = uploaded;
     }
 
+    const contextMessageId = quoted?.key?.id;
     const res = await sendOfficial({
       to,
       type,
       mediaUrl,
       filename: fileName,
-      text: caption || "",
+      // Sticker não aceita legenda na Cloud API.
+      text: isSticker ? "" : caption || "",
+      ...(contextMessageId ? { contextMessageId } : {}),
     });
     return { key: res?.key };
   },

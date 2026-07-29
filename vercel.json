@@ -2,8 +2,9 @@
   "rewrites": [
     { "source": "/api-marketing/(.*)", "destination": "https://marketing-carflax.velbav.easypanel.host/$1" },
     { "source": "/api-campaign/(.*)", "destination": "https://marketing-gestao-de-tempo.velbav.easypanel.host/$1" },
+    { "source": "/shopify-api/(.*)", "destination": "https://gfpdzv-y0.myshopify.com/$1" },
     { "source": "/api/pix/(.*)", "destination": "/api/pix/$1" },
     { "source": "/api/(.*)", "destination": "/api/$1" },
-    { "source": "/((?!api-marketing|api-campaign|api/).*)", "destination": "/index.html" }
+    { "source": "/((?!api-marketing|api-campaign|shopify-api|api/).*)", "destination": "/index.html" }
   ]
 }

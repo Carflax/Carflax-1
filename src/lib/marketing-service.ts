@@ -649,6 +649,14 @@ export const marketingService = {
       .eq("message_id", messageId);
   },
 
+  // Reação (like/emoji) de uma mensagem. String vazia limpa a reação.
+  async updateMessageReaction(messageId: string, reacao: string) {
+    await supabase
+      .from("marketing_whatsapp")
+      .update({ reacao: reacao || null })
+      .eq("message_id", messageId);
+  },
+
   async updateMessageLinkPreview(messageId: string, linkPreview: MarketingMessage["link_preview"]) {
     await supabase
       .from("marketing_whatsapp")

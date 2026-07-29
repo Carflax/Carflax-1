@@ -52,8 +52,6 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Marketing",
     permGroup: "MARKETING",
     subItems: [
-      { label: "Whatsapp", value: "Whatsapp Evolution" },
-      { label: "Whatsapp GO", value: "Whatsapp GO" },
       { label: "Whatsapp API", value: "Whatsapp API" },
       { label: "Automação" },
       { label: "Leads" },
@@ -175,7 +173,7 @@ const VENDEDOR_SECTIONS = [
 ];
 
 const MARKETING_SECTIONS = [
-  "Marketing", "Whatsapp Evolution", "Whatsapp GO", "Whatsapp API", "Automação", "Leads", "Blog Marketing", "Criativo", "Cronograma", "Eventos Marketing", "Avaliações", "Pós-Venda", "Relatórios Mkt",
+  "Marketing", "Whatsapp API", "Automação", "Leads", "Blog Marketing", "Criativo", "Cronograma", "Eventos Marketing", "Avaliações", "Pós-Venda", "Relatórios Mkt",
 ];
 
 const VENDAS_SECTIONS = [

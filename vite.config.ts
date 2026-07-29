@@ -42,6 +42,11 @@ export default defineConfig({
         secure: true,
         ws: true,
         rewrite: (path) => path.replace(/^\/supabase/, '')
+      },
+      '/shopify-api': {
+        target: 'https://gfpdzv-y0.myshopify.com',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/shopify-api/, '')
       }
     }
   }

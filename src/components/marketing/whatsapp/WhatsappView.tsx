@@ -45,6 +45,7 @@ import { marketingService } from "@/lib/marketing-service";
 import { cn, formatBrTime, formatBrDate } from "@/lib/utils";
 import { apiDashboardProdutos, apiGetLinkPreview, apiCrmOrcamentos } from "@/lib/api";
 import { transcribeAudio, classifyByRules } from "@/lib/gemini-service";
+import { getShopifyPhotoMap } from "@/lib/shopify-sync";
 import { Package } from "lucide-react";
 import { useNotification } from "@/hooks/useNotification";
 
@@ -57,6 +58,7 @@ interface NormalizedProduct {
   credito: number;
   disponivel: number;
   quantidade?: number;
+  foto_url?: string;
 }
 
 const BRAND_COLORS = [
@@ -975,6 +977,9 @@ export interface WhatsappApi {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   sendDocument(jid: string, ...args: any[]): Promise<{ key?: { id?: string } }>;
   subscribePresence(jid: string): Promise<void>;
+  // Opcional: reagir (like/emoji) a uma mensagem. Só a API Oficial implementa hoje;
+  // quando ausente, a UI de reação não é exibida.
+  sendReaction?(jid: string, messageId: string, emoji: string): Promise<{ key?: { id?: string } }>;
 }
 
 export function WhatsappView({
@@ -1210,7 +1215,7 @@ export function WhatsappView({
         });
       }
     });
-  }, []);
+  }, [api]);
 
   const fetchAvatar = useCallback(async (remoteJid: string, force = false) => {
     // Se já tentamos buscar (mesmo que tenha vindo vazio), não tenta de novo nesta sessão
@@ -1238,7 +1243,7 @@ export function WhatsappView({
       // Silencia erros de busca de foto
     }
     return "";
-  }, []);
+  }, [api]);
 
   const CHATS_PAGE = 50;
 
@@ -1364,7 +1369,7 @@ export function WhatsappView({
       console.error("Erro ao carregar chats:", error);
       setLoading(false);
     }
-  }, []);
+  }, [api]);
 
   const mapClienteToChat = useCallback(
     (item: import("@/lib/marketing-service").MarketingCliente): Chat => {
@@ -2436,7 +2441,7 @@ export function WhatsappView({
       currentTimers.forEach((t) => clearTimeout(t));
       currentTimers.clear();
     };
-  }, [fetchAvatar, vendedorId]);
+  }, [api, fetchAvatar, vendedorId]);
 
   // Realtime: escuta inserções e edições de mensagens salvas no Supabase (inclui notas internas).
   // Filtra server-side pelo chat ABERTO — sem isso o Supabase transmitia toda mensagem de
@@ -2455,19 +2460,37 @@ export function WhatsappView({
             message_id?: string;
             texto?: string;
             editado?: boolean;
+            status?: string;
+            reacao?: string;
           };
-          if (updated.message_id) {
-            setMessages((prev) =>
-              prev.map((m) => {
-                if (m.id !== updated.message_id) return m;
-                return {
-                  ...m,
-                  ...(updated.texto ? { text: updated.texto } : {}),
-                  ...(updated.editado !== undefined
-                    ? { editado: updated.editado }
-                    : {}),
-                };
-              }),
+          if (!updated.message_id) return;
+          // Só "sobe" o status (enviado → entregue → lido); nunca regride.
+          const rank: Record<string, number> = { sent: 1, delivered: 2, read: 3 };
+          setMessages((prev) =>
+            prev.map((m) => {
+              if (m.id !== updated.message_id) return m;
+              const next = { ...m };
+              if (updated.texto) next.text = updated.texto;
+              if (updated.editado !== undefined) next.editado = updated.editado;
+              if (updated.reacao !== undefined) next.reacao = updated.reacao || undefined;
+              const s = updated.status;
+              if (
+                (s === "sent" || s === "delivered" || s === "read") &&
+                (rank[s] || 0) > (rank[m.status] || 0)
+              ) {
+                next.status = s;
+              }
+              return next;
+            }),
+          );
+          // Reflete o status na lista lateral (última msg minha do chat aberto).
+          if (updated.status === "delivered" || updated.status === "read") {
+            setChats((prev) =>
+              prev.map((c) =>
+                c.id === selectedChatRef.current?.id && c.lastMessageSender === "me"
+                  ? { ...c, lastMessageStatus: updated.status as "delivered" | "read" }
+                  : c,
+              ),
             );
           }
         },
@@ -2750,6 +2773,27 @@ export function WhatsappView({
     setPendingFile(file);
   };
 
+  // Reagir (like/emoji) a uma mensagem — só quando o provider suporta (API Oficial).
+  const handleSendReaction = async (msg: Message, emoji: string) => {
+    if (!selectedChat || !api.sendReaction || !msg.id) return;
+    // Alterna: reagir com o mesmo emoji remove a reação (envia emoji vazio).
+    const novoEmoji = msg.reacao === emoji ? "" : emoji;
+    // Otimista na tela.
+    setMessages((prev) =>
+      prev.map((m) => (m.id === msg.id ? { ...m, reacao: novoEmoji || undefined } : m)),
+    );
+    try {
+      await api.sendReaction(selectedChat.id, msg.id, novoEmoji);
+      marketingService.updateMessageReaction?.(msg.id, novoEmoji);
+    } catch (error) {
+      console.error("Erro ao reagir à mensagem:", error);
+      // Reverte em caso de falha.
+      setMessages((prev) =>
+        prev.map((m) => (m.id === msg.id ? { ...m, reacao: msg.reacao } : m)),
+      );
+    }
+  };
+
   const confirmSendFile = async () => {
     if (!pendingFile || !selectedChat) return;
 
@@ -2922,6 +2966,13 @@ export function WhatsappView({
         const debito = preco;
         const credito = preco * 1.0466;
 
+        const raw = p as unknown as Record<string, unknown>;
+        const fotoUrl =
+          (typeof raw.FOTO_URL === "string" ? raw.FOTO_URL : undefined) ||
+          (typeof raw.IMAGEM_URL === "string" ? raw.IMAGEM_URL : undefined) ||
+          (typeof raw.foto_url === "string" ? raw.foto_url : undefined) ||
+          (typeof raw.imagem_url === "string" ? raw.imagem_url : undefined);
+
         return {
           cod: p.COD_ITEM,
           descricao: p.DESCRICAO,
@@ -2930,8 +2981,51 @@ export function WhatsappView({
           preco,
           debito,
           credito,
+          foto_url: fotoUrl,
         };
       });
+
+      // Tenta enriquecer com fotos da Shopify em tempo real por SKU
+      try {
+        const shopifyMap = await getShopifyPhotoMap().catch(() => null);
+        if (shopifyMap && shopifyMap.size > 0) {
+          normalized.forEach((prod) => {
+            if (!prod.foto_url) {
+              const rawCod = String(prod.cod).trim();
+              const cleanCod = rawCod.replace(/^0+/, "");
+              const paddedCod = rawCod.padStart(5, "0");
+              const foundImg =
+                shopifyMap.get(rawCod) ||
+                shopifyMap.get(cleanCod) ||
+                shopifyMap.get(paddedCod);
+              if (foundImg) {
+                prod.foto_url = foundImg;
+              }
+            }
+          });
+        }
+      } catch {
+        /* ignora se falhar consulta da Shopify */
+      }
+
+      // Tenta enriquecer com fotos da tabela do Supabase (se existir)
+      try {
+        const { data: fotosData } = await supabase.from("produtos_fotos").select("cod_item, foto_url");
+        if (fotosData && fotosData.length > 0) {
+          const fotoMap = new Map<string, string>();
+          (fotosData as Array<{ cod_item?: string; foto_url?: string }>).forEach((f) => {
+            if (f.cod_item && f.foto_url) fotoMap.set(String(f.cod_item), f.foto_url);
+          });
+          normalized.forEach((prod) => {
+            if (!prod.foto_url && fotoMap.has(prod.cod)) {
+              prod.foto_url = fotoMap.get(prod.cod);
+            }
+          });
+        }
+      } catch {
+        /* ignora se tabela não existir */
+      }
+
       setAllProducts(normalized);
       productsLoadedRef.current = true;
     } catch (error) {
@@ -3335,7 +3429,7 @@ export function WhatsappView({
     } finally {
       setLoadingMessages(false);
     }
-  }, []);
+  }, [api]);
 
   const loadMoreMessages = useCallback(async () => {
     if (!selectedChat || loadingMoreMessages || !hasMoreMessages) return;
@@ -5117,13 +5211,32 @@ export function WhatsappView({
                               )}
                             </div>
                             {!isSticker && (
-                              <button
-                                onClick={() => setReplyingMessage(msg)}
-                                className="opacity-0 group-hover/msg-row:opacity-100 p-1.5 hover:bg-secondary rounded-lg transition-all duration-200 text-muted-foreground hover:text-foreground shrink-0 animate-in zoom-in duration-200"
-                                title="Responder esta mensagem"
-                              >
-                                <CornerUpLeft className="w-4 h-4" />
-                              </button>
+                              <div className="flex items-center gap-1 opacity-0 group-hover/msg-row:opacity-100 transition-all duration-200 shrink-0 animate-in zoom-in">
+                                {api.sendReaction && (
+                                  <div className="flex items-center gap-0.5 bg-card border border-border rounded-full px-1.5 py-1 shadow-md">
+                                    {["👍", "❤️", "😂", "😮", "😢", "🙏"].map((e) => (
+                                      <button
+                                        key={e}
+                                        onClick={() => handleSendReaction(msg, e)}
+                                        className={cn(
+                                          "text-sm leading-none hover:scale-125 transition-transform px-0.5",
+                                          msg.reacao === e && "scale-125",
+                                        )}
+                                        title={`Reagir ${e}`}
+                                      >
+                                        {e}
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                                <button
+                                  onClick={() => setReplyingMessage(msg)}
+                                  className="p-1.5 hover:bg-secondary rounded-lg transition-all duration-200 text-muted-foreground hover:text-foreground"
+                                  title="Responder esta mensagem"
+                                >
+                                  <CornerUpLeft className="w-4 h-4" />
+                                </button>
+                              </div>
                             )}
                           </div>
 
@@ -5259,9 +5372,13 @@ export function WhatsappView({
                                         gradient,
                                       )}
                                     >
-                                      <span className="text-white font-black text-xs leading-none">
-                                        {initials}
-                                      </span>
+                                      {p.foto_url ? (
+                                        <img src={p.foto_url} alt={p.descricao} className="w-full h-full object-cover" />
+                                      ) : (
+                                        <span className="text-white font-black text-xs leading-none">
+                                          {initials}
+                                        </span>
+                                      )}
                                       <div className="absolute inset-0 bg-primary/20 backdrop-blur-[1px] flex items-center justify-center">
                                         <Check className="w-4 h-4 text-white drop-shadow" />
                                       </div>
@@ -5368,11 +5485,14 @@ export function WhatsappView({
                                     ? "border-l-4 border-l-amber-500 bg-amber-500/5"
                                     : "border-l-4 border-l-emerald-500 bg-emerald-500/5";
                               return (
-                                <button
+                                <div
                                   key={p.cod}
+                                  role="button"
+                                  tabIndex={0}
                                   onClick={() => handleToggleCart(p)}
+                                  onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && handleToggleCart(p)}
                                   className={cn(
-                                    "w-full flex items-center gap-3 px-3 py-2.5 text-left transition-all group",
+                                    "w-full flex items-center gap-3 px-3 py-2.5 text-left transition-all group cursor-pointer",
                                     inCart ? "bg-primary/8" : stockColor,
                                   )}
                                 >
@@ -5383,13 +5503,19 @@ export function WhatsappView({
                                       gradient,
                                     )}
                                   >
-                                    <span className="text-white font-black text-base leading-none tracking-tight">
-                                      {initials}
-                                    </span>
-                                    {p.marca && (
-                                      <span className="text-white/60 text-[7px] font-bold uppercase tracking-wider mt-0.5 px-1 text-center leading-tight truncate w-full text-center">
-                                        {p.marca}
-                                      </span>
+                                    {p.foto_url ? (
+                                      <img src={p.foto_url} alt={p.descricao} className="w-full h-full object-cover" />
+                                    ) : (
+                                      <>
+                                        <span className="text-white font-black text-base leading-none tracking-tight">
+                                          {initials}
+                                        </span>
+                                        {p.marca && (
+                                          <span className="text-white/60 text-[7px] font-bold uppercase tracking-wider mt-0.5 px-1 text-center leading-tight truncate w-full text-center">
+                                            {p.marca}
+                                          </span>
+                                        )}
+                                      </>
                                     )}
                                     {inCart && (
                                       <div className="absolute inset-0 bg-primary/30 backdrop-blur-[1px] flex items-center justify-center">
@@ -5515,7 +5641,7 @@ export function WhatsappView({
                                       )}
                                     </button>
                                   </div>
-                                </button>
+                                </div>
                               );
                             })}
                           </div>

@@ -48,7 +48,6 @@ import { useBalcao2PrazoAlert } from "@/hooks/useBalcao2PrazoAlert";
 import { useVendaGrandeAlert } from "@/hooks/useVendaGrandeAlert";
 import { useRetiradaAlert, startAlertSound, stopAlertSound } from "@/hooks/useRetiradaAlert";
 import { BellRing } from "lucide-react";
-import { evolutionApi } from "@/lib/evolution-v2";
 import { SorteioRealtimeModal } from "@/components/ui/SorteioRealtimeModal";
 import { RankingCopaView } from "@/components/crm/campanhas/RankingCopaView";
 import { PrivacyPolicyView } from "@/components/public/PrivacyPolicyView";
@@ -407,8 +406,8 @@ function DashboardContent({
 
   // Só quem tem acesso ao WhatsApp no HUB recebe as notificações globais dele.
   // Sem isso, qualquer usuário logado (com permissão de notificação no navegador)
-  // recebia push das mensagens do Evolution mesmo sem ter o WhatsApp liberado.
-  const podeReceberWhatsapp = canAccessSection(userProfile, "Whatsapp Evolution");
+  // recebia push das mensagens mesmo sem ter o WhatsApp liberado.
+  const podeReceberWhatsapp = canAccessSection(userProfile, "Whatsapp API");
 
   useEffect(() => {
     if (!userProfile?.id) return;
@@ -418,53 +417,43 @@ function DashboardContent({
       Notification.requestPermission();
     }
 
-    const socket = evolutionApi.connectWebSocket();
-    const instanceName = import.meta.env.VITE_EVO_INSTANCE as string;
+    // Notificação global das mensagens da API Oficial: escuta o realtime do
+    // Supabase (marketing_whatsapp, onde o webhook oficial grava as recebidas).
+    // Substitui o antigo socket do Evolution v2 (descontinuado).
+    const channel = supabase
+      .channel(`global_wpp_notif_${userProfile.id}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "marketing_whatsapp" },
+        (payload) => {
+          const row = payload.new as {
+            remote_jid?: string;
+            texto?: string;
+            sender?: string;
+          };
+          // Só mensagens RECEBIDAS (do contato), nunca as que a gente enviou.
+          if (!row || row.sender !== "contact") return;
+          // Já está na tela do WhatsApp → não precisa notificar.
+          if (activeItemRef.current === "Whatsapp API") return;
+          if (Notification.permission !== "granted") return;
 
-    const handleGlobalMessage = (data: Record<string, unknown>) => {
-      if (activeItemRef.current === "Marketing") return;
-      if (data.instance && data.instance !== instanceName) return;
-
-      const raw = data.data ?? data;
-      const messages = Array.isArray(raw) ? raw : [raw];
-
-      for (const msg of messages as Array<Record<string, unknown>>) {
-        const key = msg.key as Record<string, unknown> | undefined;
-        if (!key || key.fromMe) continue;
-        if (!String(key.remoteJid ?? "").endsWith('@s.whatsapp.net')) continue;
-
-        const senderName = String(msg.pushName || String(key.remoteJid ?? "").split('@')[0]);
-        const msgContent = msg.message as Record<string, unknown> | undefined;
-        const text = String(
-          msgContent?.conversation ||
-          (msgContent?.extendedTextMessage as Record<string, unknown> | undefined)?.text ||
-          "Nova mensagem"
-        );
-
-        if (Notification.permission === "granted") {
-          const notif = new Notification(`💬 ${senderName}`, {
-            body: text,
+          const remoteJid = row.remote_jid || "";
+          const numero = remoteJid.split("@")[0] || "Contato";
+          const notif = new Notification(`💬 ${numero}`, {
+            body: row.texto || "Nova mensagem",
             icon: "/favicon.png",
-            tag: `wpp-global-${String(key.remoteJid)}`,
+            tag: `wpp-global-${remoteJid}`,
           });
           notif.onclick = () => {
             window.focus();
-            window.dispatchEvent(new CustomEvent("carflax-change-tab", { detail: "Marketing" }));
+            window.dispatchEvent(new CustomEvent("carflax-change-tab", { detail: "Whatsapp API" }));
           };
-        }
-      }
-    };
-
-    socket.on('messages.upsert', handleGlobalMessage);
-    socket.on('MESSAGES_UPSERT', handleGlobalMessage);
-    socket.on('message', handleGlobalMessage);
-    socket.on('message-received', handleGlobalMessage);
+        },
+      )
+      .subscribe();
 
     return () => {
-      socket.off('messages.upsert', handleGlobalMessage);
-      socket.off('MESSAGES_UPSERT', handleGlobalMessage);
-      socket.off('message', handleGlobalMessage);
-      socket.off('message-received', handleGlobalMessage);
+      supabase.removeChannel(channel);
     };
   }, [userProfile?.id, podeReceberWhatsapp]);
 
@@ -1269,8 +1258,6 @@ function DashboardContent({
   ].includes(activeItem);
   const isMarketingView = [
     "Marketing",
-    "Whatsapp Evolution",
-    "Whatsapp GO",
     "Whatsapp API",
     "Automação",
     "Blog Marketing",
