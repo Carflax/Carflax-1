@@ -1,6 +1,7 @@
 import { Megaphone, Calendar } from "lucide-react";
 import { WhatsappView } from "./whatsapp/WhatsappView";
 import { WhatsappGoView } from "./whatsapp/WhatsappGoView";
+import { WhatsappApiView } from "./whatsapp/WhatsappApiView";
 import { AutomacaoView } from "./automacao/AutomacaoView";
 import { ClientesView } from "./ClientesView";
 import { LeadsView } from "./LeadsView";
@@ -33,6 +34,10 @@ export function MarketingView({ activeTab, userProfile }: MarketingViewProps) {
 
   if (activeTab === "Whatsapp GO") {
     return <WhatsappGoView userProfile={userProfile} />;
+  }
+
+  if (activeTab === "Whatsapp API") {
+    return <WhatsappApiView userProfile={userProfile} />;
   }
 
   if (activeTab === "Automação") {

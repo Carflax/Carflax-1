@@ -1271,6 +1271,7 @@ function DashboardContent({
     "Marketing",
     "Whatsapp Evolution",
     "Whatsapp GO",
+    "Whatsapp API",
     "Automação",
     "Blog Marketing",
     "Blog Cards",

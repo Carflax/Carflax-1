@@ -15,6 +15,9 @@ import {
   ArrowDownRight,
   AlertTriangle,
   Tag,
+  FileText,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { apiCrmOrcamentos, apiCrmFaturamento, type FaturamentoResumo } from "@/lib/api";
@@ -59,18 +62,72 @@ interface RelatoriosViewProps {
   userProfile?: UserProfile;
 }
 
-type TabId = "overview" | "losses_stock" | "losses_price" | "sellers" | "clients";
+type TabId = "overview" | "losses_stock" | "losses_price" | "losses_orders" | "sellers" | "clients";
 
 const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: "overview", label: "Visão Geral", icon: Target },
   { id: "losses_stock", label: "Perdas por Estoque", icon: PackageX },
   { id: "losses_price", label: "Perdas por Preço", icon: Tag },
+  { id: "losses_orders", label: "Perdas por Orçamento", icon: FileText },
   { id: "sellers", label: "Desempenho de Vendedores", icon: Award },
-  { id: "clients", label: "Clientes & Ocorrências", icon: Users },
+  { id: "clients", label: "Perdas por Clientes", icon: Users },
 ];
 
 const formatCurrency = (val: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(val || 0);
+
+const PAGE_SIZE = 8;
+
+/** Rodapé de paginação reutilizável. Some quando há uma página ou menos. */
+function Pagination({
+  page,
+  total,
+  onChange,
+  label = "registros",
+}: {
+  page: number;
+  total: number;
+  onChange: (p: number) => void;
+  label?: string;
+}) {
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  if (total <= PAGE_SIZE) return null;
+
+  const from = (safePage - 1) * PAGE_SIZE + 1;
+  const to = Math.min(safePage * PAGE_SIZE, total);
+
+  return (
+    <div className="flex items-center justify-between gap-3 px-3.5 py-3 border-t border-border bg-secondary/40">
+      <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+        {from}–{to} de {total} {label}
+      </span>
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          onClick={() => onChange(safePage - 1)}
+          disabled={safePage <= 1}
+          className="w-7 h-7 rounded-lg flex items-center justify-center bg-secondary text-foreground disabled:opacity-30 disabled:cursor-not-allowed hover:bg-secondary/70 transition-colors"
+          aria-label="Página anterior"
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+        <span className="text-[10px] font-black text-foreground tabular-nums px-1">
+          {safePage} / {totalPages}
+        </span>
+        <button
+          type="button"
+          onClick={() => onChange(safePage + 1)}
+          disabled={safePage >= totalPages}
+          className="w-7 h-7 rounded-lg flex items-center justify-center bg-secondary text-foreground disabled:opacity-30 disabled:cursor-not-allowed hover:bg-secondary/70 transition-colors"
+          aria-label="Próxima página"
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export function RelatoriosView({
   orcamentos: propsOrcamentos = [],
@@ -81,6 +138,13 @@ export function RelatoriosView({
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [searchTerm, setSearchTerm] = useState("");
+
+  // Paginação (uma página por tabela)
+  const [pageEstoque, setPageEstoque] = useState(1);
+  const [pagePrecoItens, setPagePrecoItens] = useState(1);
+  const [pagePreco, setPagePreco] = useState(1);
+  const [pageVend, setPageVend] = useState(1);
+  const [pageCli, setPageCli] = useState(1);
 
   // Dates: Default to start of current month until today
   const [startDate, setStartDate] = useState<Date>(() => {
@@ -366,6 +430,52 @@ export function RelatoriosView({
     [perdasPorPreco]
   );
 
+  // ─── Itens perdidos por preço (ranking de produtos) ──────────────────────────
+  const perdasPorPrecoItens = useMemo(() => {
+    const ranking: Record<
+      string,
+      { cod: string; nome: string; total: number; qtd: number; orcamentos: number }
+    > = {};
+
+    perdasPorPreco.forEach((o) => {
+      (o.items || []).forEach((item: OrcamentoItem) => {
+        const cod = String(item.COD_PRODUTO || item.cod || "S/C");
+        const nome = String(item.PRODUTO || item.nome || "PRODUTO NÃO IDENTIFICADO");
+        const valor = parseFloat(
+          String(
+            item.VALOR_TOTAL ||
+              item.total ||
+              Number(item.QUANTIDADE || 0) * Number(item.PRECO_UNITARIO || 0) ||
+              0
+          )
+        );
+        const qtd = Number(item.QUANTIDADE || item.qtd || 1);
+
+        if (!ranking[cod]) {
+          ranking[cod] = { cod, nome, total: 0, qtd: 0, orcamentos: 0 };
+        }
+        ranking[cod].total += valor;
+        ranking[cod].qtd += qtd;
+        ranking[cod].orcamentos += 1;
+      });
+    });
+
+    return Object.values(ranking).sort((a, b) => b.total - a.total);
+  }, [perdasPorPreco]);
+
+  const perdasPorPrecoItensFiltradas = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return perdasPorPrecoItens;
+    return perdasPorPrecoItens.filter(
+      (p) => p.cod.toLowerCase().includes(q) || p.nome.toLowerCase().includes(q)
+    );
+  }, [perdasPorPrecoItens, searchTerm]);
+
+  const totalPerdaItensPrecoValor = useMemo(
+    () => perdasPorPrecoItens.reduce((acc, curr) => acc + (curr.total || 0), 0),
+    [perdasPorPrecoItens]
+  );
+
   // ─── Métricas por Vendedor ───────────────────────────────────────────────────
   const metricasVendedores = useMemo(() => {
     const map: Record<
@@ -517,6 +627,37 @@ export function RelatoriosView({
     return metricasClientes.filter((c) => c.nome.toLowerCase().includes(q));
   }, [metricasClientes, searchTerm]);
 
+  // Reset das páginas quando a busca ou a aba muda
+  useEffect(() => {
+    setPageEstoque(1);
+    setPagePrecoItens(1);
+    setPagePreco(1);
+    setPageVend(1);
+    setPageCli(1);
+  }, [searchTerm, activeTab]);
+
+  // Recortes paginados
+  const estoquePaginadas = useMemo(
+    () => perdasPorEstoqueFiltradas.slice((pageEstoque - 1) * PAGE_SIZE, pageEstoque * PAGE_SIZE),
+    [perdasPorEstoqueFiltradas, pageEstoque]
+  );
+  const precoItensPaginados = useMemo(
+    () => perdasPorPrecoItensFiltradas.slice((pagePrecoItens - 1) * PAGE_SIZE, pagePrecoItens * PAGE_SIZE),
+    [perdasPorPrecoItensFiltradas, pagePrecoItens]
+  );
+  const precoPaginadas = useMemo(
+    () => perdasPorPrecoFiltradas.slice((pagePreco - 1) * PAGE_SIZE, pagePreco * PAGE_SIZE),
+    [perdasPorPrecoFiltradas, pagePreco]
+  );
+  const vendedoresPaginados = useMemo(
+    () => vendedoresFiltrados.slice((pageVend - 1) * PAGE_SIZE, pageVend * PAGE_SIZE),
+    [vendedoresFiltrados, pageVend]
+  );
+  const clientesPaginados = useMemo(
+    () => clientesFiltrados.slice((pageCli - 1) * PAGE_SIZE, pageCli * PAGE_SIZE),
+    [clientesFiltrados, pageCli]
+  );
+
   // Funil Comercial (Orçamentos -> Abertos -> Ganhos)
   const funnelData = [
     {
@@ -592,6 +733,17 @@ export function RelatoriosView({
     const wsPerdasPreco = XLSX.utils.json_to_sheet(wsPerdasPrecoData);
     XLSX.utils.book_append_sheet(wb, wsPerdasPreco, "Perdas Preço");
 
+    // 3b. Itens perdidos por preço (ranking de produtos)
+    const wsItensPrecoData = perdasPorPrecoItens.map((p) => ({
+      Código: p.cod,
+      Produto: p.nome,
+      "Qtd Perdida": p.qtd,
+      "Ocorrências em Orçamentos": p.orcamentos,
+      "Valor Perdido Total (R$)": p.total,
+    }));
+    const wsItensPreco = XLSX.utils.json_to_sheet(wsItensPrecoData);
+    XLSX.utils.book_append_sheet(wb, wsItensPreco, "Itens Perdidos Preço");
+
     // 4. Vendedores
     const wsVendData = metricasVendedores.map((v) => ({
       Vendedor: v.nome,
@@ -631,7 +783,7 @@ export function RelatoriosView({
 
   return (
     <div className="w-full h-full min-h-0 flex flex-col bg-background">
-      <div className="max-w-6xl w-full mx-auto flex flex-col min-h-0 flex-1 px-6 md:px-8 pt-6">
+      <div className="w-full flex flex-col min-h-0 flex-1 px-6 md:px-8 pt-6">
         {/* Header Superior */}
         <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between shrink-0 px-1">
           <div>
@@ -972,11 +1124,13 @@ export function RelatoriosView({
                             </td>
                           </tr>
                         ) : (
-                          perdasPorEstoqueFiltradas.map((p, idx) => (
+                          estoquePaginadas.map((p, idx) => {
+                            const rank = (pageEstoque - 1) * PAGE_SIZE + idx;
+                            return (
                             <tr key={p.cod} className="hover:bg-secondary/20 transition-colors">
                               <td className="p-3.5 pl-4">
-                                <span className={cn("w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black", idx < 3 ? "bg-amber-500/15 text-amber-500 border border-amber-500/20" : "bg-secondary text-muted-foreground")}>
-                                  {idx + 1}
+                                <span className={cn("w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black", rank < 3 ? "bg-amber-500/15 text-amber-500 border border-amber-500/20" : "bg-secondary text-muted-foreground")}>
+                                  {rank + 1}
                                 </span>
                               </td>
                               <td className="p-3.5">
@@ -995,10 +1149,11 @@ export function RelatoriosView({
                                 <span className="text-sm font-black text-amber-500 tabular-nums">{formatCurrency(p.total)}</span>
                               </td>
                             </tr>
-                          ))
+                          );})
                         )}
                       </tbody>
                     </table>
+                    <Pagination page={pageEstoque} total={perdasPorEstoqueFiltradas.length} onChange={setPageEstoque} label="produtos" />
                   </div>
                 </div>
               )}
@@ -1012,12 +1167,92 @@ export function RelatoriosView({
                       <input
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
-                        placeholder="Buscar por número do orçamento, cliente, vendedor ou motivo..."
+                        placeholder="Buscar por produto ou código..."
                         className="w-full h-10 pl-9 pr-4 bg-secondary/40 border border-border rounded-xl text-xs font-bold text-foreground outline-none focus:border-primary/50 transition-all placeholder:text-muted-foreground/50"
                       />
                     </div>
                     <span className="px-3 py-2 bg-purple-500/10 border border-purple-500/20 text-purple-500 rounded-xl text-[10px] font-black uppercase tracking-wider">
-                      Total Preço (Valor Orçamentos): {formatCurrency(totalPerdaPrecoValor)}
+                      Total Itens Perdidos: {formatCurrency(totalPerdaItensPrecoValor)}
+                    </span>
+                  </div>
+
+                  {/* Ranking de ITENS perdidos por preço */}
+                  <div className="flex flex-col gap-2">
+                    <div className="rounded-2xl border border-border overflow-hidden bg-card/30">
+                      <table className="w-full text-left">
+                        <thead className="bg-secondary/60 border-b border-border sticky top-0 backdrop-blur-md z-10">
+                          <tr>
+                            <th className="p-3.5 pl-4 text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em]">#</th>
+                            <th className="p-3.5 text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em]">Código / Produto</th>
+                            <th className="p-3.5 text-center text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em]">Qtd Perdida</th>
+                            <th className="p-3.5 text-center text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em]">Orçamentos Afetados</th>
+                            <th className="p-3.5 pr-4 text-right text-[9px] font-black text-muted-foreground uppercase tracking-[0.2em]">Valor Total Perdido</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border/50">
+                          {perdasPorPrecoItensFiltradas.length === 0 ? (
+                            <tr>
+                              <td colSpan={5} className="p-10 text-center">
+                                <div className="flex flex-col items-center gap-2 opacity-50">
+                                  <Tag className="w-7 h-7 text-muted-foreground" />
+                                  <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground italic">
+                                    Nenhum item perdido por preço no período
+                                  </span>
+                                </div>
+                              </td>
+                            </tr>
+                          ) : (
+                            precoItensPaginados.map((p, idx) => {
+                              const rank = (pagePrecoItens - 1) * PAGE_SIZE + idx;
+                              return (
+                              <tr key={p.cod} className="hover:bg-secondary/20 transition-colors">
+                                <td className="p-3.5 pl-4">
+                                  <span className={cn("w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black", rank < 3 ? "bg-purple-500/15 text-purple-500 border border-purple-500/20" : "bg-secondary text-muted-foreground")}>
+                                    {rank + 1}
+                                  </span>
+                                </td>
+                                <td className="p-3.5">
+                                  <div className="flex flex-col">
+                                    <span className="text-xs font-black text-blue-500">CÓD: {p.cod}</span>
+                                    <span className="text-[10px] font-bold text-foreground uppercase truncate max-w-[360px]">{p.nome}</span>
+                                  </div>
+                                </td>
+                                <td className="p-3.5 text-center">
+                                  <span className="px-2.5 py-1 rounded-lg bg-secondary text-foreground text-xs font-black">{p.qtd} un</span>
+                                </td>
+                                <td className="p-3.5 text-center">
+                                  <span className="text-xs font-bold text-muted-foreground">{p.orcamentos} {p.orcamentos === 1 ? "orçamento" : "orçamentos"}</span>
+                                </td>
+                                <td className="p-3.5 pr-4 text-right">
+                                  <span className="text-sm font-black text-purple-500 tabular-nums">{formatCurrency(p.total)}</span>
+                                </td>
+                              </tr>
+                            );})
+                          )}
+                        </tbody>
+                      </table>
+                      <Pagination page={pagePrecoItens} total={perdasPorPrecoItensFiltradas.length} onChange={setPagePrecoItens} label="itens" />
+                    </div>
+                  </div>
+
+                </div>
+              )}
+
+              {/* TAB: PERDAS POR ORÇAMENTO */}
+              {activeTab === "losses_orders" && (
+                <div className="flex flex-col gap-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="relative flex-1 min-w-[240px]">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                      <input
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        placeholder="Buscar por orçamento, cliente, vendedor ou motivo..."
+                        className="w-full h-10 pl-9 pr-4 bg-secondary/40 border border-border rounded-xl text-xs font-bold text-foreground outline-none focus:border-primary/50 transition-all placeholder:text-muted-foreground/50"
+                      />
+                    </div>
+                    <span className="px-3 py-2 bg-purple-500/10 border border-purple-500/20 text-purple-500 rounded-xl text-[10px] font-black uppercase tracking-wider">
+                      Total (Valor Orçamentos): {formatCurrency(totalPerdaPrecoValor)}
                     </span>
                   </div>
 
@@ -1038,20 +1273,22 @@ export function RelatoriosView({
                           <tr>
                             <td colSpan={6} className="p-16 text-center">
                               <div className="flex flex-col items-center gap-2 opacity-50">
-                                <Tag className="w-8 h-8 text-muted-foreground" />
+                                <FileText className="w-8 h-8 text-muted-foreground" />
                                 <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground italic">
-                                  Nenhuma perda por preço registrada no período
+                                  Nenhuma perda por orçamento registrada no período
                                 </span>
                               </div>
                             </td>
                           </tr>
                         ) : (
-                          perdasPorPrecoFiltradas.map((o, idx) => (
+                          precoPaginadas.map((o, idx) => {
+                            const rank = (pagePreco - 1) * PAGE_SIZE + idx;
+                            return (
                             <tr key={o.id} className="hover:bg-secondary/20 transition-colors">
                               <td className="p-3.5 pl-4">
                                 <div className="flex items-center gap-2">
-                                  <span className={cn("w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0", idx < 3 ? "bg-purple-500/15 text-purple-500 border border-purple-500/20" : "bg-secondary text-muted-foreground")}>
-                                    {idx + 1}
+                                  <span className={cn("w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0", rank < 3 ? "bg-purple-500/15 text-purple-500 border border-purple-500/20" : "bg-secondary text-muted-foreground")}>
+                                    {rank + 1}
                                   </span>
                                   <span className="text-xs font-black text-foreground">#{o.id}</span>
                                 </div>
@@ -1074,10 +1311,11 @@ export function RelatoriosView({
                                 <span className="text-sm font-black text-purple-500 tabular-nums">{formatCurrency(o.numericValue)}</span>
                               </td>
                             </tr>
-                          ))
+                          );})
                         )}
                       </tbody>
                     </table>
+                    <Pagination page={pagePreco} total={perdasPorPrecoFiltradas.length} onChange={setPagePreco} label="orçamentos" />
                   </div>
                 </div>
               )}
@@ -1139,7 +1377,9 @@ export function RelatoriosView({
                             </td>
                           </tr>
                         ) : (
-                          vendedoresFiltrados.map((v, idx) => (
+                          vendedoresPaginados.map((v, idx) => {
+                            const rank = (pageVend - 1) * PAGE_SIZE + idx;
+                            return (
                             <tr
                               key={v.nome}
                               className="hover:bg-secondary/20 transition-colors"
@@ -1149,16 +1389,16 @@ export function RelatoriosView({
                                   <div
                                     className={cn(
                                       "w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0",
-                                      idx === 0
+                                      rank === 0
                                         ? "bg-amber-500/20 text-amber-500 border border-amber-500/20"
-                                        : idx === 1
+                                        : rank === 1
                                         ? "bg-slate-400/20 text-slate-400 border border-slate-400/20"
-                                        : idx === 2
+                                        : rank === 2
                                         ? "bg-orange-600/20 text-orange-600 border border-orange-600/20"
                                         : "bg-secondary text-muted-foreground"
                                     )}
                                   >
-                                    {idx === 0 ? "🥇" : idx === 1 ? "🥈" : idx === 2 ? "🥉" : idx + 1}
+                                    {rank === 0 ? "🥇" : rank === 1 ? "🥈" : rank === 2 ? "🥉" : rank + 1}
                                   </div>
                                   <div className="flex flex-col">
                                     <span className="text-xs font-black text-foreground uppercase">
@@ -1202,10 +1442,11 @@ export function RelatoriosView({
                                 </span>
                               </td>
                             </tr>
-                          ))
+                          );})
                         )}
                       </tbody>
                     </table>
+                    <Pagination page={pageVend} total={vendedoresFiltrados.length} onChange={setPageVend} label="vendedores" />
                   </div>
                 </div>
               )}
@@ -1264,7 +1505,9 @@ export function RelatoriosView({
                             </td>
                           </tr>
                         ) : (
-                          clientesFiltrados.map((c, idx) => (
+                          clientesPaginados.map((c, idx) => {
+                            const rank = (pageCli - 1) * PAGE_SIZE + idx;
+                            return (
                             <tr
                               key={c.nome}
                               className="hover:bg-secondary/20 transition-colors"
@@ -1274,12 +1517,12 @@ export function RelatoriosView({
                                   <span
                                     className={cn(
                                       "w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0",
-                                      idx < 3
+                                      rank < 3
                                         ? "bg-rose-500/15 text-rose-500 border border-rose-500/20"
                                         : "bg-secondary text-muted-foreground"
                                     )}
                                   >
-                                    {idx + 1}
+                                    {rank + 1}
                                   </span>
                                   <div className="flex flex-col">
                                     <span className="text-xs font-black text-foreground uppercase truncate max-w-[300px]">
@@ -1310,10 +1553,11 @@ export function RelatoriosView({
                                 </span>
                               </td>
                             </tr>
-                          ))
+                          );})
                         )}
                       </tbody>
                     </table>
+                    <Pagination page={pageCli} total={clientesFiltrados.length} onChange={setPageCli} label="clientes" />
                   </div>
                 </div>
               )}

@@ -793,6 +793,33 @@ export function ChatModal({
         enviado_por_nome: userProfile?.name || "Você"
       });
       onUpdateLastMessage?.(nova.obs, nova.timestamp || new Date().toISOString());
+
+      // Ao responder, considera VISTAS todas as mensagens recebidas nesta conversa:
+      // se eu respondi, obviamente li. Sem isso, um balão que nunca "descansou" 1s na
+      // tela fica lida=false para sempre e a conversa reabre sozinha a cada login
+      // (App.tsx → primeiraComUnread), mesmo com o pedido já respondido/faturado.
+      const idsRecebidasNaoLidas = conversas
+        .filter(
+          (m) =>
+            !isMe(m) &&
+            m.destino === userProfile?.id &&
+            !m.lida_em &&
+            m.id &&
+            !String(m.id).startsWith("tmp-"),
+        )
+        .map((m) => m.id as string);
+      if (idsRecebidasNaoLidas.length > 0) {
+        idsRecebidasNaoLidas.forEach((id) => vistaEnviadaRef.current.add(id));
+        setConversas((prev) =>
+          prev.map((m) =>
+            m.id && idsRecebidasNaoLidas.includes(m.id)
+              ? { ...m, lida: true, lida_em: m.lida_em || new Date().toISOString() }
+              : m,
+          ),
+        );
+        marcarVista(idsRecebidasNaoLidas).catch(() => {});
+      }
+
       if (isForced) onForcedResolved?.();
     } catch (err) {
       console.error("[Chat] Erro no envio:", err);

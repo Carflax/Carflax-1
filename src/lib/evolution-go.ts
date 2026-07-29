@@ -8,6 +8,7 @@
 
 import { marketingService } from "./marketing-service";
 import { supabase } from "./supabase";
+import { API_BASE } from "./api";
 
 // Filtro do realtime GO: só emite eventos das mensagens deste vendedor (a
 // instância GO grava no Supabase marcada com vendedor_id). A tela GO define isso
@@ -31,6 +32,8 @@ export interface GoSendResponse {
   id: string;
   status: string;
   timestamp?: number;
+  // A tela lê `sendResp?.key?.id` para trocar o id otimista pelo id real da Meta.
+  key?: { id?: string; remoteJid?: string; fromMe?: boolean };
 }
 
 export interface GoInstance {
@@ -127,9 +130,28 @@ async function fetchGo<T>(path: string, options: RequestInit = {}): Promise<T> {
   return response.json();
 }
 
-// Extrai o ID real da mensagem da resposta do whatsmeow ({data:{Info:{ID}}}).
-function goMsgId(res: any): string {
-  return res?.data?.Info?.ID || res?.key?.id || `msg_${Date.now()}`;
+// ─── Envio via API Oficial (Meta) pelo backend ───────────────────────────────
+// O servidor GO de ENVIO foi desativado (POST /send/text → 405). O envio agora
+// passa pelo backend `/api/whatsapp/send`, que injeta as credenciais da Meta
+// server-side e devolve { key: { id }, status } no formato que a tela consome.
+async function sendViaOfficial(
+  body: Record<string, unknown>,
+): Promise<{ key?: { id?: string; remoteJid?: string; fromMe?: boolean }; status?: string }> {
+  const base = API_BASE.startsWith('http') ? API_BASE : window.location.origin + API_BASE;
+  const response = await fetch(`${base}/api/whatsapp/send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) {
+    const error = await response.text();
+    throw new Error(`WhatsApp Oficial Error (${response.status}): ${error}`);
+  }
+  return response.json();
+}
+
+function toSendResponse(res: { key?: { id?: string }; status?: string }): GoSendResponse {
+  return { id: res?.key?.id || `msg_${Date.now()}`, status: res?.status || 'sent', key: res?.key };
 }
 
 export const evolutionGoApi = {
@@ -217,35 +239,23 @@ export const evolutionGoApi = {
   // ─── MESSAGES ────────────────────────────────────────────────────────────────
 
   async sendText(to: string, text: string): Promise<GoSendResponse> {
-    const res = await fetchGo<any>('/send/text', {
-      method: 'POST',
-      body: JSON.stringify({ number: to, text, delay: 0 }),
-    });
-    return { id: goMsgId(res), status: "sent" };
+    const res = await sendViaOfficial({ to, text, type: 'text' });
+    return toSendResponse(res);
   },
 
   async sendImage(to: string, url: string, caption?: string): Promise<GoSendResponse> {
-    const res = await fetchGo<any>('/send/media', {
-      method: 'POST',
-      body: JSON.stringify({ number: to, url, type: 'image', caption: caption || '' }),
-    });
-    return { id: goMsgId(res), status: "sent" };
+    const res = await sendViaOfficial({ to, type: 'image', mediaUrl: url, text: caption || '' });
+    return toSendResponse(res);
   },
 
   async sendDocument(to: string, url: string, filename: string, caption?: string): Promise<GoSendResponse> {
-    const res = await fetchGo<any>('/send/media', {
-      method: 'POST',
-      body: JSON.stringify({ number: to, url, type: 'document', filename, caption: caption || '' }),
-    });
-    return { id: goMsgId(res), status: "sent" };
+    const res = await sendViaOfficial({ to, type: 'document', mediaUrl: url, filename, text: caption || '' });
+    return toSendResponse(res);
   },
 
   async sendAudio(to: string, url: string): Promise<GoSendResponse> {
-    const res = await fetchGo<any>('/send/media', {
-      method: 'POST',
-      body: JSON.stringify({ number: to, url, type: 'audio' }),
-    });
-    return { id: goMsgId(res), status: "sent" };
+    const res = await sendViaOfficial({ to, type: 'audio', mediaUrl: url });
+    return toSendResponse(res);
   },
 
   // Presença ("digitando…"/gravando). state: composing | recording | paused

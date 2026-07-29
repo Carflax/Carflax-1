@@ -19,6 +19,8 @@ const AVISADO_TTL_MS = 7 * 24 * 60 * 60 * 1000; // limpa após 7 dias
 const JANELA_DIAS = 2; // vendas dos últimos 2 dias
 const FATOR = 5;
 const PISO = 10;
+const STAGGER_MS = 8 * 1000; // espaço entre notificações para não chegarem todas juntas
+const MAX_POR_CICLO = 4; // no máx. N alertas por verificação; o resto fica p/ o próximo ciclo
 
 type ShowNotification = (
   type: "success" | "error" | "info",
@@ -108,6 +110,7 @@ export function useVendaGrandeAlert(showNotification: ShowNotification, userProf
 
   useEffect(() => {
     let cancelled = false;
+    const timers = new Set<ReturnType<typeof setTimeout>>();
     if (!isPublicoCompras(userProfile)) return;
     if (masterEnabled()) requestBrowserPermission();
 
@@ -119,28 +122,44 @@ export function useVendaGrandeAlert(showNotification: ShowNotification, userProf
         if (cancelled || !res?.success || !Array.isArray(res.data)) return;
 
         const avisados = loadAvisados();
-        for (const v of res.data as VendaGrande[]) {
+        // Junta apenas os novos e limita quantos saem por ciclo; o restante
+        // fica para a próxima verificação, evitando uma enxurrada de uma vez.
+        const novos = (res.data as VendaGrande[]).filter((v) => {
           const id = `${String(v.documento).trim()}-${String(v.cod_item).trim()}`;
-          if (avisados[id]) continue;
+          return !avisados[id];
+        }).slice(0, MAX_POR_CICLO);
 
-          const pedido = String(v.documento || "").replace(/^0+/, "") || v.documento;
-          const estoqueTxt = v.estoque_atual == null
-            ? ""
-            : v.estoque_atual <= 0
-              ? ` Estoque ZERADO (${v.estoque_atual}).`
-              : ` Estoque atual: ${v.estoque_atual}.`;
-          const message = `${v.qtd} un de ${v.item} (Pedido ${pedido}) — ${v.ratio}× a média do item.${estoqueTxt} Avaliar recompra.`;
-          const tag = `venda-grande-${id}`;
-
-          showRef.current("error", "🛒 VENDA GRANDE — COMPRAS", message, true, tag);
-          try {
-            if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-              new Notification("🛒 Venda grande (Compras)", { body: message, tag });
-            }
-          } catch { /* ignore */ }
-
+        novos.forEach((v, idx) => {
+          const id = `${String(v.documento).trim()}-${String(v.cod_item).trim()}`;
+          // Marca já como avisado para o próximo ciclo não reprocessar enquanto o stagger corre.
           marcarAvisado(id);
-        }
+
+          const dispatch = () => {
+            if (cancelled || !masterEnabled() || !isPublicoCompras(userProfile)) return;
+            const pedido = String(v.documento || "").replace(/^0+/, "") || v.documento;
+            const estoqueTxt = v.estoque_atual == null
+              ? ""
+              : v.estoque_atual <= 0
+                ? ` Estoque ZERADO (${v.estoque_atual}).`
+                : ` Estoque atual: ${v.estoque_atual}.`;
+            const message = `${v.qtd} un de ${v.item} (Pedido ${pedido}) — ${v.ratio}× a média do item.${estoqueTxt} Avaliar recompra.`;
+            const tag = `venda-grande-${id}`;
+
+            showRef.current("error", "🛒 VENDA GRANDE — COMPRAS", message, true, tag);
+            try {
+              if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+                new Notification("🛒 Venda grande (Compras)", { body: message, tag });
+              }
+            } catch { /* ignore */ }
+          };
+
+          if (idx === 0) {
+            dispatch();
+          } else {
+            const t = setTimeout(dispatch, idx * STAGGER_MS);
+            timers.add(t);
+          }
+        });
       } catch (err) {
         console.error("[VendaGrande] erro ao verificar:", err);
       }
@@ -152,6 +171,8 @@ export function useVendaGrandeAlert(showNotification: ShowNotification, userProf
       cancelled = true;
       clearTimeout(timeout);
       clearInterval(interval);
+      timers.forEach((t) => clearTimeout(t));
+      timers.clear();
     };
   }, [userProfile]);
 }
