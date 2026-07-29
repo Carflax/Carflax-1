@@ -2811,6 +2811,20 @@ export function WhatsappView({
       const base64Full = reader.result as string;
       const base64 = base64Full.split(",")[1];
 
+      // Tipo real da mídia (antes tudo virava "document", então imagem enviada
+      // sumia ao recarregar por ser renderizada como documento).
+      const mt = file.type || "";
+      const fileTipo = mt === "image/webp"
+        ? "sticker"
+        : mt.startsWith("image/")
+          ? "image"
+          : mt.startsWith("video/")
+            ? "video"
+            : mt.startsWith("audio/")
+              ? "audio"
+              : "document";
+      const previaTxt = fileTipo === "image" ? "📷 Foto" : fileTipo === "video" ? "🎥 Vídeo" : fileTipo === "audio" ? "🎵 Áudio" : fileTipo === "sticker" ? "🖼️ Figurinha" : `📎 ${file.name}`;
+
       const msgId = "doc_" + Date.now();
       const timestamp = new Date().toISOString();
       const time = formatBrTime(new Date(timestamp));
@@ -2832,11 +2846,11 @@ export function WhatsappView({
 
       const newMsg: Message = {
         id: msgId,
-        text: caption || file.name,
+        text: caption || (fileTipo === "document" ? file.name : ""),
         time,
         sender: "me",
         status: "sent",
-        tipo: "document",
+        tipo: fileTipo,
         mediaUrl: base64Full,
         fileName: file.name,
         rawTimestamp: timestamp,
@@ -2883,9 +2897,9 @@ export function WhatsappView({
             c.id === selectedChat.id
               ? {
                   ...c,
-                  lastMessage: `📎 ${file.name}`,
+                  lastMessage: previaTxt,
                   lastMessageSender: "me",
-                  lastMessageType: "document",
+                  lastMessageType: fileTipo,
                   lastMessageStatus: "sent",
                   time: "Agora",
                   vendedor_id: vendedorId,
@@ -2908,11 +2922,11 @@ export function WhatsappView({
         await marketingService.saveMessage({
           message_id: realDocId || msgId,
           remote_jid: selectedChat.id,
-          texto: caption || file.name,
+          texto: caption || (fileTipo === "document" ? file.name : ""),
           sender: "me",
           timestamp,
           status: "sent",
-          tipo: "document",
+          tipo: fileTipo,
           media_url: publicUrl || undefined,
           vendedor_id: vendedorId,
           quoted_text: quotedText,
