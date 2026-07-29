@@ -399,11 +399,20 @@ export const marketingService = {
     // banco (ex.: enviada por outro dispositivo). Com .single() isso retornava 406.
     const { data: existing } = await supabase
       .from("marketing_whatsapp")
-      .select("message_id, remote_jid, sender, timestamp")
+      .select("message_id, remote_jid, sender, timestamp, status")
       .eq("message_id", messageId)
       .maybeSingle();
 
     if (!existing) return;
+
+    // IDEMPOTENTE + nunca regride. Sem isto, gravar o mesmo status dispara um
+    // realtime UPDATE que volta ao handleMessageUpdate → grava de novo → LOOP
+    // INFINITO (trava a aba com ERR_INSUFFICIENT_RESOURCES). Só grava se o status
+    // for diferente E "subir" (enviado → entregue → lido).
+    const rank: Record<string, number> = { sent: 1, failed: 1, delivered: 2, read: 3 };
+    if (status === existing.status || (rank[status] || 0) < (rank[existing.status] || 0)) {
+      return;
+    }
 
     const { error } = await supabase
       .from("marketing_whatsapp")
@@ -738,11 +747,14 @@ export const marketingService = {
     };
 
     // Contagem de leads no período selecionado
+    // Usa ultima_conversa_em (não created_at) para evitar contagem incorreta
+    // ao migrar de API — contatos históricos eram criados com created_at = hoje.
     let leadsQuery = supabase
       .from('marketing_clientes')
       .select('*', { count: 'exact', head: true })
-      .gte('created_at', start.toISOString())
-      .lte('created_at', end.toISOString());
+      .not('ultima_conversa_em', 'is', null)
+      .gte('ultima_conversa_em', start.toISOString())
+      .lte('ultima_conversa_em', end.toISOString());
     
     leadsQuery = applyFilters(leadsQuery);
     const { count: leadsInPeriod } = await leadsQuery;
@@ -751,8 +763,9 @@ export const marketingService = {
     let leadsMonthQuery = supabase
       .from('marketing_clientes')
       .select('*', { count: 'exact', head: true })
-      .gte('created_at', firstDayOfMonth)
-      .lte('created_at', lastDayOfMonth);
+      .not('ultima_conversa_em', 'is', null)
+      .gte('ultima_conversa_em', firstDayOfMonth)
+      .lte('ultima_conversa_em', lastDayOfMonth);
     
     leadsMonthQuery = applyFilters(leadsMonthQuery);
     const { count: leadsMonth } = await leadsMonthQuery;
@@ -763,8 +776,9 @@ export const marketingService = {
         .from('marketing_clientes')
         .select('*', { count: 'exact', head: true })
         .eq('temperatura', temp)
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString());
+        .not('ultima_conversa_em', 'is', null)
+        .gte('ultima_conversa_em', start.toISOString())
+        .lte('ultima_conversa_em', end.toISOString());
       q = applyFilters(q);
       const { count } = await q;
       return count || 0;
@@ -927,11 +941,15 @@ export const marketingService = {
       { data: msgsRaw },
       { data: usersRaw },
     ] = await Promise.all([
+      // Leads: contatos que interagiram no período (ultima_conversa_em).
+      // Usar created_at causava contagem incorreta ao migrar de API, pois
+      // contatos históricos eram criados no banco com created_at = hoje.
       supabase
         .from("marketing_clientes")
-        .select("remote_jid, vendedor_id, origem, campanha, temperatura, status, created_at")
-        .gte("created_at", startIso)
-        .lte("created_at", endIso),
+        .select("remote_jid, vendedor_id, origem, campanha, temperatura, status, created_at, ultima_conversa_em")
+        .not("ultima_conversa_em", "is", null)
+        .gte("ultima_conversa_em", startIso)
+        .lte("ultima_conversa_em", endIso),
       supabase
         .from("marketing_clientes")
         .select("remote_jid, vendedor_id, valor_orcamento, data_orcamento")

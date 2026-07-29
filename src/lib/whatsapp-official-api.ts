@@ -12,8 +12,6 @@
 import { supabase } from "./supabase";
 import { marketingService } from "./marketing-service";
 import { API_BASE } from "./api";
-import { evolutionGoApi } from "./evolution-go";
-import { evolutionApi } from "./evolution-v2";
 
 // Identidade do número oficial (público, não é segredo). Usado só no cabeçalho da
 // tela. Evita consultar a tabela `whatsapp_official_config` (que não existe) — o
@@ -57,34 +55,21 @@ export const whatsappOfficialApi = {
     };
   },
 
-  // A Meta Cloud API oficial não fornece a foto de perfil de contatos por privacidade.
-  // Como fallback, buscamos primeiro no Supabase (marketing_clientes) e, se não houver,
-  // consultamos a Evolution API / Evolution GO (caso configuradas).
+  // A Meta Cloud API não expõe foto de perfil de contatos por privacidade. Buscamos
+  // só a foto salva no Supabase (marketing_clientes, quando houver). Sem fallback pra
+  // Evolution/GO — descontinuados e, além disso, os servidores respondem erro.
   async getProfilePic(remoteJid: string): Promise<string | null> {
-    if (!remoteJid) return null;
+    if (!remoteJid || !remoteJid.includes("@")) return null;
     try {
-      // 1. Tenta buscar foto salva previamente no banco de dados
       const { data } = await supabase
         .from("marketing_clientes")
         .select("foto_url")
         .eq("remote_jid", remoteJid)
         .maybeSingle();
-
-      if (data?.foto_url) {
-        return data.foto_url;
-      }
-
-      // 2. Fallback: consulta Evolution GO
-      const goPic = await evolutionGoApi.getProfilePic(remoteJid).catch(() => null);
-      if (goPic) return goPic;
-
-      // 3. Fallback: consulta Evolution v2
-      const v2Pic = await evolutionApi.getProfilePic(remoteJid).catch(() => null);
-      if (v2Pic) return v2Pic;
+      return data?.foto_url || null;
     } catch {
-      /* silencia erros */
+      return null;
     }
-    return null;
   },
 
   // A lista de conversas vem do Supabase (marketingService). No oficial não há
