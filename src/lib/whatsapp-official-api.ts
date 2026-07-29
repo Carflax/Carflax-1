@@ -26,6 +26,9 @@ interface FakeSocket {
   disconnect: () => void;
 }
 
+// Socket/canal singleton do realtime oficial (um por aba). Evita acúmulo de canais.
+let _officialSocket: FakeSocket | null = null;
+
 // POST no backend que injeta as credenciais da Meta e devolve { key: { id }, status }.
 async function sendOfficial(
   body: Record<string, unknown>,
@@ -144,7 +147,11 @@ export const whatsappOfficialApi = {
 
   // Realtime via Supabase (marketing_whatsapp) re-emitido no MESMO formato que a
   // tela consome (messages.upsert / messages.update). É o banco, não o Evolution.
+  // SINGLETON: reusa o mesmo canal/socket entre chamadas (igual ao Evolution v2).
+  // Sem isso, cada re-run do efeito criava um canal novo → acúmulo → flood.
   connectWebSocket(): FakeSocket {
+    if (_officialSocket) return _officialSocket;
+
     const listeners = new Map<string, Set<(p: unknown) => void>>();
     const emit = (event: string, payload: unknown) => {
       listeners.get(event)?.forEach((cb) => {
@@ -175,7 +182,7 @@ export const whatsappOfficialApi = {
       })
       .subscribe();
 
-    return {
+    _officialSocket = {
       on: (event, cb) => {
         if (!listeners.has(event)) listeners.set(event, new Set());
         listeners.get(event)!.add(cb);
@@ -186,7 +193,9 @@ export const whatsappOfficialApi = {
       connected: true,
       disconnect: () => {
         supabase.removeChannel(channel);
+        _officialSocket = null;
       },
     };
+    return _officialSocket;
   },
 };

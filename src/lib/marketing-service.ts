@@ -139,6 +139,13 @@ export interface MarketingVenda {
   created_at?: string;
 }
 
+// Ranking de status e dedupe em memória por mensagem. Protege contra qualquer
+// rajada de chamadas de updateMessageStatus (ex.: listeners de realtime acumulados)
+// curto-circuitando ANTES de qualquer requisição — sem isto, uma rajada estoura o
+// navegador com ERR_INSUFFICIENT_RESOURCES.
+const _statusRank: Record<string, number> = { sent: 1, failed: 1, delivered: 2, read: 3 };
+const _lastStatusByMsg = new Map<string, string>();
+
 export const marketingService = {
   /**
    * Atualiza ou insere múltiplos clientes de uma vez (Batch Upsert)
@@ -394,6 +401,16 @@ export const marketingService = {
   },
 
   async updateMessageStatus(messageId: string, status: string) {
+    // TRAVA EM MEMÓRIA (antes de qualquer rede): se já processamos este status (ou
+    // um maior) para esta mensagem, sai na hora. Impede que uma rajada de chamadas
+    // (listeners de realtime acumulados) vire flood de queries / trave o navegador.
+    const cached = _lastStatusByMsg.get(messageId);
+    if (cached && (_statusRank[status] || 0) <= (_statusRank[cached] || 0)) return;
+    _lastStatusByMsg.set(messageId, status);
+    if (_lastStatusByMsg.size > 2000) {
+      _lastStatusByMsg.delete(_lastStatusByMsg.keys().next().value as string);
+    }
+
     // Usa upsert via message_id para evitar CORS com PATCH em alguns ambientes
     // maybeSingle: um status pode chegar para uma mensagem que ainda não está no
     // banco (ex.: enviada por outro dispositivo). Com .single() isso retornava 406.
@@ -405,12 +422,8 @@ export const marketingService = {
 
     if (!existing) return;
 
-    // IDEMPOTENTE + nunca regride. Sem isto, gravar o mesmo status dispara um
-    // realtime UPDATE que volta ao handleMessageUpdate → grava de novo → LOOP
-    // INFINITO (trava a aba com ERR_INSUFFICIENT_RESOURCES). Só grava se o status
-    // for diferente E "subir" (enviado → entregue → lido).
-    const rank: Record<string, number> = { sent: 1, failed: 1, delivered: 2, read: 3 };
-    if (status === existing.status || (rank[status] || 0) < (rank[existing.status] || 0)) {
+    // IDEMPOTENTE + nunca regride (barreira no banco, além da trava em memória).
+    if (status === existing.status || (_statusRank[status] || 0) < (_statusRank[existing.status] || 0)) {
       return;
     }
 

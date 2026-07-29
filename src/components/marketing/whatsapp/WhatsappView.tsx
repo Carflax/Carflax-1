@@ -2438,6 +2438,10 @@ export function WhatsappView({
       socket.off("messages.edit", handleMessageEdit);
       socket.off("MESSAGES_EDIT", handleMessageEdit);
       socket.off("MESSAGES_EDITED", handleMessageEdit);
+      // ESTES faltavam — sem remover, o handler de status se acumulava a cada
+      // re-run do efeito e uma única atualização disparava N gravações (loop/flood).
+      socket.off("messages.update", handleMessageUpdate);
+      socket.off("MESSAGES_UPDATE", handleMessageUpdate);
       currentTimers.forEach((t) => clearTimeout(t));
       currentTimers.clear();
     };
@@ -2985,52 +2989,53 @@ export function WhatsappView({
         };
       });
 
-      // Tenta enriquecer com fotos da Shopify em tempo real por SKU
-      try {
-        const shopifyMap = await getShopifyPhotoMap().catch(() => null);
-        if (shopifyMap && shopifyMap.size > 0) {
-          normalized.forEach((prod) => {
-            if (!prod.foto_url) {
-              const rawCod = String(prod.cod).trim();
-              const cleanCod = rawCod.replace(/^0+/, "");
-              const paddedCod = rawCod.padStart(5, "0");
-              const foundImg =
-                shopifyMap.get(rawCod) ||
-                shopifyMap.get(cleanCod) ||
-                shopifyMap.get(paddedCod);
-              if (foundImg) {
-                prod.foto_url = foundImg;
-              }
-            }
-          });
-        }
-      } catch {
-        /* ignora se falhar consulta da Shopify */
-      }
-
-      // Tenta enriquecer com fotos da tabela do Supabase (se existir)
-      try {
-        const { data: fotosData } = await supabase.from("produtos_fotos").select("cod_item, foto_url");
-        if (fotosData && fotosData.length > 0) {
-          const fotoMap = new Map<string, string>();
-          (fotosData as Array<{ cod_item?: string; foto_url?: string }>).forEach((f) => {
-            if (f.cod_item && f.foto_url) fotoMap.set(String(f.cod_item), f.foto_url);
-          });
-          normalized.forEach((prod) => {
-            if (!prod.foto_url && fotoMap.has(prod.cod)) {
-              prod.foto_url = fotoMap.get(prod.cod);
-            }
-          });
-        }
-      } catch {
-        /* ignora se tabela não existir */
-      }
-
+      // Mostra a lista JÁ (nome/preço/estoque vêm do ERP). As fotos — que dependem
+      // de paginar toda a Shopify (dezenas de requisições) — entram DEPOIS, em
+      // segundo plano, sem prender o spinner. Antes, o "Sincronizando" só sumia
+      // quando a Shopify inteira terminava, daí a demora.
       setAllProducts(normalized);
       productsLoadedRef.current = true;
+      setLoadingProducts(false);
+
+      // Enriquecimento de fotos em segundo plano (Shopify + Supabase).
+      void (async () => {
+        const photoByCod = new Map<string, string>();
+        try {
+          const shopifyMap = await getShopifyPhotoMap().catch(() => null);
+          if (shopifyMap && shopifyMap.size > 0) {
+            normalized.forEach((prod) => {
+              if (prod.foto_url) return;
+              const rawCod = String(prod.cod).trim();
+              const img =
+                shopifyMap.get(rawCod) ||
+                shopifyMap.get(rawCod.replace(/^0+/, "")) ||
+                shopifyMap.get(rawCod.padStart(5, "0"));
+              if (img) photoByCod.set(prod.cod, img);
+            });
+          }
+        } catch {
+          /* ignora Shopify */
+        }
+        try {
+          const { data: fotosData } = await supabase.from("produtos_fotos").select("cod_item, foto_url");
+          (fotosData as Array<{ cod_item?: string; foto_url?: string }> | null)?.forEach((f) => {
+            if (f.cod_item && f.foto_url && !photoByCod.has(String(f.cod_item))) {
+              photoByCod.set(String(f.cod_item), f.foto_url);
+            }
+          });
+        } catch {
+          /* ignora se tabela não existir */
+        }
+        if (photoByCod.size > 0) {
+          setAllProducts((prev) =>
+            prev.map((p) =>
+              p.foto_url || !photoByCod.has(p.cod) ? p : { ...p, foto_url: photoByCod.get(p.cod) },
+            ),
+          );
+        }
+      })();
     } catch (error) {
       console.error("Erro ao carregar produtos:", error);
-    } finally {
       setLoadingProducts(false);
     }
   }, []); // Sem deps: usa ref para o flag, não recria a função após o load
