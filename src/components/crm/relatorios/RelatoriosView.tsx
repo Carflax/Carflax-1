@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, Fragment } from "react";
 import {
   TrendingUp,
   TrendingDown,
@@ -20,7 +20,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { apiCrmOrcamentos, apiCrmFaturamento, type FaturamentoResumo } from "@/lib/api";
+import { apiCrmOrcamentos, apiCrmFaturamento, apiCrmOrcamentoItens, mapCrmItem, type CrmItem, type FaturamentoResumo } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { MiniCalendar } from "@/components/ui/MiniCalendar";
 import * as XLSX from "xlsx";
@@ -42,6 +42,9 @@ interface OrcamentoItem {
   QUANTIDADE?: string | number;
   qtd?: string | number;
   PRECO_UNITARIO?: string | number;
+  CUSTO_UNITARIO?: string | number;
+  MARKUP_PERCENTUAL?: string | number;
+  UN?: string;
 }
 
 interface Orcamento {
@@ -76,26 +79,57 @@ const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
 const formatCurrency = (val: number) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(val || 0);
 
-const PAGE_SIZE = 8;
+// Arredonda a quantidade a 2 casas (remove o "ruído" de ponto flutuante tipo
+// 54.510000000000005) e formata em pt-BR.
+const formatQtd = (n: number) => Number((Number(n) || 0).toFixed(2)).toLocaleString("pt-BR");
+
+const parseNum = (v: unknown): number => {
+  if (typeof v === "number") return v;
+  const s = String(v ?? "").trim();
+  if (!s) return 0;
+  // Formato BRL "1.234,56" (ponto de milhar, vírgula decimal).
+  if (s.includes(",")) return parseFloat(s.replace(/\./g, "").replace(",", ".")) || 0;
+  return parseFloat(s) || 0;
+};
+
+// Markup % do item: usa MARKUP_PERCENTUAL se vier; senão calcula por (preço/custo - 1).
+const markupPct = (item: OrcamentoItem): number | null => {
+  const mkp = parseFloat(String(item.MARKUP_PERCENTUAL ?? 0));
+  if (mkp) return mkp;
+  const preco = parseNum(item.PRECO_UNITARIO);
+  const custo = parseNum(item.CUSTO_UNITARIO);
+  return custo > 0 ? (preco / custo - 1) * 100 : null;
+};
+
+const INITIAL_ROWS = 8;
+
+// Códigos de produto que NÃO devem aparecer nos rankings de itens perdidos
+// (ex.: 99997 é um item genérico/coringa que distorce os valores). Comparado
+// ignorando zeros à esquerda.
+const CODIGOS_ITENS_OCULTOS = new Set(["99997"]);
+const isCodOculto = (cod: string) =>
+  CODIGOS_ITENS_OCULTOS.has(String(cod).trim().replace(/^0+/, ""));
 
 /** Rodapé de paginação reutilizável. Some quando há uma página ou menos. */
 function Pagination({
   page,
   total,
+  pageSize,
   onChange,
   label = "registros",
 }: {
   page: number;
   total: number;
+  pageSize: number;
   onChange: (p: number) => void;
   label?: string;
 }) {
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const safePage = Math.min(page, totalPages);
-  if (total <= PAGE_SIZE) return null;
+  if (total <= pageSize) return null;
 
-  const from = (safePage - 1) * PAGE_SIZE + 1;
-  const to = Math.min(safePage * PAGE_SIZE, total);
+  const from = (safePage - 1) * pageSize + 1;
+  const to = Math.min(safePage * pageSize, total);
 
   return (
     <div className="flex items-center justify-between gap-3 px-3.5 py-3 border-t border-border bg-secondary/40">
@@ -138,6 +172,47 @@ export function RelatoriosView({
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>("overview");
   const [searchTerm, setSearchTerm] = useState("");
+
+  // Orçamento com a lista de itens expandida (aba Perdas por Orçamento).
+  // Os itens (com CUSTO/MARKUP reais) vêm do endpoint /itens sob demanda — o
+  // endpoint de LISTA devolve custo/markup zerados, por isso não dá pra usar o.items.
+  const [orcamentoExpandido, setOrcamentoExpandido] = useState<string | null>(null);
+  const [itensCache, setItensCache] = useState<Record<string, CrmItem[]>>({});
+  const [carregandoItens, setCarregandoItens] = useState<string | null>(null);
+
+  const toggleOrcamentoItens = async (docId: string, empresa: string) => {
+    if (orcamentoExpandido === docId) {
+      setOrcamentoExpandido(null);
+      return;
+    }
+    setOrcamentoExpandido(docId);
+    if (itensCache[docId]) return; // já carregado
+    setCarregandoItens(docId);
+    try {
+      const itens = await apiCrmOrcamentoItens(docId, empresa);
+      setItensCache((prev) => ({ ...prev, [docId]: itens.map(mapCrmItem) }));
+    } catch (e) {
+      console.error("[Relatorios] Erro ao buscar itens do orçamento:", e);
+      setItensCache((prev) => ({ ...prev, [docId]: [] }));
+    } finally {
+      setCarregandoItens(null);
+    }
+  };
+
+  // Linhas por página DINÂMICAS: preenchem a altura da tela (mais linhas em telas
+  // altas, menos em baixas) — evita sobrar espaço embaixo da tabela.
+  const [pageSize, setPageSize] = useState(INITIAL_ROWS);
+  useEffect(() => {
+    const calcRows = () => {
+      const ROW_H = 56; // altura aproximada de uma linha
+      const CHROME = 280; // topo do HUB + abas + busca + cabeçalho da tabela + rodapé
+      const n = Math.floor((window.innerHeight - CHROME) / ROW_H);
+      setPageSize(Math.max(6, Math.min(30, n)));
+    };
+    calcRows();
+    window.addEventListener("resize", calcRows);
+    return () => window.removeEventListener("resize", calcRows);
+  }, []);
 
   // Paginação (uma página por tabela)
   const [pageEstoque, setPageEstoque] = useState(1);
@@ -380,6 +455,7 @@ export function RelatoriosView({
 
       lostItems.forEach((item: OrcamentoItem) => {
         const cod = String(item.COD_PRODUTO || item.cod || "S/C");
+        if (isCodOculto(cod)) return;
         const nome = String(item.PRODUTO || item.nome || "PRODUTO NÃO IDENTIFICADO");
         const valor = parseFloat(
           String(
@@ -440,6 +516,7 @@ export function RelatoriosView({
     perdasPorPreco.forEach((o) => {
       (o.items || []).forEach((item: OrcamentoItem) => {
         const cod = String(item.COD_PRODUTO || item.cod || "S/C");
+        if (isCodOculto(cod)) return;
         const nome = String(item.PRODUTO || item.nome || "PRODUTO NÃO IDENTIFICADO");
         const valor = parseFloat(
           String(
@@ -638,23 +715,23 @@ export function RelatoriosView({
 
   // Recortes paginados
   const estoquePaginadas = useMemo(
-    () => perdasPorEstoqueFiltradas.slice((pageEstoque - 1) * PAGE_SIZE, pageEstoque * PAGE_SIZE),
+    () => perdasPorEstoqueFiltradas.slice((pageEstoque - 1) * pageSize, pageEstoque * pageSize),
     [perdasPorEstoqueFiltradas, pageEstoque]
   );
   const precoItensPaginados = useMemo(
-    () => perdasPorPrecoItensFiltradas.slice((pagePrecoItens - 1) * PAGE_SIZE, pagePrecoItens * PAGE_SIZE),
+    () => perdasPorPrecoItensFiltradas.slice((pagePrecoItens - 1) * pageSize, pagePrecoItens * pageSize),
     [perdasPorPrecoItensFiltradas, pagePrecoItens]
   );
   const precoPaginadas = useMemo(
-    () => perdasPorPrecoFiltradas.slice((pagePreco - 1) * PAGE_SIZE, pagePreco * PAGE_SIZE),
+    () => perdasPorPrecoFiltradas.slice((pagePreco - 1) * pageSize, pagePreco * pageSize),
     [perdasPorPrecoFiltradas, pagePreco]
   );
   const vendedoresPaginados = useMemo(
-    () => vendedoresFiltrados.slice((pageVend - 1) * PAGE_SIZE, pageVend * PAGE_SIZE),
+    () => vendedoresFiltrados.slice((pageVend - 1) * pageSize, pageVend * pageSize),
     [vendedoresFiltrados, pageVend]
   );
   const clientesPaginados = useMemo(
-    () => clientesFiltrados.slice((pageCli - 1) * PAGE_SIZE, pageCli * PAGE_SIZE),
+    () => clientesFiltrados.slice((pageCli - 1) * pageSize, pageCli * pageSize),
     [clientesFiltrados, pageCli]
   );
 
@@ -1125,7 +1202,7 @@ export function RelatoriosView({
                           </tr>
                         ) : (
                           estoquePaginadas.map((p, idx) => {
-                            const rank = (pageEstoque - 1) * PAGE_SIZE + idx;
+                            const rank = (pageEstoque - 1) * pageSize + idx;
                             return (
                             <tr key={p.cod} className="hover:bg-secondary/20 transition-colors">
                               <td className="p-3.5 pl-4">
@@ -1140,7 +1217,7 @@ export function RelatoriosView({
                                 </div>
                               </td>
                               <td className="p-3.5 text-center">
-                                <span className="px-2.5 py-1 rounded-lg bg-secondary text-foreground text-xs font-black">{p.qtd} un</span>
+                                <span className="px-2.5 py-1 rounded-lg bg-secondary text-foreground text-xs font-black">{formatQtd(p.qtd)} un</span>
                               </td>
                               <td className="p-3.5 text-center">
                                 <span className="text-xs font-bold text-muted-foreground">{p.orcamentos} {p.orcamentos === 1 ? "orçamento" : "orçamentos"}</span>
@@ -1153,7 +1230,7 @@ export function RelatoriosView({
                         )}
                       </tbody>
                     </table>
-                    <Pagination page={pageEstoque} total={perdasPorEstoqueFiltradas.length} onChange={setPageEstoque} label="produtos" />
+                    <Pagination page={pageEstoque} total={perdasPorEstoqueFiltradas.length} pageSize={pageSize} onChange={setPageEstoque} label="produtos" />
                   </div>
                 </div>
               )}
@@ -1203,7 +1280,7 @@ export function RelatoriosView({
                             </tr>
                           ) : (
                             precoItensPaginados.map((p, idx) => {
-                              const rank = (pagePrecoItens - 1) * PAGE_SIZE + idx;
+                              const rank = (pagePrecoItens - 1) * pageSize + idx;
                               return (
                               <tr key={p.cod} className="hover:bg-secondary/20 transition-colors">
                                 <td className="p-3.5 pl-4">
@@ -1218,7 +1295,7 @@ export function RelatoriosView({
                                   </div>
                                 </td>
                                 <td className="p-3.5 text-center">
-                                  <span className="px-2.5 py-1 rounded-lg bg-secondary text-foreground text-xs font-black">{p.qtd} un</span>
+                                  <span className="px-2.5 py-1 rounded-lg bg-secondary text-foreground text-xs font-black">{formatQtd(p.qtd)} un</span>
                                 </td>
                                 <td className="p-3.5 text-center">
                                   <span className="text-xs font-bold text-muted-foreground">{p.orcamentos} {p.orcamentos === 1 ? "orçamento" : "orçamentos"}</span>
@@ -1231,7 +1308,7 @@ export function RelatoriosView({
                           )}
                         </tbody>
                       </table>
-                      <Pagination page={pagePrecoItens} total={perdasPorPrecoItensFiltradas.length} onChange={setPagePrecoItens} label="itens" />
+                      <Pagination page={pagePrecoItens} total={perdasPorPrecoItensFiltradas.length} pageSize={pageSize} onChange={setPagePrecoItens} label="itens" />
                     </div>
                   </div>
 
@@ -1282,9 +1359,14 @@ export function RelatoriosView({
                           </tr>
                         ) : (
                           precoPaginadas.map((o, idx) => {
-                            const rank = (pagePreco - 1) * PAGE_SIZE + idx;
+                            const rank = (pagePreco - 1) * pageSize + idx;
+                            const temItens = !!o.items?.length;
+                            const aberto = orcamentoExpandido === o.id;
+                            const itensDet = itensCache[o.id];
+                            const carregando = carregandoItens === o.id;
                             return (
-                            <tr key={o.id} className="hover:bg-secondary/20 transition-colors">
+                            <Fragment key={o.id}>
+                            <tr className={cn("hover:bg-secondary/20 transition-colors", aberto && "bg-secondary/20")}>
                               <td className="p-3.5 pl-4">
                                 <div className="flex items-center gap-2">
                                   <span className={cn("w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0", rank < 3 ? "bg-purple-500/15 text-purple-500 border border-purple-500/20" : "bg-secondary text-muted-foreground")}>
@@ -1305,17 +1387,92 @@ export function RelatoriosView({
                                 </span>
                               </td>
                               <td className="p-3.5 text-center">
-                                <span className="text-xs font-bold text-muted-foreground">{o.items?.length || 0} {o.items?.length === 1 ? "item" : "itens"}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleOrcamentoItens(o.id, o.empresa)}
+                                  disabled={!temItens}
+                                  className={cn(
+                                    "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-bold transition-colors",
+                                    temItens ? "bg-secondary hover:bg-purple-500/15 text-foreground hover:text-purple-500" : "text-muted-foreground/50 cursor-default",
+                                  )}
+                                  title={temItens ? "Ver itens e markup" : "Sem itens detalhados"}
+                                >
+                                  {o.items?.length || 0} {o.items?.length === 1 ? "item" : "itens"}
+                                  {temItens && <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", aberto && "rotate-180")} />}
+                                </button>
                               </td>
                               <td className="p-3.5 pr-4 text-right">
                                 <span className="text-sm font-black text-purple-500 tabular-nums">{formatCurrency(o.numericValue)}</span>
                               </td>
                             </tr>
+                            {aberto && (
+                              <tr className="bg-secondary/10">
+                                <td colSpan={6} className="p-0">
+                                  <div className="px-4 py-3 overflow-x-auto">
+                                    {carregando ? (
+                                      <div className="flex items-center justify-center gap-2 py-4">
+                                        <span className="w-4 h-4 rounded-full border-2 border-purple-500/30 border-t-purple-500 animate-spin" />
+                                        <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Carregando itens…</span>
+                                      </div>
+                                    ) : !itensDet || itensDet.length === 0 ? (
+                                      <div className="py-4 text-center text-[10px] font-bold uppercase tracking-widest text-muted-foreground italic opacity-60">
+                                        Nenhum item detalhado para este orçamento
+                                      </div>
+                                    ) : (
+                                    <table className="w-full text-left min-w-[640px]">
+                                      <thead>
+                                        <tr className="border-b border-border/50">
+                                          <th className="py-2 pr-3 text-[8px] font-black text-muted-foreground uppercase tracking-[0.15em]">Código</th>
+                                          <th className="py-2 pr-3 text-[8px] font-black text-muted-foreground uppercase tracking-[0.15em]">Produto</th>
+                                          <th className="py-2 px-3 text-center text-[8px] font-black text-muted-foreground uppercase tracking-[0.15em]">Qtd</th>
+                                          <th className="py-2 px-3 text-right text-[8px] font-black text-muted-foreground uppercase tracking-[0.15em]">Custo Un.</th>
+                                          <th className="py-2 px-3 text-right text-[8px] font-black text-muted-foreground uppercase tracking-[0.15em]">Preço Un.</th>
+                                          <th className="py-2 px-3 text-right text-[8px] font-black text-muted-foreground uppercase tracking-[0.15em]">Markup</th>
+                                          <th className="py-2 pl-3 text-right text-[8px] font-black text-muted-foreground uppercase tracking-[0.15em]">Total</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-border/30">
+                                        {itensDet.map((it, i) => {
+                                          const cod = String(it.COD_PRODUTO || "S/C");
+                                          const nome = String(it.PRODUTO || "—");
+                                          const qtd = parseNum(it.QUANTIDADE) || 1;
+                                          const preco = parseNum(it.PRECO_UNITARIO);
+                                          const custo = parseNum(it.CUSTO_UNITARIO);
+                                          const total = preco * qtd;
+                                          const mkp = markupPct(it);
+                                          return (
+                                            <tr key={i} className="hover:bg-secondary/20">
+                                              <td className="py-2 pr-3 text-[10px] font-black text-blue-500 whitespace-nowrap">{cod}</td>
+                                              <td className="py-2 pr-3 text-[10px] font-bold text-foreground uppercase truncate max-w-[300px]">{nome}</td>
+                                              <td className="py-2 px-3 text-center text-[10px] font-bold text-muted-foreground whitespace-nowrap">{qtd} {it.UN || "un"}</td>
+                                              <td className="py-2 px-3 text-right text-[10px] font-semibold text-muted-foreground tabular-nums">{custo > 0 ? formatCurrency(custo) : "—"}</td>
+                                              <td className="py-2 px-3 text-right text-[10px] font-semibold text-foreground tabular-nums">{formatCurrency(preco)}</td>
+                                              <td className="py-2 px-3 text-right">
+                                                {mkp == null ? (
+                                                  <span className="text-[10px] font-bold text-muted-foreground">—</span>
+                                                ) : (
+                                                  <span className={cn("text-[10px] font-black tabular-nums", mkp >= 30 ? "text-emerald-500" : mkp >= 0 ? "text-amber-500" : "text-rose-500")}>
+                                                    {mkp.toFixed(1)}%
+                                                  </span>
+                                                )}
+                                              </td>
+                                              <td className="py-2 pl-3 text-right text-[10px] font-black text-purple-500 tabular-nums">{formatCurrency(total)}</td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                            </Fragment>
                           );})
                         )}
                       </tbody>
                     </table>
-                    <Pagination page={pagePreco} total={perdasPorPrecoFiltradas.length} onChange={setPagePreco} label="orçamentos" />
+                    <Pagination page={pagePreco} total={perdasPorPrecoFiltradas.length} pageSize={pageSize} onChange={setPagePreco} label="orçamentos" />
                   </div>
                 </div>
               )}
@@ -1378,7 +1535,7 @@ export function RelatoriosView({
                           </tr>
                         ) : (
                           vendedoresPaginados.map((v, idx) => {
-                            const rank = (pageVend - 1) * PAGE_SIZE + idx;
+                            const rank = (pageVend - 1) * pageSize + idx;
                             return (
                             <tr
                               key={v.nome}
@@ -1446,7 +1603,7 @@ export function RelatoriosView({
                         )}
                       </tbody>
                     </table>
-                    <Pagination page={pageVend} total={vendedoresFiltrados.length} onChange={setPageVend} label="vendedores" />
+                    <Pagination page={pageVend} total={vendedoresFiltrados.length} pageSize={pageSize} onChange={setPageVend} label="vendedores" />
                   </div>
                 </div>
               )}
@@ -1506,7 +1663,7 @@ export function RelatoriosView({
                           </tr>
                         ) : (
                           clientesPaginados.map((c, idx) => {
-                            const rank = (pageCli - 1) * PAGE_SIZE + idx;
+                            const rank = (pageCli - 1) * pageSize + idx;
                             return (
                             <tr
                               key={c.nome}
@@ -1557,7 +1714,7 @@ export function RelatoriosView({
                         )}
                       </tbody>
                     </table>
-                    <Pagination page={pageCli} total={clientesFiltrados.length} onChange={setPageCli} label="clientes" />
+                    <Pagination page={pageCli} total={clientesFiltrados.length} pageSize={pageSize} onChange={setPageCli} label="clientes" />
                   </div>
                 </div>
               )}
