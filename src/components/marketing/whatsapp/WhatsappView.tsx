@@ -45,7 +45,6 @@ import { marketingService } from "@/lib/marketing-service";
 import { cn, formatBrTime, formatBrDate } from "@/lib/utils";
 import { apiDashboardProdutos, apiGetLinkPreview, apiCrmOrcamentos } from "@/lib/api";
 import { transcribeAudio, classifyByRules } from "@/lib/gemini-service";
-import { getShopifyPhotoMap } from "@/lib/shopify-sync";
 import { Package } from "lucide-react";
 import { useNotification } from "@/hooks/useNotification";
 
@@ -3003,49 +3002,30 @@ export function WhatsappView({
         };
       });
 
-      // Mostra a lista JÁ (nome/preço/estoque vêm do ERP). As fotos — que dependem
-      // de paginar toda a Shopify (dezenas de requisições) — entram DEPOIS, em
-      // segundo plano, sem prender o spinner. Antes, o "Sincronizando" só sumia
-      // quando a Shopify inteira terminava, daí a demora.
+      // Mostra a lista JÁ (nome/preço/estoque vêm do ERP). As fotos da Shopify foram
+      // removidas por deixar o carregamento lento (paginava toda a loja). Só faltam
+      // as fotos salvas no Supabase (uma query rápida), buscadas em segundo plano.
       setAllProducts(normalized);
       productsLoadedRef.current = true;
       setLoadingProducts(false);
 
-      // Enriquecimento de fotos em segundo plano (Shopify + Supabase).
+      // Enriquecimento de fotos em segundo plano (só Supabase — rápido).
       void (async () => {
-        const photoByCod = new Map<string, string>();
-        try {
-          const shopifyMap = await getShopifyPhotoMap().catch(() => null);
-          if (shopifyMap && shopifyMap.size > 0) {
-            normalized.forEach((prod) => {
-              if (prod.foto_url) return;
-              const rawCod = String(prod.cod).trim();
-              const img =
-                shopifyMap.get(rawCod) ||
-                shopifyMap.get(rawCod.replace(/^0+/, "")) ||
-                shopifyMap.get(rawCod.padStart(5, "0"));
-              if (img) photoByCod.set(prod.cod, img);
-            });
-          }
-        } catch {
-          /* ignora Shopify */
-        }
         try {
           const { data: fotosData } = await supabase.from("produtos_fotos").select("cod_item, foto_url");
+          const photoByCod = new Map<string, string>();
           (fotosData as Array<{ cod_item?: string; foto_url?: string }> | null)?.forEach((f) => {
-            if (f.cod_item && f.foto_url && !photoByCod.has(String(f.cod_item))) {
-              photoByCod.set(String(f.cod_item), f.foto_url);
-            }
+            if (f.cod_item && f.foto_url) photoByCod.set(String(f.cod_item), f.foto_url);
           });
+          if (photoByCod.size > 0) {
+            setAllProducts((prev) =>
+              prev.map((p) =>
+                p.foto_url || !photoByCod.has(p.cod) ? p : { ...p, foto_url: photoByCod.get(p.cod) },
+              ),
+            );
+          }
         } catch {
-          /* ignora se tabela não existir */
-        }
-        if (photoByCod.size > 0) {
-          setAllProducts((prev) =>
-            prev.map((p) =>
-              p.foto_url || !photoByCod.has(p.cod) ? p : { ...p, foto_url: photoByCod.get(p.cod) },
-            ),
-          );
+          /* ignora se a tabela não existir */
         }
       })();
     } catch (error) {

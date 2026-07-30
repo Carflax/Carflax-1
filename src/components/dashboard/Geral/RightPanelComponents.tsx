@@ -1192,6 +1192,7 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, l
                     const rest = allVendedores.filter(v => v.COD_VENDEDOR !== "MEDIA");
                     const times = rest
                       .filter(v => v.COD_VENDEDOR.startsWith("TEAM:"))
+                      .filter(v => Number(v.META) > 0)
                       .sort((a, b) => (parseFloat(String(b.FATURADO)) || 0) - (parseFloat(String(a.FATURADO)) || 0));
                     const vendedores = rest
                       .filter(v => !v.COD_VENDEDOR.startsWith("TEAM:"))
@@ -1421,11 +1422,12 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, l
               (() => {
                 const totalGeral = allVendedores.find(v => v.COD_VENDEDOR === "MEDIA");
                 const rest = allVendedores.filter(v => v.COD_VENDEDOR !== "MEDIA");
+                // Sem meta cadastrada não há ritmo nem atingimento para comparar: o card
+                // sairia 0% / 0% e só ocuparia espaço na grade (vale para times e vendedores).
                 const times = rest
                   .filter(v => v.COD_VENDEDOR.startsWith("TEAM:"))
+                  .filter(v => Number(v.META) > 0)
                   .sort((a, b) => (parseFloat(String(b.FATURADO)) || 0) - (parseFloat(String(a.FATURADO)) || 0));
-                // Sem meta cadastrada não há ritmo nem atingimento para comparar: o card
-                // sairia 0% / 0% e só ocuparia espaço na grade.
                 // Maior ritmo primeiro — no modal o comparativo é mais útil que a ordem alfabética.
                 const vendedores = rest
                   .filter(v => !v.COD_VENDEDOR.startsWith("TEAM:"))
