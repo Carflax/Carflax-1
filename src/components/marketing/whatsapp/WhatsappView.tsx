@@ -1912,7 +1912,12 @@ export function WhatsappView({
 
       const validPushName =
         !message.key?.fromMe && message.pushName ? message.pushName : null;
-      const mediaUrl: string | undefined = undefined;
+      // Mídia já resolvida pelo provider (ex.: API Oficial, que injeta a URL pública
+      // do Storage direto do banco). Quando presente, renderiza na hora e dispensa
+      // o download assíncrono abaixo.
+      const preResolvedMediaUrl = (message as unknown as { __resolvedMediaUrl?: string })
+        .__resolvedMediaUrl;
+      const mediaUrl: string | undefined = preResolvedMediaUrl;
       const isMediaMsg = [
         "audio",
         "image",
@@ -1949,8 +1954,9 @@ export function WhatsappView({
         })
         .catch(() => null);
 
-      // Download assíncrono de mídia — não bloqueia a renderização da mensagem
-      if (isMediaMsg) {
+      // Download assíncrono de mídia — não bloqueia a renderização da mensagem.
+      // Pulado quando a URL já veio resolvida (API Oficial já subiu no Storage).
+      if (isMediaMsg && !preResolvedMediaUrl) {
         interface EvoMediaPayload {
           base64?: string;
           message?: {

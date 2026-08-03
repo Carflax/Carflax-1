@@ -163,12 +163,43 @@ export const whatsappOfficialApi = {
       });
     };
 
-    const rowToEvo = (row: any) => ({
-      key: { id: row.message_id, remoteJid: row.remote_jid, fromMe: row.sender === "me" },
-      pushName: undefined,
-      message: { conversation: row.texto || "" },
-      messageTimestamp: Math.floor(new Date(row.timestamp).getTime() / 1000),
-    });
+    // Reconstrói o conteúdo no formato que a tela (processMessage) espera a partir do
+    // `tipo` gravado pelo webhook. Sem isso, toda mensagem chegava como texto e o
+    // re-save posterior sobrescrevia o tipo no banco → a imagem virava só ícone ao
+    // reabrir a conversa. `media_url` (URL pública do Storage) segue anexada para
+    // renderizar a mídia em tempo real, sem novo download.
+    const rowToEvo = (row: any) => {
+      const caption = row.texto || "";
+      const tipo = row.tipo || "text";
+      let message: Record<string, unknown>;
+      switch (tipo) {
+        case "image":
+          message = { imageMessage: { caption, mimetype: "image/jpeg" } };
+          break;
+        case "sticker":
+          message = { stickerMessage: { mimetype: "image/webp" } };
+          break;
+        case "video":
+          message = { videoMessage: { caption, mimetype: "video/mp4" } };
+          break;
+        case "audio":
+          message = { audioMessage: { mimetype: "audio/ogg" } };
+          break;
+        case "document":
+          message = { documentMessage: { fileName: caption, mimetype: "application/octet-stream" } };
+          break;
+        default:
+          message = { conversation: caption };
+      }
+      return {
+        key: { id: row.message_id, remoteJid: row.remote_jid, fromMe: row.sender === "me" },
+        pushName: undefined,
+        message,
+        messageTimestamp: Math.floor(new Date(row.timestamp).getTime() / 1000),
+        // URL pública já resolvida pelo webhook — a tela usa direto, sem baixar de novo.
+        __resolvedMediaUrl: row.media_url || undefined,
+      };
+    };
 
     const channel = supabase
       .channel(`official_wpp_${Date.now()}`)
