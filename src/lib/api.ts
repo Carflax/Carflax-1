@@ -244,12 +244,122 @@ export interface RelatorioRomaneios {
     maxPorDia: number;
     totalMotoristas: number;
     recorde: { cod: string; nome: string; avatar?: string | null; data: string; entregas: number } | null;
-    lista: { cod: string; nome: string; avatar?: string | null; entregas: number; dias: number; mediaDia: number; maxDia: number }[];
+    lista: {
+      cod: string; nome: string; avatar?: string | null; entregas: number; dias: number; mediaDia: number; maxDia: number;
+      // Enriquecidos pela camada de frota (quando há veículo vinculado ao motorista)
+      km?: number; combustivel?: number; custoTotal?: number; rsPorEntrega?: number;
+    }[];
+  };
+  frota: FrotaRelatorio;
+}
+
+export interface FrotaVeiculoMetrica {
+  veiculoId: string;
+  placa: string;
+  modelo: string;
+  km: number;
+  dias: number;
+  combustivel: number;
+  custoDiario: number;
+  pedagio: number;
+  custoTotal: number;
+}
+
+export interface FrotaRelatorio {
+  temCadastro: boolean;
+  precoCombustivel: number;
+  porVeiculo: FrotaVeiculoMetrica[];
+  totais: {
+    km: number;
+    combustivel: number;
+    custoDiario: number;
+    pedagio: number;
+    custoTotal: number;
+    custoPorKm: number;
+    custoPorEntrega: number;
   };
 }
 
 export const apiRelatorioRomaneios = (inicio: string, fim: string) =>
   get<RelatorioRomaneios>("/api/entregas/romaneios/relatorio", { inicio, fim });
+
+// ── Frota & Custos (cadastro/config) ──────────────────────────────────────────
+
+export interface FrotaVeiculo {
+  id: string;
+  placa: string;
+  modelo: string | null;
+  km_por_litro: number;
+  custo_diario: number;
+  ativo: boolean;
+}
+
+export interface FrotaCadastro {
+  veiculos: FrotaVeiculo[];
+  vinculos: { driver_cod: string; veiculo_id: string }[];
+  precoCombustivel: number;
+}
+
+export interface VeiculoDescoberto {
+  placa: string;
+  odometroKm: number;
+  nomeMotorista: string | null;
+  dataHora: string | null;
+}
+
+export interface FrotaPosicao {
+  placa: string;
+  latitude: number;
+  longitude: number;
+  velocidade: number;
+  ignicao: number;
+  logradouro: string | null;
+  odometroKm: number;
+  dataHora: string | null;
+  motorista?: string | null;
+  avatar?: string | null;
+  // Caminho real percorrido nos últimos minutos (para animar o carro nas ruas).
+  trilha?: { lat: number; lng: number; dataHora: string }[];
+}
+
+export const apiFrotaCadastro = () =>
+  get<FrotaCadastro>("/api/entregas/frota");
+
+export const apiDescobrirVeiculos = () =>
+  get<{ veiculos: VeiculoDescoberto[] }>("/api/entregas/frota/descobrir");
+
+export const apiFrotaPosicoes = () =>
+  get<{ posicoes: FrotaPosicao[] }>("/api/entregas/frota/posicoes");
+
+export interface EntregaMapa {
+  id: string;
+  nf: string;
+  cliente: string;
+  endereco: string;
+  status: string;
+  motorista: string | null;
+  veiculoId: string | null;
+  lat: number;
+  lng: number;
+}
+
+export const apiEntregasMapa = () =>
+  get<{ clientes: EntregaMapa[]; totalRomaneio: number }>("/api/entregas/frota/entregas-mapa");
+
+export const apiSalvarVeiculo = (v: Partial<FrotaVeiculo>) =>
+  post<{ veiculo: FrotaVeiculo }>("/api/entregas/frota/veiculos", v);
+
+export const apiSalvarVinculoMotorista = (driver_cod: string, veiculo_id: string | null) =>
+  post<{ ok: boolean }>("/api/entregas/frota/motorista-veiculo", { driver_cod, veiculo_id }, { method: "PUT" });
+
+export const apiSalvarPrecoCombustivel = (preco_combustivel: number) =>
+  post<{ ok: boolean }>("/api/entregas/frota/config", { preco_combustivel }, { method: "PUT" });
+
+export const apiSalvarPedagio = (veiculo_id: string, data: string, valor: number) =>
+  post<{ ok: boolean }>("/api/entregas/frota/pedagio", { veiculo_id, data, valor }, { method: "PUT" });
+
+export const apiSyncFrota = (dias?: number) =>
+  post<{ ok: boolean; veiculos: number; diasGravados: number }>("/api/entregas/frota/sync", { dias });
 
 // ── CRM ───────────────────────────────────────────────────────────────────────
 

@@ -12,6 +12,11 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  // Pré-empacota o leaflet no startup para evitar re-otimização sob demanda
+  // (que gerava 504 "Outdated Optimize Dep" ao instalar dep com o dev server no ar).
+  optimizeDeps: {
+    include: ['leaflet'],
+  },
   server: {
     // Respeita a porta atribuída pelo ambiente (PORT); mantém 5173 no dev local.
     port: Number(process.env.PORT) || 5173,

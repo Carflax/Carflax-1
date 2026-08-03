@@ -21,7 +21,10 @@ import {
   Activity,
   X,
   Camera,
-  LayoutGrid
+  LayoutGrid,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight
 } from "lucide-react";
 import { cn, formatTeamName } from "@/lib/utils";
 
@@ -483,6 +486,10 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, l
   const [internalLoading, setInternalLoading] = useState(isDirectorInit ? true : !externalData);
   const [data, setData] = useState<VendedorResumo | null>(isDirectorInit ? null : (externalData || null));
   const [allVendedores, setAllVendedores] = useState<VendedorResumo[]>([]);
+  // Data de referência do painel (mês/dia). Default hoje; ajustável no modal.
+  const [refDate, setRefDate] = useState<Date>(() => new Date());
+  const [isDateModalOpen, setIsDateModalOpen] = useState(false);
+  const [pickerYear, setPickerYear] = useState<number>(() => new Date().getFullYear());
   const [selectedCod, setSelectedCod] = useState<string>("TOTAL");
   // Códigos dos vendedores do time (quando supervisor) — usado para agregar o "perdido"
   // do time na Tx Conversão em vez de pegar o total da loja (chave "MEDIA").
@@ -729,7 +736,7 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, l
     async function fetchData() {
       try {
         if (!extData) setInternalLoading(true);
-        const now = new Date();
+        const now = refDate;
         const yyyy = now.getFullYear();
         const mm = String(now.getMonth() + 1).padStart(2, '0');
         const dd = String(now.getDate()).padStart(2, '0');
@@ -981,6 +988,7 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, l
     userProfile?.operatorCode,
     userProfile?.name,
     externalData,
+    refDate,
   ]);
 
   useEffect(() => {
@@ -1402,13 +1410,78 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, l
               <div>
                 <h3 className="text-sm font-black text-foreground uppercase tracking-tight">Todos os Vendedores</h3>
                 <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-                  {new Date().toLocaleString('pt-BR', { month: 'long', year: 'numeric' })}
+                  {refDate.toLocaleString('pt-BR', { month: 'long', year: 'numeric' })}
                 </p>
               </div>
             </div>
-            <button onClick={() => setIsAllOpen(false)} className="p-2 rounded-xl hover:bg-secondary transition-colors" title="Fechar (Esc)">
-              <X className="w-4 h-4 text-muted-foreground" />
-            </button>
+            <div className="flex items-center gap-2">
+              <div className="relative">
+                <button
+                  onClick={() => { setPickerYear(refDate.getFullYear()); setIsDateModalOpen(!isDateModalOpen); }}
+                  className={cn(
+                    "h-10 px-4 rounded-xl border text-[10px] font-black uppercase tracking-tight flex items-center gap-2 transition-all outline-none capitalize",
+                    "bg-blue-600/10 dark:bg-blue-500/20 border-blue-600/20 text-blue-600 dark:text-blue-400 shadow-sm",
+                    isDateModalOpen && "ring-4 ring-blue-500/5 border-blue-500/50"
+                  )}
+                >
+                  <Calendar className="w-3.5 h-3.5 opacity-40 shrink-0" />
+                  <span className="truncate max-w-[160px]">
+                    {refDate.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+                  </span>
+                  <ChevronDown className={cn("w-3 h-3 transition-transform duration-300 opacity-40 shrink-0", isDateModalOpen && "rotate-180")} />
+                </button>
+                {isDateModalOpen && (
+                  <>
+                    <div className="fixed inset-0 z-40" onClick={() => setIsDateModalOpen(false)} />
+                    <div className="absolute top-full right-0 mt-2 z-50 w-64 bg-card border border-border rounded-2xl shadow-2xl p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <button onClick={() => setPickerYear((y) => y - 1)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors">
+                          <ChevronLeft className="w-4 h-4 text-muted-foreground" />
+                        </button>
+                        <span className="text-sm font-black text-foreground tabular-nums">{pickerYear}</span>
+                        <button
+                          onClick={() => setPickerYear((y) => Math.min(y + 1, new Date().getFullYear()))}
+                          disabled={pickerYear >= new Date().getFullYear()}
+                          className="p-1.5 rounded-lg hover:bg-secondary transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                        >
+                          <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"].map((nome, m) => {
+                          const hoje = new Date();
+                          const futuro = pickerYear > hoje.getFullYear() || (pickerYear === hoje.getFullYear() && m > hoje.getMonth());
+                          const ativo = refDate.getFullYear() === pickerYear && refDate.getMonth() === m;
+                          return (
+                            <button
+                              key={nome}
+                              disabled={futuro}
+                              onClick={() => {
+                                const ehMesAtual = pickerYear === hoje.getFullYear() && m === hoje.getMonth();
+                                const dia = ehMesAtual ? hoje.getDate() : new Date(pickerYear, m + 1, 0).getDate();
+                                setRefDate(new Date(pickerYear, m, dia, 12, 0, 0));
+                                setIsDateModalOpen(false);
+                              }}
+                              className={cn(
+                                "h-9 rounded-lg text-[11px] font-black uppercase tracking-tight transition-colors",
+                                ativo
+                                  ? "bg-blue-600 text-white"
+                                  : "text-foreground hover:bg-secondary disabled:opacity-25 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+                              )}
+                            >
+                              {nome}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+              <button onClick={() => setIsAllOpen(false)} className="p-2 rounded-xl hover:bg-secondary transition-colors" title="Fechar (Esc)">
+                <X className="w-4 h-4 text-muted-foreground" />
+              </button>
+            </div>
           </div>
 
           {/* Modal Body */}

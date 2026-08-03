@@ -11,12 +11,13 @@ import {
   Package,
   X,
   GripVertical,
-  Camera
+  Camera,
+  Truck
 } from "lucide-react";
 import { Reorder } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useState, useEffect, useCallback } from "react";
-import { apiMotoristas, apiAdminSQL } from "@/lib/api";
+import { apiMotoristas, apiAdminSQL, apiDescobrirVeiculos, apiSalvarVeiculo } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 
 import type { UserProfile } from "@/App";
@@ -37,6 +38,13 @@ export interface Delivery {
   romCode?: string;
   romStatus?: string;
   romDate?: string;
+  veiculoId?: string | null;
+}
+
+interface VeiculoOpc {
+  id: string;
+  placa: string;
+  modelo: string | null;
 }
 
 interface MovGerRecord {
@@ -55,6 +63,8 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [motoristas, setMotoristas] = useState<{ COD: string; NOME: string }[]>([]);
   const [selectedMotorista, setSelectedMotorista] = useState<string>("");
+  const [veiculos, setVeiculos] = useState<VeiculoOpc[]>([]);
+  const [selectedVeiculo, setSelectedVeiculo] = useState<string>("");
   const [nfInput, setNfInput] = useState("");
   const [driverAvatars, setDriverAvatars] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -105,7 +115,8 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
           driverCode: d.driver_cod,
           romCode: d.rom_code,
           romStatus: d.rom_status,
-          romDate: d.rom_date
+          romDate: d.rom_date,
+          veiculoId: d.veiculo_id
         }));
         
         setDeliveries(mapped);
@@ -152,6 +163,36 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [fetchData]);
+
+  // Carrega os veículos para vincular ao romaneio: usa os já cadastrados e
+  // descobre da API do Link Monitoramento os que ainda não existem, registrando-os.
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from("frota_veiculos")
+          .select("id, placa, modelo")
+          .eq("ativo", true)
+          .order("placa");
+        const lista: VeiculoOpc[] = data || [];
+        try {
+          const { veiculos: descobertos } = await apiDescobrirVeiculos();
+          const placasExistentes = new Set(lista.map(v => v.placa));
+          const faltantes = descobertos.filter(d => d.placa && !placasExistentes.has(d.placa));
+          for (const d of faltantes) {
+            const r = await apiSalvarVeiculo({ placa: d.placa });
+            if (r?.veiculo) lista.push({ id: r.veiculo.id, placa: r.veiculo.placa, modelo: r.veiculo.modelo });
+          }
+          lista.sort((a, b) => a.placa.localeCompare(b.placa));
+        } catch {
+          /* API do Link indisponível — usa só os já cadastrados */
+        }
+        setVeiculos(lista);
+      } catch (err) {
+        console.error("Erro ao carregar veículos:", err);
+      }
+    })();
+  }, []);
 
   const handleReorder = async (newOrder: Delivery[]) => {
     // Atualiza o estado local imediatamente para fluidez
@@ -228,7 +269,8 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
             rom_code: romCode,
             rom_date: hoje,
             rom_status: 'em_andamento',
-            vendedor_codigo: e.VENDEDOR_COD
+            vendedor_codigo: e.VENDEDOR_COD,
+            veiculo_id: selectedVeiculo || null
           }]);
 
         if (insError) throw insError;
@@ -266,6 +308,22 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
       console.error("Erro ao remover do banco:", error);
       alert("Erro ao remover a entrega do banco de dados.");
       setDeliveries(prev => prev.filter(d => d.nf !== nf));
+    }
+  };
+
+  // Vincula/edita o carro de um romaneio já criado (atualiza todas as NFs do rom_code).
+  const handleVincularVeiculo = async (romCode: string | undefined, veiculoId: string) => {
+    if (!romCode) return;
+    try {
+      const { error } = await supabase
+        .from("entregas")
+        .update({ veiculo_id: veiculoId || null })
+        .eq("rom_code", romCode);
+      if (error) throw error;
+      setDeliveries(prev => prev.map(d => (d.romCode === romCode ? { ...d, veiculoId: veiculoId || null } : d)));
+    } catch (err) {
+      console.error("Erro ao vincular veículo ao romaneio:", err);
+      alert("Erro ao vincular o carro ao romaneio.");
     }
   };
 
@@ -326,7 +384,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
 
           <div className="flex-1 flex items-center gap-2 px-2">
             <UserIcon className="w-3.5 h-3.5 text-muted-foreground" />
-            <select 
+            <select
               value={selectedMotorista}
               onChange={(e) => setSelectedMotorista(e.target.value)}
               className="flex-1 bg-transparent border-none text-[11px] font-black text-muted-foreground outline-none cursor-pointer appearance-none uppercase tracking-tight"
@@ -334,6 +392,22 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
               <option value="" className="bg-card">Selecionar Motorista</option>
               {motoristas.map(m => (
                 <option key={m.COD} value={m.COD} className="bg-card">{m.NOME}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="w-px h-6 bg-border" />
+
+          <div className="flex-1 flex items-center gap-2 px-2">
+            <Truck className="w-3.5 h-3.5 text-muted-foreground" />
+            <select
+              value={selectedVeiculo}
+              onChange={(e) => setSelectedVeiculo(e.target.value)}
+              className="flex-1 bg-transparent border-none text-[11px] font-black text-muted-foreground outline-none cursor-pointer appearance-none uppercase tracking-tight"
+            >
+              <option value="" className="bg-card">Selecionar Carro</option>
+              {veiculos.map(v => (
+                <option key={v.id} value={v.id} className="bg-card">{v.placa}{v.modelo ? ` · ${v.modelo}` : ""}</option>
               ))}
             </select>
           </div>
@@ -430,7 +504,22 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
                     </div>
 
                     <div className="flex items-center gap-2">
-                      <button 
+                      <div className="flex items-center gap-1.5 h-8 px-3 bg-card border border-border rounded-lg shadow-sm">
+                        <Truck className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                        <select
+                          value={items[0]?.veiculoId || ""}
+                          onChange={(e) => handleVincularVeiculo(romCode, e.target.value)}
+                          disabled={!canLancar}
+                          title="Carro do romaneio"
+                          className="bg-transparent border-none text-[10px] font-black uppercase tracking-widest text-muted-foreground outline-none cursor-pointer appearance-none disabled:cursor-default"
+                        >
+                          <option value="" className="bg-card">Sem carro</option>
+                          {veiculos.map(v => (
+                            <option key={v.id} value={v.id} className="bg-card">{v.placa}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <button
                         onClick={() => {
                           const url = `${window.location.origin}/motorista?v=${motoristaCod}`;
                           navigator.clipboard.writeText(url);

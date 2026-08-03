@@ -116,6 +116,12 @@
   }
 }
 
+/* Selo "em movimento" do marcador de motorista no mapa ao vivo */
+@keyframes frotaPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.18); }
+}
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
