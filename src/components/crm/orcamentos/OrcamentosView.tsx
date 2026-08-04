@@ -1202,6 +1202,13 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
     // Taxa de conversão real = vendas / (vendas + perdidos)
     const decididos = vendasValor + perdidosValor;
     const convValor = decididos > 0 ? ((vendasValor / decididos) * 100) : 0;
+    // Mesma lógica, mas por quantidade de orçamentos decididos.
+    // Usa SEMPRE a contagem da lista (localVendas), nunca QTD_VENDAS do faturamento:
+    // aquele campo é COUNT(DISTINCT DOCUMENTO) da VW_FATURAMENTO, ou seja, notas emitidas
+    // no período (inclui balcão sem orçamento e orçamentos de meses anteriores), o que
+    // infla a taxa e pode passar do total de orçamentos filtrados.
+    const decididosQtd = localVendas + perdidos;
+    const convQtd = decididosQtd > 0 ? ((localVendas / decididosQtd) * 100) : 0;
 
     const reasonCounts = filteredAndSortedItems
       .filter((o) => o.status === "PERDIDO" && o.lossReason)
@@ -1218,7 +1225,7 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
         return acc;
       }, {});
 
-    return { statusCounts, statusValues, vendas, vendasValor, perdidos, perdidosValor, pipeline, totalOrcamentosValor, convValor, total, reasonCounts, reasonValues };
+    return { statusCounts, statusValues, vendas, vendasValor, perdidos, perdidosValor, pipeline, totalOrcamentosValor, convValor, convQtd, total, reasonCounts, reasonValues };
   }, [filteredAndSortedItems, filterStatus, faturamento]);
 
   const requestSort = (key: string) => {
@@ -1448,30 +1455,39 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
               ))}
             </div>
           ) : (() => {
-            const convPct = insights.convValor;
-            const clampedPct = Math.min(convPct, 200);
             const radius = 54;
             const circumference = 2 * Math.PI * radius;
-            const strokeOffset = circumference - (clampedPct / 200) * circumference;
+            const donuts = [
+              { id: "convGradientValor", label: "Por Valor", pct: insights.convValor, from: "#3b82f6", to: "#60a5fa" },
+              { id: "convGradientQtd", label: "Por Qtde.", pct: insights.convQtd, from: "#10b981", to: "#34d399" },
+            ];
             return (
               <div className="flex flex-col flex-1 gap-2">
-                {/* Donut chart */}
-                <div className="flex items-center justify-center py-1">
-                  <div className="relative w-[130px] h-[130px]">
-                    <svg viewBox="0 0 120 120" className="w-full h-full -rotate-90">
-                      <circle cx="60" cy="60" r={radius} fill="none" stroke="currentColor" className="text-secondary dark:text-slate-800" strokeWidth="10" />
-                      <circle cx="60" cy="60" r={radius} fill="none" stroke="url(#convGradient)" strokeWidth="10" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={strokeOffset} className="transition-all duration-1000 ease-out" />
-                      <defs>
-                        <linearGradient id="convGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                          <stop offset="0%" stopColor="#3b82f6" />
-                          <stop offset="100%" stopColor="#60a5fa" />
-                        </linearGradient>
-                      </defs>
-                    </svg>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <span className="text-[22px] font-black text-foreground leading-none">{convPct.toFixed(1)}%</span>
-                    </div>
-                  </div>
+                {/* Donut charts: conversão por valor e por quantidade */}
+                <div className="flex items-center justify-center gap-4 py-1">
+                  {donuts.map((d) => {
+                    const strokeOffset = circumference - (Math.min(d.pct, 200) / 200) * circumference;
+                    return (
+                      <div key={d.id} className="flex flex-col items-center gap-1">
+                        <div className="relative w-[92px] h-[92px]">
+                          <svg viewBox="0 0 120 120" className="w-full h-full -rotate-90">
+                            <circle cx="60" cy="60" r={radius} fill="none" stroke="currentColor" className="text-secondary dark:text-slate-800" strokeWidth="10" />
+                            <circle cx="60" cy="60" r={radius} fill="none" stroke={`url(#${d.id})`} strokeWidth="10" strokeLinecap="round" strokeDasharray={circumference} strokeDashoffset={strokeOffset} className="transition-all duration-1000 ease-out" />
+                            <defs>
+                              <linearGradient id={d.id} x1="0%" y1="0%" x2="100%" y2="0%">
+                                <stop offset="0%" stopColor={d.from} />
+                                <stop offset="100%" stopColor={d.to} />
+                              </linearGradient>
+                            </defs>
+                          </svg>
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <span className="text-[16px] font-black text-foreground leading-none">{d.pct.toFixed(1)}%</span>
+                          </div>
+                        </div>
+                        <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight">{d.label}</span>
+                      </div>
+                    );
+                  })}
                 </div>
                 {/* Metrics */}
                 <div className="flex flex-col flex-1">
