@@ -1379,6 +1379,31 @@ export function WhatsappView({
       setChats(sortChats(mappedChats));
       setLoading(false);
 
+      // Preenche o ✓/✓✓ da última mensagem já na abertura da lista. Sem isso o
+      // ícone só aparecia depois de clicar na conversa, porque `marketing_clientes`
+      // não guarda remetente/status — só o texto da última mensagem.
+      marketingService
+        .getLastMessageMetaByJids(mappedChats.map((c) => c.id))
+        .then((meta) => {
+          if (meta.size === 0) return;
+          setChats((prev) =>
+            prev.map((c) => {
+              const m = meta.get(c.id);
+              if (!m) return c;
+              return {
+                ...c,
+                lastMessageSender: m.sender,
+                lastMessageType: m.tipo || c.lastMessageType,
+                lastMessageStatus:
+                  m.sender === "me"
+                    ? ((m.status as "sent" | "delivered" | "read") || "sent")
+                    : undefined,
+              };
+            }),
+          );
+        })
+        .catch(() => null);
+
       // 2. Sincronização em segundo plano (Não trava o usuário)
       if (mappedChats.length > 0) {
         api.getChats().then(async (evoData) => {
@@ -1541,6 +1566,30 @@ export function WhatsappView({
           const newChats = mapped.filter((c) => !existingIds.has(c.id));
           return sortChats([...prev, ...newChats]);
         });
+
+        // Mesmo preenchimento do ✓/✓✓ feito na carga inicial, para as conversas
+        // que entram por scroll não ficarem sem o ícone até serem abertas.
+        marketingService
+          .getLastMessageMetaByJids(mapped.map((c) => c.id))
+          .then((meta) => {
+            if (meta.size === 0) return;
+            setChats((prev) =>
+              prev.map((c) => {
+                const mm = meta.get(c.id);
+                if (!mm) return c;
+                return {
+                  ...c,
+                  lastMessageSender: mm.sender,
+                  lastMessageType: mm.tipo || c.lastMessageType,
+                  lastMessageStatus:
+                    mm.sender === "me"
+                      ? ((mm.status as "sent" | "delivered" | "read") || "sent")
+                      : undefined,
+                };
+              }),
+            );
+          })
+          .catch(() => null);
       }
     } catch (err) {
       console.error("Erro ao carregar mais chats:", err);
@@ -2254,11 +2303,12 @@ export function WhatsappView({
       if (data.instance && data.instance !== instanceName) return;
 
       interface UpdateItemNested {
-        key?: { id?: string };
+        key?: { id?: string; remoteJid?: string };
         update?: { status?: string | number };
       }
       interface UpdateItemFlat {
         keyId?: string;
+        remoteJid?: string;
         status?: string | number;
       }
 
@@ -2298,13 +2348,20 @@ export function WhatsappView({
                 : m,
             ),
           );
-          // Atualiza status na sidebar para a última mensagem
-          setChats((prev) =>
-            prev.map((c) => {
-              const lastMsgIsThis = c.lastMessageSender === "me";
-              return lastMsgIsThis ? { ...c, lastMessageStatus: newStatus } : c;
-            }),
-          );
+          // Atualiza o status na lista lateral APENAS da conversa dona do recibo.
+          // Antes não havia checagem de JID: um único "lido" marcava como lido a
+          // última mensagem de toda conversa cuja última mensagem fosse minha.
+          const jidDoRecibo = flat.remoteJid || nested.key?.remoteJid;
+          const alvo = jidDoRecibo || selectedChatRef.current?.id;
+          if (alvo) {
+            setChats((prev) =>
+              prev.map((c) =>
+                c.id === alvo && c.lastMessageSender === "me"
+                  ? { ...c, lastMessageStatus: newStatus }
+                  : c,
+              ),
+            );
+          }
           marketingService.updateMessageStatus(msgId, newStatus);
         }
       });

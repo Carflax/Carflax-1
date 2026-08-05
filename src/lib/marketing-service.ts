@@ -366,6 +366,61 @@ export const marketingService = {
     return ((data as MarketingMessage[]) || []).reverse();
   },
 
+  // Última mensagem de cada conversa (quem mandou + status de entrega), em UMA
+  // consulta para a página inteira da lista.
+  //
+  // `marketing_clientes` guarda o texto e a data da última mensagem, mas não o
+  // remetente nem o status — então a lista abria sem o ✓/✓✓ e ele só aparecia
+  // depois de clicar na conversa, que é quando as mensagens eram carregadas.
+  //
+  // Busca limitada: pega as mensagens mais recentes desses JIDs e reduz para a
+  // primeira de cada um (a query vem ordenada da mais nova para a mais antiga).
+  // O teto evita varrer o histórico inteiro; conversa que ficar de fora apenas
+  // segue sem o ícone, como era antes — nunca mostra informação errada.
+  async getLastMessageMetaByJids(remoteJids: string[]) {
+    const resultado = new Map<
+      string,
+      { sender: "me" | "contact"; status?: string; tipo?: string }
+    >();
+    if (remoteJids.length === 0) return resultado;
+
+    const { data, error } = await supabase
+      .from("marketing_whatsapp")
+      .select("remote_jid, sender, status, tipo, timestamp")
+      .in("remote_jid", remoteJids)
+      // Anotação interna mora na mesma tabela, mas não é mensagem da conversa:
+      // se entrasse aqui, uma nota apareceria como "última mensagem enviada",
+      // com ✓, divergindo do texto que a lista mostra (vindo de marketing_clientes).
+      .neq("tipo", "internal_note")
+      .order("timestamp", { ascending: false })
+      .limit(remoteJids.length * 8);
+
+    if (error) {
+      console.error(
+        "[MarketingService] Erro ao buscar status da última mensagem:",
+        error.message,
+      );
+      return resultado;
+    }
+
+    for (const row of (data || []) as {
+      remote_jid: string;
+      sender: "me" | "contact";
+      status?: string;
+      tipo?: string;
+    }[]) {
+      // Primeira ocorrência do JID = mensagem mais recente dele.
+      if (!resultado.has(row.remote_jid)) {
+        resultado.set(row.remote_jid, {
+          sender: row.sender,
+          status: row.status,
+          tipo: row.tipo,
+        });
+      }
+    }
+    return resultado;
+  },
+
   async togglePin(remoteJid: string, pin: boolean) {
     const { error } = await supabase
       .from("marketing_clientes")

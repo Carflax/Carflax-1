@@ -219,7 +219,9 @@ export const whatsappOfficialApi = {
         .on("postgres_changes", { event: "UPDATE", schema: "public", table: "marketing_whatsapp" }, (p) => {
           const row = p.new as any;
           const status = row.status === "read" ? "READ" : row.status === "delivered" ? "DELIVERY_ACK" : row.status;
-          emit("messages.update", { data: { keyId: row.message_id, status } });
+          // `remoteJid` é essencial: sem ele a tela não sabe de qual conversa é o
+          // recibo e acabava aplicando o status na lista inteira.
+          emit("messages.update", { data: { keyId: row.message_id, remoteJid: row.remote_jid, status } });
         })
         .subscribe((status) => {
           if (encerrado) return;
