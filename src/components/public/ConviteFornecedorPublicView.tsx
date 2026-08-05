@@ -21,7 +21,6 @@ import {
   Coffee,
   Package,
   Sparkles,
-  Tag,
   Trophy,
   Factory,
   TrendingUp,
@@ -427,13 +426,12 @@ export function ConviteFornecedorPublicView() {
             </h2>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             {[
               { title: "Buffet do Instalador", icon: Coffee },
               { title: "Kit do Instalador", icon: Package },
               { title: "Demonstrações técnicas", icon: Zap },
               { title: "Novidades dos fabricantes", icon: Sparkles },
-              { title: "Condições comerciais exclusivas", icon: Tag },
               { title: "Sorteios", icon: Trophy },
               { title: "Networking", icon: Users },
               { title: "Atendimento especializado", icon: UserCheck },
