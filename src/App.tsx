@@ -1897,7 +1897,21 @@ function App() {
     return <TermsOfServiceView />;
   }
 
-  if (loading || (session && geralLoading)) return <LoadingScreen />;
+  // Rota pública de convite para fornecedores: abre direto sem a LoadingScreen do HUB
+  const isConviteFornecedorRoute =
+    window.location.pathname.includes("/convite-fornecedor") ||
+    window.location.pathname.includes("/fornecedor-2026") ||
+    window.location.search.includes("view=convite-fornecedor");
+
+  if (isConviteFornecedorRoute) {
+    return (
+      <ThemeProvider defaultTheme="light" storageKey="carflax-theme">
+        <NotificationProvider>
+          <ConviteFornecedorPublicView />
+        </NotificationProvider>
+      </ThemeProvider>
+    );
+  }
 
   const isMotoristaRoute =
     window.location.pathname.includes("/motorista") ||
@@ -1913,8 +1927,6 @@ function App() {
     );
   }
 
-  // Página pública do QR de avaliação (cliente, sem login). Usa /avaliar — não
-  // "?v=" para não colidir com a rota do motorista acima.
   const isAvaliarRoute = window.location.pathname.includes("/avaliar");
   if (isAvaliarRoute) {
     return (
@@ -1938,20 +1950,7 @@ function App() {
     );
   }
 
-  const isConviteFornecedorRoute =
-    window.location.pathname.includes("/convite-fornecedor") ||
-    window.location.pathname.includes("/fornecedor-2026") ||
-    window.location.search.includes("view=convite-fornecedor");
-
-  if (isConviteFornecedorRoute) {
-    return (
-      <ThemeProvider defaultTheme="dark" storageKey="carflax-theme">
-        <NotificationProvider>
-          <ConviteFornecedorPublicView />
-        </NotificationProvider>
-      </ThemeProvider>
-    );
-  }
+  if (loading || (session && geralLoading)) return <LoadingScreen />;
 
 
   return (
