@@ -281,8 +281,6 @@ export function ConviteFornecedorPublicView() {
 
   // Os dados do evento vêm do Supabase quando disponíveis; os fallbacks abaixo são
   // os valores do Encontro 2026, para a página nunca aparecer vazia se a query falhar.
-  const fmtHora = (h?: string | null) => (h ? h.slice(0, 5).replace(":", "h") : null);
-
   const dataEventoLabel = (() => {
     if (!evento?.data_evento) return "22 de outubro de 2026";
     const d = new Date(`${evento.data_evento}T12:00:00`);
@@ -290,13 +288,7 @@ export function ConviteFornecedorPublicView() {
     return d.toLocaleDateString("pt-BR", { day: "numeric", month: "long", year: "numeric" });
   })();
 
-  const horarioLabel = (() => {
-    const ini = fmtHora(evento?.hora_inicio);
-    const fim = fmtHora(evento?.hora_fim);
-    if (ini && fim) return `${ini} às ${fim}`;
-    if (ini) return ini;
-    return "17h30 às 20h30";
-  })();
+  const horarioLabel = "17h30 às 20h30";
 
   const localLabel = evento?.local || "Galpão da Carflax";
 
