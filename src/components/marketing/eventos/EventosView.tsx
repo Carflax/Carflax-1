@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { CalendarDays, MapPin, Clock, Users, ChevronLeft, PartyPopper, AlertCircle } from "lucide-react";
+import { ChevronLeft, PartyPopper, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/lib/supabase";
 import { FornecedoresTab } from "./FornecedoresTab";
 import { ConvidadosTab } from "./ConvidadosTab";
 import {
   type Evento, type EventoFornecedor, type EventoConvidado,
   fetchEventos, fetchFornecedores, fetchConvidados,
-  formatDate, formatHora, diasAte, formatBRL, mensagemErro,
+  formatDate, formatHora, diasAte, mensagemErro,
 } from "./types";
 
 type Aba = "fornecedores" | "convidados";
@@ -69,22 +68,6 @@ export function EventosView() {
   const recarregar = useCallback(() => {
     if (selecionado) carregarDetalhe(selecionado.id);
   }, [selecionado, carregarDetalhe]);
-
-  // Atualiza o evento em si (hoje: brindes do kit). Reflete na hora no card
-  // selecionado e na lista, para não precisar recarregar a tela inteira.
-  const salvarBrindes = useCallback(async (campos: Partial<Evento>) => {
-    if (!selecionado) return;
-    const { data, error } = await supabase
-      .from("eventos")
-      .update({ ...campos, updated_at: new Date().toISOString() })
-      .eq("id", selecionado.id)
-      .select()
-      .single();
-    if (error) { setErro(mensagemErro(error)); return; }
-    const atualizado = data as Evento;
-    setSelecionado(atualizado);
-    setEventos(prev => prev.map(e => (e.id === atualizado.id ? atualizado : e)));
-  }, [selecionado]);
 
   if (loading) {
     return (
@@ -222,122 +205,40 @@ export function EventosView() {
   }
 
   // ── Detalhe do evento ─────────────────────────────────────────────────────
-  const dias = diasAte(selecionado.data_evento);
-  const confirmados = convidados.filter(c => c.status === "confirmado").length;
-  const verbaConfirmada = fornecedores
-    .filter(f => f.status === "confirmado")
-    .reduce((a, f) => a + Number(f.cota_valor || 0), 0);
-  const pctBrindes = selecionado.brindes_meta > 0
-    ? (selecionado.brindes_recebidos / selecionado.brindes_meta) * 100
-    : 0;
-
   return (
     <div className="flex-1 p-6 lg:p-8 bg-background h-full overflow-y-auto">
-      <button
-        onClick={() => setSelecionado(null)}
-        className="flex items-center gap-1 text-[10px] font-black text-muted-foreground hover:text-foreground uppercase tracking-widest mb-4 transition-colors"
-      >
-        <ChevronLeft className="w-3.5 h-3.5" /> Todos os eventos
-      </button>
-
-      {/* Cabeçalho */}
-      <div className="bg-card border border-border rounded-xl p-5 mb-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2 mb-1.5">
-              <span className={cn("text-[8px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full border", STATUS_COLOR[selecionado.status])}>
-                {selecionado.status}
-              </span>
-              {dias >= 0 && (
-                <span className="text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest">
-                  {dias === 0 ? "É hoje!" : `Faltam ${dias} dias`}
-                </span>
-              )}
-            </div>
-            <h1 className="text-xl font-black text-foreground uppercase tracking-tighter">{selecionado.nome}</h1>
-            {selecionado.subtitulo && (
-              <p className="text-[11px] font-bold text-muted-foreground mt-0.5">{selecionado.subtitulo}</p>
-            )}
-            <div className="flex flex-wrap gap-4 mt-3 text-[10px] font-bold text-muted-foreground">
-              <div className="flex items-center gap-1.5"><CalendarDays className="w-3 h-3" /> {formatDate(selecionado.data_evento)}</div>
-              {selecionado.hora_inicio && <div className="flex items-center gap-1.5"><Clock className="w-3 h-3" /> {formatHora(selecionado.hora_inicio)} às {formatHora(selecionado.hora_fim)}</div>}
-              {selecionado.local && <div className="flex items-center gap-1.5"><MapPin className="w-3 h-3" /> {selecionado.local}</div>}
-              <div className="flex items-center gap-1.5"><Users className="w-3 h-3" /> Meta: {selecionado.publico_meta_min}–{selecionado.publico_meta_max} presentes</div>
-            </div>
-          </div>
-
-          <div className="flex gap-6">
-            <div className="text-right">
-              <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest block">Verba</span>
-              <p className="text-lg font-black text-foreground tracking-tighter">{formatBRL(verbaConfirmada)}</p>
-              <span className="text-[9px] font-bold text-muted-foreground">de {formatBRL(selecionado.verba_meta)}</span>
-            </div>
-            <div className="text-right">
-              <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest block">Confirmados</span>
-              <p className="text-lg font-black text-emerald-600 tracking-tighter">{confirmados}</p>
-              <span className="text-[9px] font-bold text-muted-foreground">de {convidados.length} convidados</span>
-            </div>
-
-            {/* Kit Instalador: controle único do evento */}
-            <div className="text-right">
-              <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest block mb-1">Kit Instalador</span>
-              <div className="flex items-center gap-1 justify-end">
-                <input
-                  type="number"
-                  min={0}
-                  defaultValue={selecionado.brindes_recebidos}
-                  onBlur={e => salvarBrindes({ brindes_recebidos: Math.max(0, parseInt(e.target.value) || 0) })}
-                  title="Brindes já recebidos"
-                  className="w-16 px-2 py-0.5 text-lg font-black text-foreground tracking-tighter bg-transparent border border-border rounded-md text-right focus:outline-none focus:border-blue-500"
-                />
-                <span className="text-sm font-black text-muted-foreground">/</span>
-                <input
-                  type="number"
-                  min={0}
-                  defaultValue={selecionado.brindes_meta}
-                  onBlur={e => salvarBrindes({ brindes_meta: Math.max(0, parseInt(e.target.value) || 0) })}
-                  title="Meta de brindes para o kit"
-                  className="w-16 px-2 py-0.5 text-lg font-black text-muted-foreground tracking-tighter bg-transparent border border-border rounded-md text-right focus:outline-none focus:border-blue-500"
-                />
-              </div>
-              <span className="text-[9px] font-bold text-muted-foreground">recebidos / meta</span>
-            </div>
-          </div>
+      {/* Top Header: Voltar + Nome do Evento + Abas */}
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6 pb-4 border-b border-border/40">
+        <div className="flex items-center gap-3 min-w-0">
+          <button
+            onClick={() => setSelecionado(null)}
+            className="flex items-center gap-1 text-[10px] font-black text-muted-foreground hover:text-foreground uppercase tracking-widest transition-colors shrink-0"
+          >
+            <ChevronLeft className="w-4 h-4" /> Todos os eventos
+          </button>
+          <span className="text-border shrink-0">|</span>
+          <h1 className="text-sm sm:text-base font-black text-foreground uppercase tracking-tight truncate">
+            {selecionado.nome}
+          </h1>
         </div>
 
-        {/* Progresso do kit */}
-        {selecionado.brindes_meta > 0 && (
-          <div className="mt-4 pt-4 border-t border-border/40">
-            <div className="flex items-center justify-between text-[10px] font-bold mb-1.5">
-              <span className="text-blue-600 dark:text-blue-500 uppercase tracking-widest">Brindes do Kit Instalador</span>
-              <span className="text-foreground">{pctBrindes.toFixed(0)}%</span>
-            </div>
-            <div className="h-1.5 w-full bg-secondary dark:bg-slate-800 rounded-full overflow-hidden border border-border">
-              <div
-                className="h-full bg-blue-600 dark:bg-blue-500 rounded-full transition-all duration-700"
-                style={{ width: `${Math.min(pctBrindes, 100)}%` }}
-              />
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Abas */}
-      <div className="flex flex-wrap items-center gap-2 mb-6">
-        {ABAS.map(a => (
-          <button
-            key={a.k}
-            onClick={() => setAba(a.k)}
-            className={cn(
-              "px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-full border transition-all",
-              aba === a.k
-                ? "bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-500/20"
-                : "border-border text-muted-foreground hover:bg-secondary hover:text-foreground bg-secondary/30"
-            )}
-          >
-            {a.label}
-          </button>
-        ))}
+        {/* Abas */}
+        <div className="flex items-center gap-2">
+          {ABAS.map(a => (
+            <button
+              key={a.k}
+              onClick={() => setAba(a.k)}
+              className={cn(
+                "px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-full border transition-all",
+                aba === a.k
+                  ? "bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-500/20"
+                  : "border-border text-muted-foreground hover:bg-secondary hover:text-foreground bg-secondary/30"
+              )}
+            >
+              {a.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {erro && (

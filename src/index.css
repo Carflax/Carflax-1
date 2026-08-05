@@ -116,6 +116,35 @@
   }
 }
 
+/* Reveal on scroll das páginas públicas.
+   Escrito em CSS puro de propósito: a versão anterior aplicava as classes do
+   Tailwind (`opacity-100`, `translate-y-0`, `scale-100`) via classList.add em
+   tempo de execução, mas o scanner do Tailwind v4 não gera classe que só existe
+   dentro de string JS — as regras nunca entravam no bundle e os elementos ficavam
+   presos em opacity:0, deixando a página em branco. */
+.reveal-scroll {
+  opacity: 0;
+  transform: translateY(2.5rem);
+  transition: opacity 700ms ease-out, transform 700ms ease-out;
+  will-change: opacity, transform;
+}
+
+.reveal-scroll.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* Sem animação para quem pede movimento reduzido — e, principalmente, garante que
+   o conteúdo apareça mesmo que o observer não rode. */
+@media (prefers-reduced-motion: reduce) {
+  .reveal-scroll,
+  .reveal-scroll.is-visible {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
 /* Selo "em movimento" do marcador de motorista no mapa ao vivo */
 @keyframes frotaPulse {
   0%, 100% { transform: scale(1); }

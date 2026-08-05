@@ -53,6 +53,8 @@ import { RankingCopaView } from "@/components/crm/campanhas/RankingCopaView";
 import { PrivacyPolicyView } from "@/components/public/PrivacyPolicyView";
 import { TermsOfServiceView } from "@/components/public/TermsOfServiceView";
 import { FollowUpReminder } from "@/components/ui/FollowUpReminder";
+import { ConviteFornecedorPublicView } from "@/components/public/ConviteFornecedorPublicView";
+
 
 export interface UserProfile {
   id?: string;
@@ -1935,6 +1937,22 @@ function App() {
       </ThemeProvider>
     );
   }
+
+  const isConviteFornecedorRoute =
+    window.location.pathname.includes("/convite-fornecedor") ||
+    window.location.pathname.includes("/fornecedor-2026") ||
+    window.location.search.includes("view=convite-fornecedor");
+
+  if (isConviteFornecedorRoute) {
+    return (
+      <ThemeProvider defaultTheme="dark" storageKey="carflax-theme">
+        <NotificationProvider>
+          <ConviteFornecedorPublicView />
+        </NotificationProvider>
+      </ThemeProvider>
+    );
+  }
+
 
   return (
     <ThemeProvider defaultTheme="light" storageKey="carflax-theme">
