@@ -407,6 +407,38 @@ const ARCHIVE_REASONS = [
   { text: "Outros", icon: "💬" },
 ];
 
+// Catálogo do seletor de emoji do compositor. Lista curada em vez de biblioteca
+// externa: cobre o uso real do atendimento sem somar dependência nem peso ao bundle.
+const EMOJI_CATEGORIAS: { nome: string; emojis: string[] }[] = [
+  {
+    nome: "Frequentes",
+    emojis: ["👍", "🙏", "😊", "😀", "❤️", "🎉", "✅", "👏", "🤝", "💪", "🔥", "⭐"],
+  },
+  {
+    nome: "Rostos",
+    emojis: [
+      "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🙂", "😉", "😊", "😍", "😘",
+      "🤗", "🤔", "😐", "😴", "😥", "😢", "😭", "😤", "😡", "😱", "🤯", "🥳",
+    ],
+  },
+  {
+    nome: "Gestos",
+    emojis: ["👍", "👎", "👌", "✌️", "🤞", "👋", "🙌", "👏", "🙏", "💪", "🤝", "☝️"],
+  },
+  {
+    nome: "Trabalho",
+    emojis: ["📦", "🚚", "🧾", "💰", "💵", "💳", "📅", "⏰", "📞", "📱", "📍", "✍️"],
+  },
+  {
+    nome: "Obra",
+    emojis: ["🔧", "🔩", "🚿", "🚰", "💧", "⚡", "🔌", "💡", "🏗️", "🧰", "🪛", "🧯"],
+  },
+  {
+    nome: "Símbolos",
+    emojis: ["✅", "❌", "⚠️", "❗", "❓", "⭐", "🔥", "🎯", "📈", "🎉", "🆗", "➡️"],
+  },
+];
+
 const getTempColor = (temp?: string) => {
   switch (temp) {
     case "Quente":
@@ -995,6 +1027,8 @@ export function WhatsappView({
   const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const composerInputRef = useRef<HTMLInputElement | null>(null);
   const [loading, setLoading] = useState(true);
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
   const [followUpDateInput, setFollowUpDateInput] = useState("");
@@ -1059,6 +1093,23 @@ export function WhatsappView({
   const tempClassifyTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(
     new Map(),
   );
+
+  // Saúde do realtime. Um canal do Supabase pode cair sem avisar (aba em segundo
+  // plano, máquina suspensa, oscilação de rede, renovação de token) e antes disso
+  // a tela ficava congelada até o atendente dar F5 — mensagem de cliente chegava
+  // e ninguém via. `realtimeGen` é incrementado para forçar a reassinatura dos
+  // canais, e o resync recarrega o que chegou enquanto o canal esteve fora.
+  const realtimeHealthyRef = useRef(true);
+  const [realtimeGen, setRealtimeGen] = useState(0);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const agendarReconexaoRealtime = useCallback(() => {
+    if (reconnectTimerRef.current) return; // já há uma tentativa agendada
+    reconnectTimerRef.current = setTimeout(() => {
+      reconnectTimerRef.current = null;
+      setRealtimeGen((g) => g + 1);
+    }, 2000);
+  }, []);
 
   const [presenceChats, setPresenceChats] = useState<Map<string, string>>(
     new Map(),
@@ -1171,11 +1222,17 @@ export function WhatsappView({
           }
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          console.warn(`[WhatsApp] Realtime de clientes caiu (${status}). Reconectando...`);
+          realtimeHealthyRef.current = false;
+          agendarReconexaoRealtime();
+        }
+      });
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [realtimeGen, agendarReconexaoRealtime]);
 
   const sendBrowserNotification = (
     title: string,
@@ -1246,10 +1303,16 @@ export function WhatsappView({
 
   const CHATS_PAGE = 50;
 
-  const loadChats = useCallback(async () => {
+  // `silent` = ressincronização em segundo plano (volta de aba, reconexão do
+  // realtime). Recarrega a lista sem esvaziá-la nem mostrar o loading, para o
+  // atendente não ver a tela piscar enquanto está trabalhando.
+  const loadChats = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
     try {
-      setChats([]);
-      setLoading(true);
+      if (!silent) {
+        setChats([]);
+        setLoading(true);
+      }
       chatOffsetRef.current = 0;
 
       // 1. Busca no Supabase — carrega primeira página
@@ -2553,11 +2616,102 @@ export function WhatsappView({
           }
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        // Sem esse tratamento a queda do canal era silenciosa: o atendente ficava
+        // com a conversa congelada e só via as mensagens novas ao dar F5.
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          console.warn(`[WhatsApp] Realtime da conversa caiu (${status}). Reconectando...`);
+          realtimeHealthyRef.current = false;
+          agendarReconexaoRealtime();
+        } else if (status === "SUBSCRIBED") {
+          realtimeHealthyRef.current = true;
+        }
+      });
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [selectedChat?.id]);
+  }, [selectedChat?.id, realtimeGen, agendarReconexaoRealtime]);
+
+  // Rede de segurança do realtime.
+  // Mesmo com reconexão automática, existe a janela em que o canal esteve fora e
+  // as mensagens daquele intervalo não chegaram por push. Aqui ressincronizamos
+  // ao voltar para a aba, ao reconectar a internet e periodicamente — assim uma
+  // mensagem de cliente nunca fica esperando por um F5.
+  useEffect(() => {
+    let resyncing = false;
+
+    const resync = async (motivo: string) => {
+      if (resyncing || document.visibilityState === "hidden") return;
+      resyncing = true;
+      try {
+        // Reassina os canais (no-op se já estiverem saudáveis) e recarrega a lista
+        // sem piscar. `silent` evita esvaziar a lista sob os olhos do atendente.
+        if (!realtimeHealthyRef.current) {
+          console.warn(`[WhatsApp] Ressincronizando após ${motivo}.`);
+          setRealtimeGen((g) => g + 1);
+        }
+        await loadChats({ silent: true });
+
+        // Recarrega a conversa aberta, mesclando só o que faltar (não substitui o
+        // estado inteiro para não perder posição de scroll nem mensagem otimista).
+        const jid = selectedChatRef.current?.id;
+        if (jid) {
+          const dbMessages = await marketingService.getMessagesByJid(jid, 50);
+          setMessages((prev) => {
+            const existentes = new Set(prev.map((m) => m.id));
+            const faltando = dbMessages
+              .filter((m) => !existentes.has(m.message_id))
+              .map((m) => ({
+                id: m.message_id,
+                text: m.texto || "",
+                time: formatBrTime(new Date(m.timestamp)),
+                rawTimestamp: m.timestamp,
+                sender: m.sender,
+                status: (m.status as "sent" | "delivered" | "read") || "sent",
+                tipo: m.tipo,
+                mediaUrl: m.media_url,
+                reacao: m.reacao,
+                editado: m.editado || false,
+                quotedText: m.quoted_text,
+                quotedSender: m.quoted_sender,
+                linkPreview: m.link_preview ?? null,
+                vendedorId: m.vendedor_id,
+              })) as Message[];
+            if (faltando.length === 0) return prev;
+            return [...prev, ...faltando].sort(
+              (a, b) =>
+                new Date(a.rawTimestamp || 0).getTime() -
+                new Date(b.rawTimestamp || 0).getTime(),
+            );
+          });
+        }
+      } catch (err) {
+        console.error("[WhatsApp] Falha ao ressincronizar:", err);
+      } finally {
+        resyncing = false;
+      }
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") resync("volta para a aba");
+    };
+    const onOnline = () => resync("reconexão da internet");
+
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("focus", onVisibility);
+
+    // Batimento periódico: cobre o caso da aba ficar aberta e visível o dia todo,
+    // em que nenhum dos eventos acima dispara.
+    const heartbeat = setInterval(() => resync("verificação periódica"), 60_000);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("focus", onVisibility);
+      clearInterval(heartbeat);
+    };
+  }, [loadChats]);
 
   useEffect(() => {
     loadChats();
@@ -2780,6 +2934,25 @@ export function WhatsappView({
   const handleSendDocument = async (file: File) => {
     if (!selectedChat) return;
     setPendingFile(file);
+  };
+
+  // Insere o emoji na posição do cursor (não no fim), preservando o que já foi
+  // digitado dos dois lados, e devolve o foco ao campo com o cursor após o emoji.
+  const inserirEmoji = (emoji: string) => {
+    const input = composerInputRef.current;
+    if (!input) {
+      setInputText((prev) => prev + emoji);
+      return;
+    }
+    const inicio = input.selectionStart ?? inputText.length;
+    const fim = input.selectionEnd ?? inputText.length;
+    const novo = inputText.slice(0, inicio) + emoji + inputText.slice(fim);
+    setInputText(novo);
+    requestAnimationFrame(() => {
+      input.focus();
+      const pos = inicio + emoji.length;
+      input.setSelectionRange(pos, pos);
+    });
   };
 
   // Reagir (like/emoji) a uma mensagem — só quando o provider suporta (API Oficial).
@@ -5794,7 +5967,59 @@ export function WhatsappView({
                     <Eye className="w-5 h-5" />
                   </button>
 
+                  {/* Seletor de emoji — antes só dava para inserir emoji pelo
+                      atalho do sistema operacional, que ninguém do atendimento usa. */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowEmojiPicker((p) => !p)}
+                      className={cn(
+                        "p-2.5 rounded-xl transition-all",
+                        showEmojiPicker
+                          ? "bg-primary/15 text-primary"
+                          : "hover:bg-secondary text-muted-foreground",
+                      )}
+                      title="Inserir emoji"
+                      aria-label="Inserir emoji"
+                      aria-expanded={showEmojiPicker}
+                    >
+                      <Smile className="w-5 h-5" />
+                    </button>
+
+                    {showEmojiPicker && (
+                      <>
+                        <div
+                          className="fixed inset-0 z-40"
+                          onClick={() => setShowEmojiPicker(false)}
+                        />
+                        <div className="absolute bottom-full left-0 mb-2 z-50 w-[19rem] max-h-72 overflow-y-auto bg-card border border-border rounded-2xl shadow-2xl p-3 space-y-3">
+                          {EMOJI_CATEGORIAS.map((cat) => (
+                            <div key={cat.nome}>
+                              <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block mb-1.5">
+                                {cat.nome}
+                              </span>
+                              <div className="grid grid-cols-8 gap-1">
+                                {cat.emojis.map((e, i) => (
+                                  <button
+                                    key={`${cat.nome}-${i}`}
+                                    type="button"
+                                    onClick={() => inserirEmoji(e)}
+                                    className="text-xl leading-none p-1 rounded-lg hover:bg-secondary hover:scale-110 transition-transform"
+                                    title={e}
+                                  >
+                                    {e}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
                   <input
+                    ref={composerInputRef}
                     type="text"
                     value={inputText}
                     onChange={(e) => {
@@ -5821,7 +6046,12 @@ export function WhatsappView({
                       setInputText(val);
                     }}
                     onKeyDown={(e) => {
+                      if (e.key === "Escape" && showEmojiPicker) {
+                        setShowEmojiPicker(false);
+                        return;
+                      }
                       if (e.key === "Enter") {
+                        setShowEmojiPicker(false);
                         if (isNoteMode) {
                           handleSendInternalNote();
                         } else {

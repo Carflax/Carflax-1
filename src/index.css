@@ -1,11 +1,21 @@
 @import "tailwindcss";
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@500;700&display=swap');
+/* Fonte de emoji própria. A do sistema não cobre emoji recente: no Windows 10 o
+   Segoe UI Emoji não tem 🥲 (U+1F972), por exemplo, e a mensagem do cliente
+   aparecia como quadradinho no atendimento. O Google Fonts entrega em subsets por
+   unicode-range, então só baixa o que a conversa realmente usa. */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Color+Emoji&display=swap');
 
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  /* A Inter vem primeiro e cobre todo o texto latino; ela não tem emoji, então só
+     os emoji caem no próximo da lista. A "Noto Color Emoji" vem ANTES das fontes do
+     sistema de propósito: assim todo emoji tem a mesma arte em qualquer máquina, em
+     vez de misturar Segoe (Windows) com Noto só nos glifos que faltam — e nenhum
+     aparece como quadradinho. As do sistema ficam como rede de segurança. */
+  --font-sans: "Inter", ui-sans-serif, system-ui, "Noto Color Emoji", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));

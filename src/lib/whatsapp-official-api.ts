@@ -201,17 +201,41 @@ export const whatsappOfficialApi = {
       };
     };
 
-    const channel = supabase
-      .channel(`official_wpp_${Date.now()}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "marketing_whatsapp" }, (p) => {
-        emit("messages.upsert", { data: rowToEvo(p.new as any) });
-      })
-      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "marketing_whatsapp" }, (p) => {
-        const row = p.new as any;
-        const status = row.status === "read" ? "READ" : row.status === "delivered" ? "DELIVERY_ACK" : row.status;
-        emit("messages.update", { data: { keyId: row.message_id, status } });
-      })
-      .subscribe();
+    // Este canal é o que alimenta a LISTA de conversas da tela. Se ele cair sem
+    // ninguém perceber, mensagem nova de cliente não aparece até dar F5 — que era
+    // justamente o problema relatado pelo atendimento. Por isso trata o status e
+    // se reassina sozinho, preservando os listeners já registrados pela tela.
+    let channel: ReturnType<typeof supabase.channel> | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let encerrado = false;
+
+    const assinar = () => {
+      if (encerrado) return;
+      channel = supabase
+        .channel(`official_wpp_${Date.now()}`)
+        .on("postgres_changes", { event: "INSERT", schema: "public", table: "marketing_whatsapp" }, (p) => {
+          emit("messages.upsert", { data: rowToEvo(p.new as any) });
+        })
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "marketing_whatsapp" }, (p) => {
+          const row = p.new as any;
+          const status = row.status === "read" ? "READ" : row.status === "delivered" ? "DELIVERY_ACK" : row.status;
+          emit("messages.update", { data: { keyId: row.message_id, status } });
+        })
+        .subscribe((status) => {
+          if (encerrado) return;
+          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+            if (reconnectTimer) return;
+            console.warn(`[WhatsApp Oficial] Realtime caiu (${status}). Reassinando em 2s...`);
+            reconnectTimer = setTimeout(() => {
+              reconnectTimer = null;
+              if (channel) supabase.removeChannel(channel);
+              assinar();
+            }, 2000);
+          }
+        });
+    };
+
+    assinar();
 
     _officialSocket = {
       on: (event, cb) => {
@@ -223,7 +247,9 @@ export const whatsappOfficialApi = {
       },
       connected: true,
       disconnect: () => {
-        supabase.removeChannel(channel);
+        encerrado = true;
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        if (channel) supabase.removeChannel(channel);
         _officialSocket = null;
       },
     };
