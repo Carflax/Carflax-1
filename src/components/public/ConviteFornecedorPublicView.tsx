@@ -89,6 +89,31 @@ export function ConviteFornecedorPublicView() {
 
 
 
+  // Meta tags dinâmicas para compartilhamento no WhatsApp / Redes Sociais
+  useEffect(() => {
+    document.title = "Festival dos Instaladores | Carflax";
+
+    const setMeta = (prop: string, content: string) => {
+      let el = document.querySelector(`meta[property="${prop}"]`) || document.querySelector(`meta[name="${prop}"]`);
+      if (!el) {
+        el = document.createElement("meta");
+        el.setAttribute(prop.startsWith("og:") ? "property" : "name", prop);
+        document.head.appendChild(el);
+      }
+      el.setAttribute("content", content);
+    };
+
+    const imgUrl = `${window.location.origin}/FESTIVAL.png`;
+
+    setMeta("og:title", "Festival dos Instaladores — Carflax");
+    setMeta("og:description", "Festival dos Instaladores Carflax: Conectando marcas, instaladores e oportunidades de negócio.");
+    setMeta("og:image", imgUrl);
+    setMeta("og:image:secure_url", imgUrl);
+    setMeta("twitter:title", "Festival dos Instaladores — Carflax");
+    setMeta("twitter:description", "Festival dos Instaladores Carflax: Conectando marcas, instaladores e oportunidades de negócio.");
+    setMeta("twitter:image", imgUrl);
+  }, []);
+
   // Setup Scroll Reveal Observer.
   // O estado visível vem da classe `is-visible` (definida em index.css); não use
   // utilitárias do Tailwind aqui — classe que só existe em string JS não é gerada
@@ -366,7 +391,7 @@ export function ConviteFornecedorPublicView() {
               </div>
 
               <h1 className="text-3xl sm:text-4xl lg:text-[44px] font-black text-[#004B97] tracking-tight leading-tight">
-                Encontro do Instalador Carflax
+                Festival dos Instaladores
               </h1>
 
               <p className="text-[#0085FF] font-bold text-base sm:text-lg leading-snug">
