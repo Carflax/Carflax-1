@@ -54,7 +54,7 @@ export function FornecedoresTab({ evento, fornecedores, onChange }: {
 
   // Quick Approval Modal State
   const [fornecedorParaAprovar, setFornecedorParaAprovar] = useState<EventoFornecedor | null>(null);
-  const [cotaInput, setCotaInput] = useState("1500");
+  const [cotaInput, setCotaInput] = useState("1000");
 
   const urlConvite = `${window.location.origin}/convite-fornecedor`;
 
@@ -223,7 +223,7 @@ export function FornecedoresTab({ evento, fornecedores, onChange }: {
                     <button onClick={() => recusarInscricao(f)} className="p-1.5 rounded-lg border border-rose-500/30 text-rose-500 hover:bg-rose-500/10 transition-colors" title="Recusar Inscrição">
                       <XCircle className="w-4 h-4" />
                     </button>
-                    <button onClick={() => { setCotaInput(f.cota_valor ? String(f.cota_valor) : "1500"); setFornecedorParaAprovar(f); }} className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black tracking-wide flex items-center gap-1 shadow-xs transition-colors">
+                    <button onClick={() => { setCotaInput(f.cota_valor ? String(f.cota_valor) : "1000"); setFornecedorParaAprovar(f); }} className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black tracking-wide flex items-center gap-1 shadow-xs transition-colors">
                       <CheckCircle2 className="w-3.5 h-3.5" />
                       <span>Aprovar</span>
                     </button>
@@ -427,7 +427,7 @@ export function FornecedoresTab({ evento, fornecedores, onChange }: {
                         <FileDown className="w-3.5 h-3.5" />
                       </button>
                       {(f.status === "follow_up" || f.status === "media_kit_enviado") && (
-                        <button onClick={() => { setCotaInput(f.cota_valor ? String(f.cota_valor) : "1500"); setFornecedorParaAprovar(f); }} className="px-2 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-[9px] font-black flex items-center gap-1 shadow-xs transition-colors">
+                        <button onClick={() => { setCotaInput(f.cota_valor ? String(f.cota_valor) : "1000"); setFornecedorParaAprovar(f); }} className="px-2 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-[9px] font-black flex items-center gap-1 shadow-xs transition-colors">
                           <CheckCircle2 className="w-3 h-3" />
                           <span>Aprovar</span>
                         </button>
@@ -481,7 +481,7 @@ export function FornecedoresTab({ evento, fornecedores, onChange }: {
                   <button onClick={() => recusarInscricao(fornecedorDetalhe)} className="px-3 py-1.5 rounded-xl border border-rose-500/30 text-rose-500 hover:bg-rose-500/10 text-xs font-bold transition-colors">
                     Recusar
                   </button>
-                  <button onClick={() => { setCotaInput(fornecedorDetalhe.cota_valor ? String(fornecedorDetalhe.cota_valor) : "1500"); setFornecedorParaAprovar(fornecedorDetalhe); }} className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-sm flex items-center gap-1.5 transition-colors">
+                  <button onClick={() => { setCotaInput(fornecedorDetalhe.cota_valor ? String(fornecedorDetalhe.cota_valor) : "1000"); setFornecedorParaAprovar(fornecedorDetalhe); }} className="px-4 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-sm flex items-center gap-1.5 transition-colors">
                     <CheckCircle2 className="w-4 h-4" />
                     <span>Aprovar & Confirmar</span>
                   </button>
@@ -601,7 +601,7 @@ export function FornecedoresTab({ evento, fornecedores, onChange }: {
 
             <div className="space-y-2">
               <label className="block text-xs font-bold text-foreground">Valor da Cota (R$)</label>
-              <input type="number" value={cotaInput} onChange={(e) => setCotaInput(e.target.value)} placeholder="1500" className="w-full px-4 py-3 rounded-xl bg-background border border-border text-foreground font-black text-sm focus:outline-none focus:border-emerald-500" />
+              <input type="number" value={cotaInput} onChange={(e) => setCotaInput(e.target.value)} placeholder="1000" className="w-full px-4 py-3 rounded-xl bg-background border border-border text-foreground font-black text-sm focus:outline-none focus:border-emerald-500" />
               <span className="text-[10px] text-muted-foreground block">Valor negociado. Pode ser alterado depois.</span>
             </div>
 

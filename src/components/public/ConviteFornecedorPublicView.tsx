@@ -335,12 +335,16 @@ export function ConviteFornecedorPublicView() {
               <span>Experiência</span>
               <span className="absolute bottom-0 left-0 w-0 h-0.5 bg-[#0085FF] transition-all duration-300 group-hover:w-full" />
             </a>
-            <a href="#evento" className="hover:text-[#004B97] transition-colors relative group">
-              <span>O evento</span>
-              <span className="absolute bottom-0 left-0 w-0 h-0.5 bg-[#0085FF] transition-all duration-300 group-hover:w-full" />
-            </a>
             <a href="#beneficios" className="hover:text-[#004B97] transition-colors relative group">
               <span>Benefícios</span>
+              <span className="absolute bottom-0 left-0 w-0 h-0.5 bg-[#0085FF] transition-all duration-300 group-hover:w-full" />
+            </a>
+            <a href="#o-que-levar" className="hover:text-[#004B97] transition-colors relative group">
+              <span>O que levar</span>
+              <span className="absolute bottom-0 left-0 w-0 h-0.5 bg-[#0085FF] transition-all duration-300 group-hover:w-full" />
+            </a>
+            <a href="#investimento" className="hover:text-[#004B97] transition-colors relative group">
+              <span>Investimento</span>
               <span className="absolute bottom-0 left-0 w-0 h-0.5 bg-[#0085FF] transition-all duration-300 group-hover:w-full" />
             </a>
             <a href="#cronograma" className="hover:text-[#004B97] transition-colors relative group">
@@ -573,6 +577,113 @@ export function ConviteFornecedorPublicView() {
                 </div>
               );
             })}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Section: O que sua marca precisa levar ── */}
+      <section id="o-que-levar" className="py-16 sm:py-24 bg-[#F7FAFC] border-t border-slate-100">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-3xl mx-auto mb-14 space-y-3 reveal-scroll">
+            <span className="px-4 py-1.5 rounded-full bg-[#EBF5FF] border border-[#0085FF]/30 text-[#0085FF] text-xs font-bold uppercase tracking-wider inline-block">
+              Checklist do Expositor
+            </span>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-[#004B97] tracking-tight">
+              O que sua marca precisa levar
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-500 max-w-xl mx-auto">
+              Tudo o que você precisa preparar para garantir uma participação de alto impacto no evento.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            <div className="reveal-scroll bg-white border border-[#E5EFFF] rounded-2xl p-6 shadow-xs hover:shadow-xl hover:border-[#0085FF]/50 transition-all space-y-3">
+              <div className="w-12 h-12 rounded-xl bg-[#EBF5FF] text-[#0085FF] flex items-center justify-center">
+                <Building2 className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-bold text-slate-900">1. Estrutura de Exposição</h3>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Banner roll-up, totem, mesa personalizada ou estande próprio para montagem na véspera (21/10 a partir das 14h).
+              </p>
+            </div>
+
+            <div className="reveal-scroll bg-white border border-[#E5EFFF] rounded-2xl p-6 shadow-xs hover:shadow-xl hover:border-[#0085FF]/50 transition-all space-y-3">
+              <div className="w-12 h-12 rounded-xl bg-[#FFF9EB] text-[#D99B00] flex items-center justify-center">
+                <Gift className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-bold text-slate-900">2. Brindes para o Kit</h3>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Itens úteis para o dia a dia do instalador (bonés, camisetas, trenas, ferramentas, chaveiros ou mochilas).
+              </p>
+            </div>
+
+            <div className="reveal-scroll bg-white border border-[#E5EFFF] rounded-2xl p-6 shadow-xs hover:shadow-xl hover:border-[#0085FF]/50 transition-all space-y-3">
+              <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <Trophy className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-bold text-slate-900">3. Prêmio para Sorteio</h3>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                1 item de destaque (furadeira, ducha premium, kit ferramentas ou vale-compras) para o sorteio oficial dos instaladores.
+              </p>
+            </div>
+
+            <div className="reveal-scroll bg-white border border-[#E5EFFF] rounded-2xl p-6 shadow-xs hover:shadow-xl hover:border-[#0085FF]/50 transition-all space-y-3">
+              <div className="w-12 h-12 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center">
+                <Users className="w-6 h-6" />
+              </div>
+              <h3 className="text-base font-bold text-slate-900">4. Equipe de Atendimento</h3>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                1 a 2 representantes/promotores da marca para recepção, atendimento e demonstrações técnicas aos clientes.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Section: Investimento & Cotas de Participação ── */}
+      <section id="investimento" className="py-16 sm:py-20 bg-white border-t border-slate-100">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="reveal-scroll rounded-3xl bg-gradient-to-r from-slate-900 via-[#004B97] to-[#0060C8] p-8 sm:p-12 shadow-2xl relative overflow-hidden text-white">
+            <div className="absolute right-0 bottom-0 translate-x-12 translate-y-12 w-96 h-96 bg-[#0085FF]/20 rounded-full blur-3xl pointer-events-none" />
+
+            <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+              <div className="lg:col-span-8 space-y-4 text-center lg:text-left">
+                <span className="px-3.5 py-1 rounded-full bg-[#F3C649] text-slate-950 text-[11px] font-black uppercase tracking-wider inline-block">
+                  Investimento Transparente
+                </span>
+                <h2 className="text-3xl sm:text-4xl font-extrabold tracking-tight">
+                  Cota de Participação & Patrocínio
+                </h2>
+                <p className="text-blue-100 text-sm sm:text-base leading-relaxed max-w-2xl">
+                  Garanta a presença da sua marca no maior encontro de instaladores e eletricistas da região com investimento acessível e alto retorno em relacionamento e novos negócios.
+                </p>
+                <div className="pt-2 flex flex-wrap items-center justify-center lg:justify-start gap-4 text-xs text-blue-200 font-medium">
+                  <div className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-[#F3C649]" /> Espaço para Exposição</div>
+                  <div className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-[#F3C649]" /> Inserção no Kit do Instalador</div>
+                  <div className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-[#F3C649]" /> Divulgação nas Redes Carflax</div>
+                </div>
+              </div>
+
+              <div className="lg:col-span-4 flex flex-col items-center lg:items-end text-center lg:text-right">
+                <div className="bg-white/10 border border-white/20 rounded-2xl p-6 backdrop-blur-md w-full max-w-xs space-y-3">
+                  <span className="text-[11px] font-bold uppercase tracking-widest text-blue-200 block">
+                    Cota a partir de
+                  </span>
+                  <div className="text-3xl sm:text-4xl font-black text-white tracking-tight">
+                    R$ 1.000<span className="text-lg font-bold text-blue-200">,00</span>
+                  </div>
+                  <span className="text-[10px] text-blue-200 block">
+                    Cotas customizáveis sob medida com a equipe de Marketing
+                  </span>
+                  <button
+                    onClick={scrollToForm}
+                    className="w-full py-3 rounded-xl bg-[#F3C649] hover:bg-[#e2b73c] text-slate-950 font-extrabold text-xs uppercase tracking-wider shadow-lg transition-all"
+                  >
+                    Garantir Minha Cota →
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </section>
