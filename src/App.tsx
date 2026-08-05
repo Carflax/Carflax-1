@@ -1626,49 +1626,19 @@ function App() {
       const dataStr = `${yyyy}-${mm}-${dd}`;
       const primeiroDia = `${yyyy}-${mm}-01`;
 
-      const { apiDashboardGeral, apiCrmOrcamentos, mapCrmItem } = await import("@/lib/api");
-      const { getCrmStatusMap } = await import("@/lib/crm-service");
+      const { apiDashboardGeral } = await import("@/lib/api");
+      const { buildPerdidoMap } = await import("@/lib/perdido-map");
 
       const role = profile.role?.toUpperCase() || "";
       const isManager = role.includes("GERENTE") || role === "ADMIN";
       const codVendedor =
         profile.operator_code || profile.operatorCode || "049";
 
-      const [response, orcData] = await Promise.all([
-        apiDashboardGeral(isManager ? undefined : codVendedor, dataStr),
-        apiCrmOrcamentos({ inicio: primeiroDia, fim: dataStr }).catch(() => null),
-      ]);
-
       // Calcula perdidoMap antes de setar qualquer estado, para evitar flash de 100%
-      let newPerdidoMap = new Map<string, number>();
-      if (orcData && orcData.length > 0) {
-        const docs = orcData.map((r) => r.ORCAMENTO);
-        const statusMap = await getCrmStatusMap(docs);
-        const map = new Map<string, number>();
-
-        for (const r of orcData) {
-          const crmStatus = statusMap.get(r.ORCAMENTO?.trim())?.status_crm;
-          let status = "EMITIDO";
-          if (r.MOTIVO_CANCELAMENTO !== "SEM MOTIVO") status = "PERDIDO";
-          else if (r.PEDIDO === "Sim" || r.NOTA_FISCAL || (r.DATA_BAIXA && r.DATA_BAIXA !== "SEM DATA")) status = "VENDA";
-          if (crmStatus) status = crmStatus;
-
-          if (status === "PERDIDO") {
-            const products = (r.PRODUTOS || []).map(mapCrmItem);
-            const totalVenda = products.reduce((acc: number, p: { QUANTIDADE: number | string; PRECO_UNITARIO: number | string }) =>
-              acc + (parseFloat(String(p.QUANTIDADE)) || 0) * (parseFloat(String(p.PRECO_UNITARIO)) || 0), 0);
-            const total = parseFloat(r.VALOR_TOTAL_ORCAMENTO) || 0;
-            const valor = totalVenda || total;
-            const cod = String(r.COD_VENDEDOR || "").trim();
-            map.set(cod, (map.get(cod) || 0) + valor);
-          }
-        }
-
-        let totalPerdido = 0;
-        map.forEach((v) => { totalPerdido += v; });
-        map.set("MEDIA", totalPerdido);
-        newPerdidoMap = map;
-      }
+      const [response, newPerdidoMap] = await Promise.all([
+        apiDashboardGeral(isManager ? undefined : codVendedor, dataStr),
+        buildPerdidoMap(primeiroDia, dataStr).catch(() => new Map<string, number>()),
+      ]);
 
       // Seta ambos os estados juntos para renderizar uma única vez com dados completos
       if (isManager) {

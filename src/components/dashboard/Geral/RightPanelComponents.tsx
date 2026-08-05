@@ -290,10 +290,13 @@ const isDiaUtil = (d: Date, feriados: Set<string>) => {
   return dow !== 0 && dow !== 6 && !feriados.has(toISODate(d));
 };
 
-const getDiasUteisNoMes = () => {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = d.getMonth();
+// Todos os cálculos de ritmo (equilíbrio, diário, % vs equilíbrio) são relativos a
+// uma data de referência — que é hoje no painel, mas vira o mês escolhido quando o
+// modal "Todos os Vendedores" está filtrado. Sem receber esse `ref`, um mês passado
+// sairia com o equilíbrio e o diário do mês corrente.
+const getDiasUteisNoMes = (ref: Date = new Date()) => {
+  const y = ref.getFullYear();
+  const m = ref.getMonth();
   const feriados = getFeriados(y);
   const lastDay = new Date(y, m + 1, 0).getDate();
   let count = 0;
@@ -303,12 +306,17 @@ const getDiasUteisNoMes = () => {
   return count;
 };
 
-const getDiasUteisRestantes = () => {
-  const d = new Date();
-  const y = d.getFullYear();
+// Dias úteis de `ref` (inclusive) até o fim do mês de `ref`. Para um mês já
+// encerrado o resultado é 0 — não há mais o que vender nele.
+const getDiasUteisRestantes = (ref: Date = new Date()) => {
+  const y = ref.getFullYear();
   const feriados = getFeriados(y);
-  const start = new Date(y, d.getMonth(), d.getDate());
-  const end = new Date(y, d.getMonth() + 1, 0);
+  const start = new Date(y, ref.getMonth(), ref.getDate());
+  const end = new Date(y, ref.getMonth() + 1, 0);
+  const hoje = new Date();
+  const mesEncerrado =
+    y < hoje.getFullYear() || (y === hoje.getFullYear() && ref.getMonth() < hoje.getMonth());
+  if (mesEncerrado) return 0;
   let count = 0;
   for (let dt = new Date(start); dt <= end; dt.setDate(dt.getDate() + 1)) {
     if (isDiaUtil(dt, feriados)) count++;
@@ -316,25 +324,29 @@ const getDiasUteisRestantes = () => {
   return count;
 };
 
-// Quanto o vendedor deveria ter vendido até hoje para estar no ritmo da meta.
-const calcEquilibrio = (row?: VendedorResumo | null) => {
+// Quanto o vendedor deveria ter vendido até a data de referência para estar no
+// ritmo da meta. Em mês encerrado o equilíbrio é a meta cheia.
+const calcEquilibrio = (row?: VendedorResumo | null, ref?: Date) => {
   if (!row) return 0;
-  const totalWorkingDays = getDiasUteisNoMes();
-  const remainingDays = getDiasUteisRestantes();
+  const totalWorkingDays = getDiasUteisNoMes(ref);
+  const remainingDays = getDiasUteisRestantes(ref);
   const daysPassed = row.dias_trabalhados ?? Math.max(0, totalWorkingDays - remainingDays);
   const metaNum = typeof row.META === 'string' ? parseFloat(row.META) : row.META;
   return (Number(metaNum) / totalWorkingDays) * daysPassed;
 };
 
-const calcDiarioNecessario = (row?: VendedorResumo | null) => {
+const calcDiarioNecessario = (row?: VendedorResumo | null, ref?: Date) => {
   if (!row) return 0;
+  const restantes = getDiasUteisRestantes(ref);
+  // Mês encerrado: não existe "quanto preciso vender por dia" — nada a recuperar.
+  if (restantes <= 0) return 0;
   const faltante = typeof row.FALTANTE === 'string' ? parseFloat(row.FALTANTE) : (row.FALTANTE || 0);
-  return Math.max(0, Number(faltante) / Math.max(getDiasUteisRestantes(), 1));
+  return Math.max(0, Number(faltante) / restantes);
 };
 
-// % do ritmo: quanto já vendeu em relação ao equilíbrio do dia de hoje.
-const calcPercentVsEquilibrio = (row?: VendedorResumo | null) => {
-  const equilibrio = calcEquilibrio(row);
+// % do ritmo: quanto já vendeu em relação ao equilíbrio da data de referência.
+const calcPercentVsEquilibrio = (row?: VendedorResumo | null, ref?: Date) => {
+  const equilibrio = calcEquilibrio(row, ref);
   const total = Number(row?.TOTAL || 0);
   return equilibrio > 0 ? (total / equilibrio) * 100 : 0;
 };
@@ -357,20 +369,25 @@ const calcTaxaConversao = (row: VendedorResumo, perdidoMap: Map<string, number>,
 // Versão compacta do SalesMetricsCard, usada no modal "Todos os Vendedores".
 // Repete o mesmo visual do card principal (rosca de ritmo + vendido hoje +
 // barra de meta + indicadores), com os mesmos cálculos.
-function VendedorMiniCard({ row, perdidoMap, isActive, onSelect }: {
+function VendedorMiniCard({ row, perdidoMap, refDate, isActive, onSelect }: {
   row: VendedorResumo;
-  perdidoMap: Map<string, number>;
+  perdidoMap: Map<string, number> | null;
+  refDate?: Date;
   isActive?: boolean;
   onSelect?: () => void;
 }) {
-  const equilibrio = calcEquilibrio(row);
+  const equilibrio = calcEquilibrio(row, refDate);
   const total = Number(row.TOTAL || 0);
-  const percent = calcPercentVsEquilibrio(row);
+  const percent = calcPercentVsEquilibrio(row, refDate);
   const metaNum = Number(row.META || 0);
   const atingimento = metaNum > 0 ? (total / metaNum) * 100 : 0;
   const diffMeta = metaNum - total;
   const isTeam = row.COD_VENDEDOR.startsWith("TEAM:");
   const isTotal = row.COD_VENDEDOR === "MEDIA";
+  const hoje = new Date();
+  const isMesCorrente =
+    !refDate ||
+    (refDate.getFullYear() === hoje.getFullYear() && refDate.getMonth() === hoje.getMonth());
 
   const nome = isTotal
     ? "Total Geral"
@@ -383,8 +400,8 @@ function VendedorMiniCard({ row, perdidoMap, isActive, onSelect }: {
     { label: "Em Aberto", value: formatBRL(row.EM_ABERTO), icon: Clock, valueColor: "text-amber-600" },
     { label: "Total", value: formatBRL(row.TOTAL), icon: TrendingUp, valueColor: "text-foreground" },
     { label: "Equilíbrio", value: formatBRL(equilibrio), icon: BarChart3, valueColor: "text-blue-600" },
-    { label: "Diário", value: formatBRL(calcDiarioNecessario(row)), icon: Zap, valueColor: "text-foreground" },
-    { label: "Tx Conversão", value: `${calcTaxaConversao(row, perdidoMap).toFixed(1)}%`, icon: PieChart, valueColor: "text-blue-600" },
+    { label: "Diário", value: formatBRL(calcDiarioNecessario(row, refDate)), icon: Zap, valueColor: "text-foreground" },
+    { label: "Tx Conversão", value: perdidoMap ? `${calcTaxaConversao(row, perdidoMap).toFixed(1)}%` : "—", icon: PieChart, valueColor: "text-blue-600" },
     { label: "Ticket Médio", value: formatBRL(row.TICKET_MEDIO), icon: DollarSign, valueColor: "text-foreground" },
     { label: "Margem", value: `${Number(row.MARGEM_REAL_PERC || row.MARGEM_PCT || 0).toFixed(1)}%`, icon: TrendingUp, valueColor: "text-blue-600" },
   ];
@@ -443,9 +460,13 @@ function VendedorMiniCard({ row, perdidoMap, isActive, onSelect }: {
         </span>
       </div>
 
-      {/* Vendido hoje */}
+      {/* Vendido no dia de referência (hoje, ou o último dia do mês filtrado) */}
       <div className="mb-2 flex flex-col items-center text-center">
-        <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest mb-0.5">Vendido Hoje</p>
+        <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest mb-0.5">
+          {isMesCorrente
+            ? "Vendido Hoje"
+            : `Vendido ${refDate!.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`}
+        </p>
         <h3 className="text-base font-black text-foreground tracking-tighter">{formatBRL(row.TOTAL_VENDIDO_HOJE || 0)}</h3>
       </div>
 
@@ -479,7 +500,7 @@ function VendedorMiniCard({ row, perdidoMap, isActive, onSelect }: {
   );
 }
 
-export function SalesMetricsCard({ isCompact, userProfile, data: externalData, loading: externalLoading, perdidoMap = new Map() }: { isCompact?: boolean, userProfile?: UserProfileLite, data?: VendedorResumo, loading?: boolean, perdidoMap?: Map<string, number> }) {
+export function SalesMetricsCard({ isCompact, userProfile, data: externalData, loading: externalLoading, perdidoMap: perdidoMapProp = new Map() }: { isCompact?: boolean, userProfile?: UserProfileLite, data?: VendedorResumo, loading?: boolean, perdidoMap?: Map<string, number> }) {
   // Diretor tem visão própria (Total geral); não deve semear o painel com a linha
   // individual vinda do App — senão pisca a linha do diretor antes do efeito ajustar.
   const isDirectorInit = (userProfile?.role?.toUpperCase() || "").includes("DIRETOR");
@@ -490,6 +511,17 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, l
   const [refDate, setRefDate] = useState<Date>(() => new Date());
   const [isDateModalOpen, setIsDateModalOpen] = useState(false);
   const [pickerYear, setPickerYear] = useState<number>(() => new Date().getFullYear());
+  // Perdido do mês filtrado. O `perdidoMap` que vem do App é sempre do mês corrente;
+  // ao escolher outro mês precisamos do perdido daquele período, senão a Tx Conversão
+  // divide o TOTAL do mês filtrado pelo perdido do mês atual.
+  const [perdidoMapMes, setPerdidoMapMes] = useState<Map<string, number> | null>(null);
+  const isMesCorrente = (() => {
+    const h = new Date();
+    return refDate.getFullYear() === h.getFullYear() && refDate.getMonth() === h.getMonth();
+  })();
+  // `null` = perdido do mês filtrado ainda carregando → a Tx Conversão sai como "—"
+  // em vez de 100% (que é o que um mapa vazio produziria).
+  const perdidoMap: Map<string, number> | null = isMesCorrente ? perdidoMapProp : perdidoMapMes;
   const [selectedCod, setSelectedCod] = useState<string>("TOTAL");
   // Códigos dos vendedores do time (quando supervisor) — usado para agregar o "perdido"
   // do time na Tx Conversão em vez de pegar o total da loja (chave "MEDIA").
@@ -991,6 +1023,33 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, l
     refDate,
   ]);
 
+  // Perdido (denominador da Tx Conversão) do mês filtrado. No mês corrente o mapa já
+  // vem pronto do App; em outro mês precisa ser buscado do 1º ao último dia dele.
+  useEffect(() => {
+    if (isMesCorrente) { setPerdidoMapMes(null); return; }
+
+    let cancelled = false;
+    const y = refDate.getFullYear();
+    const m = String(refDate.getMonth() + 1).padStart(2, '0');
+    const ultimoDia = new Date(y, refDate.getMonth() + 1, 0).getDate();
+    const inicio = `${y}-${m}-01`;
+    const fim = `${y}-${m}-${String(ultimoDia).padStart(2, '0')}`;
+
+    setPerdidoMapMes(null);
+    (async () => {
+      try {
+        const { buildPerdidoMap } = await import("@/lib/perdido-map");
+        const map = await buildPerdidoMap(inicio, fim);
+        if (!cancelled) setPerdidoMapMes(map);
+      } catch (err) {
+        console.error("Erro ao carregar perdido do mês:", err);
+        if (!cancelled) setPerdidoMapMes(new Map());
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [refDate, isMesCorrente]);
+
   useEffect(() => {
     setActiveQuote(prev => getRandomQuote(prev));
   }, [selectedCod, getRandomQuote]);
@@ -1020,11 +1079,11 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, l
     return () => window.removeEventListener("keydown", onKey);
   }, [isAllOpen]);
 
-  const calculateEquilibrio = () => calcEquilibrio(data);
+  const calculateEquilibrio = () => calcEquilibrio(data, refDate);
 
-  const getDiasRestantes = () => getDiasUteisRestantes();
+  const getDiasRestantes = () => getDiasUteisRestantes(refDate);
 
-  const calculateDiarioNecessario = () => calcDiarioNecessario(data);
+  const calculateDiarioNecessario = () => calcDiarioNecessario(data, refDate);
 
   const metrics = data ? [
     { label: m("Meta"), value: formatBRL(data.META), icon: Target, valueColor: "text-slate-900" },
@@ -1037,7 +1096,7 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, l
     { label: m("Diário"), value: formatBRL(calculateDiarioNecessario()), icon: Zap, valueColor: "text-slate-900" },
     // Visão "Meu Time" (supervisor): soma o perdido só dos vendedores do time,
     // em vez de pegar o total da loja (chave "MEDIA" do perdidoMap).
-    { label: m("Tx Conversão"), value: `${calcTaxaConversao(data, perdidoMap, teamCodes).toFixed(2)}%`, icon: PieChart, valueColor: "text-blue-600" },
+    { label: m("Tx Conversão"), value: perdidoMap ? `${calcTaxaConversao(data, perdidoMap, teamCodes).toFixed(2)}%` : "—", icon: PieChart, valueColor: "text-blue-600" },
     { label: m("Ticket Médio"), value: formatBRL(data.TICKET_MEDIO), icon: DollarSign, valueColor: "text-slate-900" },
     { label: m("Margem Real"), value: `${Number(data.MARGEM_REAL_PERC || data.MARGEM_PCT || 0).toFixed(2)}%`, icon: TrendingUp, valueColor: "text-blue-600" },
     { label: m("Prazo Médio"), value: `${Number(data.PRAZO_MEDIO_DIAS || 0).toFixed(0)} d`, icon: Clock, valueColor: "text-slate-900" },
@@ -1355,7 +1414,9 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, l
           {/* 4. VALOR VENDIDO (MAIS DISCRETO) */}
           <div className="mb-2 flex flex-col items-center text-center">
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1 font-sans">
-              Total Vendido Hoje
+              {isMesCorrente
+                ? "Total Vendido Hoje"
+                : `Total Vendido ${refDate.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`}
             </p>
             <h3 className="text-2xl font-black text-foreground tracking-tighter mb-0.5">
               {formatBRL(data?.TOTAL_VENDIDO_HOJE || 0)}
@@ -1505,7 +1566,7 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, l
                 const vendedores = rest
                   .filter(v => !v.COD_VENDEDOR.startsWith("TEAM:"))
                   .filter(v => Number(v.META) > 0)
-                  .sort((a, b) => calcPercentVsEquilibrio(b) - calcPercentVsEquilibrio(a));
+                  .sort((a, b) => calcPercentVsEquilibrio(b, refDate) - calcPercentVsEquilibrio(a, refDate));
 
                 const select = (v: VendedorResumo) => {
                   setSelectedCod(v.COD_VENDEDOR);
@@ -1520,6 +1581,7 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, l
                         key={v.COD_VENDEDOR}
                         row={v}
                         perdidoMap={perdidoMap}
+                        refDate={refDate}
                         isActive={selectedCod === v.COD_VENDEDOR}
                         onSelect={() => select(v)}
                       />
