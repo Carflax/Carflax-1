@@ -17,7 +17,7 @@ import {
 import { cn, formatBrTime } from "@/lib/utils";
 import { getConversas, addConversa, getResponsavelIdForVendedor, marcarVista, type CrmConversa } from "@/lib/crm-service";
 import { supabase } from "@/lib/supabase";
-import { apiCrmOrcamentos, mapCrmItem, type CrmItem } from "@/lib/api";
+import { apiCrmOrcamentos, apiCrmOrcamentoItens, mapCrmItem, type CrmItem } from "@/lib/api";
 
 interface UserProfile {
   id?: string;
@@ -710,20 +710,13 @@ export function ChatModal({
 
     setItemsLoading(true);
     try {
-      const fullDocId = documento.trim();
-      const cleanDocId = documento.replace("#", "").split("-")[0].trim();
-      
-      const raw = await apiCrmOrcamentos({});
-      // Busca flexível: tenta ID completo ou ID limpo
-      const budget = raw.find(b => 
-        b.ORCAMENTO === fullDocId || 
-        b.ORCAMENTO === cleanDocId || 
-        b.ORCAMENTO?.includes(cleanDocId)
-      );
-
-      if (budget) {
-        setItems((budget.PRODUTOS || []).map(mapCrmItem));
-      }
+      // Vai direto no endpoint de itens (FATDOR). Antes isso baixava a lista de
+      // orçamentos sem filtro e procurava o documento nela — mas essa listagem só
+      // traz o mês corrente, então qualquer orçamento de mês anterior aparecia
+      // como "nenhum item encontrado".
+      const docId = documento.replace("#", "").trim();
+      const rows = await apiCrmOrcamentoItens(docId, empresa || undefined);
+      setItems(rows.map(mapCrmItem));
     } catch (e) {
       console.error("[Chat] Erro ao buscar produtos:", e);
     } finally {
