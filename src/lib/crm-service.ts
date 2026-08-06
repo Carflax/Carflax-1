@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import { supabase } from "./supabase";
+import { apiCrmMotivosPerda } from "./api";
 
 // ─── Firestore REST (sem SDK) ─────────────────────────────────────────────────
 const FIREBASE_PROJECT = "gestao-de-tempo";
@@ -51,28 +53,79 @@ async function fsGetAll(collection: string): Promise<Record<string, unknown>[]> 
 }
 
 // ─── Motivos de perda ─────────────────────────────────────────────────────────
-// Fonte única: o filtro de orçamentos, o seletor de "marcar como perdido" e o
-// cadastro de responsáveis por notificação (Configurações) leem daqui. Estavam
-// duplicados em três lugares — incluir um motivo em só um deles fazia o motivo
-// existir sem ninguém poder ser avisado dele.
+// Fonte única: o cadastro do ERP (CADCOC, COC_CODTOC = '00001') — a mesma lista
+// que o vendedor vê no Citel. Incluir/remover motivo lá reflete aqui sozinho.
+// O filtro de orçamentos, o seletor de "marcar como perdido" e o cadastro de
+// responsáveis por notificação (Configurações) usam `useLossReasons()`.
 //
-// A notificação casa o motivo por igualdade exata (crm_loss_responsibles), então
-// mudar um texto aqui órfã o cadastro que aponta para o texto antigo.
-export const LOSS_REASONS = [
-  "Preço Alto",
-  "Preço Alto (Fabricante)",
-  "Falta de Estoque",
-  "Furo de Estoque",
-  "Desistiu",
-  "Prazo de Entrega",
-  "Condição de Pagamento",
-  "Mão de Obra e Material",
-  "Comparativo de Linhas",
-  "Alteração de Preço",
-  "Liberação Financeira",
+// A notificação casa o motivo por igualdade de texto (case-insensitive) contra
+// crm_loss_responsibles, então renomear um motivo no ERP órfã o cadastro que
+// aponta para o texto antigo.
+//
+// Esta constante é só o fallback de quando o ERP não responde — a tela nunca
+// fica sem motivos. Não use direto na UI.
+export const LOSS_REASONS_FALLBACK = [
+  "PREÇO ALTO",
+  "FALTA DE ESTOQUE",
+  "PRAZO DE ENTREGA",
+  "ERRO VENDEDOR",
+  "DESISTIU",
+  "POSTERGOU",
+  "LIBERAÇÃO FINANCEIRA",
+  "COMPARATIVO DE LINHAS",
+  "MÃO DE OBRA E MATERIAL",
+  "PREÇO ALTO FABRICANTE",
 ] as const;
 
 export const LOSS_REASON_ALL = "Todos os Motivos";
+
+/** Motivo que exige marcar quais itens do orçamento se perderam. */
+export function isEstoqueLossReason(motivo: string | null | undefined): boolean {
+  return (motivo ?? "").toUpperCase().includes("ESTOQUE");
+}
+
+// Cache de módulo: a lista muda raríssimo e várias telas pedem ao mesmo tempo.
+// `inflight` evita N requisições simultâneas na primeira montagem.
+let lossReasonsCache: string[] | null = null;
+let lossReasonsInflight: Promise<string[]> | null = null;
+
+export async function getLossReasons(): Promise<string[]> {
+  if (lossReasonsCache) return lossReasonsCache;
+  if (lossReasonsInflight) return lossReasonsInflight;
+
+  lossReasonsInflight = apiCrmMotivosPerda()
+    .then((rows) => {
+      const list = rows.map((r) => r.descricao.trim()).filter(Boolean);
+      if (list.length === 0) return [...LOSS_REASONS_FALLBACK];
+      lossReasonsCache = list;
+      return list;
+    })
+    .catch(() => [...LOSS_REASONS_FALLBACK])
+    .finally(() => {
+      lossReasonsInflight = null;
+    });
+
+  return lossReasonsInflight;
+}
+
+/** Lista de motivos do ERP. Começa no fallback e troca pelo cadastro real ao carregar. */
+export function useLossReasons(): string[] {
+  const [reasons, setReasons] = useState<string[]>(
+    () => lossReasonsCache ?? [...LOSS_REASONS_FALLBACK],
+  );
+
+  useEffect(() => {
+    let alive = true;
+    getLossReasons().then((list) => {
+      if (alive) setReasons(list);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  return reasons;
+}
 
 // ─── Tipos Supabase ───────────────────────────────────────────────────────────
 export interface CrmStatus {

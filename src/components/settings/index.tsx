@@ -36,7 +36,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
-import { LOSS_REASONS, LOSS_REASON_ALL } from "@/lib/crm-service";
+import { useLossReasons, LOSS_REASON_ALL } from "@/lib/crm-service";
 
 interface UserProfile {
   id?: string;
@@ -623,6 +623,8 @@ function NotificationsTab({ userProfile }: { userProfile?: UserProfile | null })
   const [loadingResp, setLoadingResp] = useState(true);
   const [savingResp, setSavingResp] = useState(false);
   const [savedResp, setSavedResp] = useState(false);
+  // Motivos do cadastro do ERP (CADCOC) — mesma lista do Citel.
+  const lossReasons = useLossReasons();
 
   const isManager = userProfile?.is_admin ||
     userProfile?.role?.toUpperCase() === 'ADMIN' ||
@@ -867,7 +869,12 @@ function NotificationsTab({ userProfile }: { userProfile?: UserProfile | null })
                         className="w-full px-2.5 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-lg text-[11px] font-bold text-slate-700 dark:text-slate-200 outline-none focus:border-blue-600/50 focus:ring-2 focus:ring-blue-600/5 transition-all"
                       >
                         <option value={LOSS_REASON_ALL}>{LOSS_REASON_ALL}</option>
-                        {LOSS_REASONS.map(m => (
+                        {/* Inclui o motivo já salvo mesmo que ele não exista mais no ERP —
+                            sem isso o select apareceria vazio e o cadastro se perderia ao salvar. */}
+                        {(lossReasons.includes(resp.motivo) || resp.motivo === LOSS_REASON_ALL
+                          ? lossReasons
+                          : [...lossReasons, resp.motivo]
+                        ).map(m => (
                           <option key={m} value={m}>{m}</option>
                         ))}
                       </select>

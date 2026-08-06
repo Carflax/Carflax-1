@@ -452,6 +452,15 @@ export interface FaturamentoResumo {
 export const apiCrmFaturamento = (params: { vendedor?: string, inicio?: string, fim?: string }) =>
   get<FaturamentoResumo>("/api/crm/orcamentos/faturamento", params as Record<string, string>);
 
+export interface MotivoPerda {
+  codigo: string;
+  descricao: string;
+}
+
+/** Motivos de perda cadastrados no ERP (CADCOC, tipo 00001) — mesma lista da tela do Citel. */
+export const apiCrmMotivosPerda = () =>
+  get<MotivoPerda[]>("/api/crm/orcamentos/motivos-perda");
+
 export const apiCrmStatus = (body: unknown) => post("/api/crm/status", body);
 
 export const apiCrmAlugueisClientes = () =>

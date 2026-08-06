@@ -36,7 +36,8 @@ import {
   upsertCrmStatus,
   addConversa,
   getResponsavelIdForVendedor,
-  LOSS_REASONS,
+  useLossReasons,
+  isEstoqueLossReason,
   LOSS_REASON_ALL,
   type CrmStatus,
 } from "@/lib/crm-service";
@@ -1053,7 +1054,9 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
     return ["Todos os Vendedores", ...sellers];
   }, [orçamentosData, teamOptions, userProfile]);
 
-  const lossReasons = [LOSS_REASON_ALL, ...LOSS_REASONS];
+  // Motivos vindos do cadastro do ERP (CADCOC) — mesma lista do Citel.
+  const erpLossReasons = useLossReasons();
+  const lossReasons = [LOSS_REASON_ALL, ...erpLossReasons];
 
   const filteredAndSortedItems = useMemo(() => {
     let result = [...orçamentosData];
@@ -1959,7 +1962,7 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
                       <label className="text-[10px] font-black text-muted-foreground uppercase tracking-wider ml-1">Selecione o Motivo *</label>
                       <TinyDropdown 
                         value={statusMotivoPerdido} 
-                        options={[...LOSS_REASONS]}
+                        options={erpLossReasons}
                         onChange={(val) => setStatusMotivoPerdido(val)} 
                         icon={Tag} 
                         variant="slate" 
@@ -1967,7 +1970,7 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
                         className="w-full" 
                       />
                     </div>
-                    {(statusMotivoPerdido === "Falta de Estoque" || statusMotivoPerdido === "Furo de Estoque") ? (
+                    {isEstoqueLossReason(statusMotivoPerdido) ? (
                       <div className="space-y-1.5">
                         <label className="text-[10px] font-black text-muted-foreground uppercase tracking-wider ml-1">Marque os Itens Perdidos *</label>
                         <div className="max-h-[220px] overflow-y-auto border border-border rounded-xl bg-secondary/40 divide-y divide-border/50 scrollbar-hide">
@@ -2005,7 +2008,7 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
                     )}
                     <button
                       onClick={() => handleUpdateStatus("PERDIDO", { motivo_perda: statusMotivoPerdido })}
-                      disabled={isUpdatingStatus || !statusMotivoPerdido || ((statusMotivoPerdido === "Falta de Estoque" || statusMotivoPerdido === "Furo de Estoque") && lostItemsIds.length === 0)}
+                      disabled={isUpdatingStatus || !statusMotivoPerdido || (isEstoqueLossReason(statusMotivoPerdido) && lostItemsIds.length === 0)}
                       className="w-full h-14 bg-rose-500 hover:bg-rose-600 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-rose-500/20 active:scale-[0.98] transition-all"
                     >
                       {isUpdatingStatus ? "Confirmando..." : "Confirmar Perda"}
