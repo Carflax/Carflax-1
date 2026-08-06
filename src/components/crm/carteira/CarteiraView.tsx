@@ -55,6 +55,13 @@ interface UserProfile {
 }
 
 // Normaliza código de vendedor (remove zeros à esquerda p/ comparação)
+// Código do vendedor "ALTERAR VENDEDOR" no ERP: a carteira-depósito onde ficam os
+// clientes sem dono (hoje ~15,5 mil). É de lá que o supervisor puxa clientes para
+// os vendedores dele, então ela aparece para todo supervisor, além do próprio time.
+// Fica FORA dos KPIs — não é carteira de ninguém, e somar 15 mil clientes sem
+// faturamento distorceria "clientes ativos" e a margem da equipe.
+const COD_CARTEIRA_POOL = "888";
+
 const normCod = (s?: string) => {
   const t = String(s || "").trim();
   return t.replace(/^0+/, "") || t;
@@ -392,7 +399,10 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
   // vendedor comum vê só a própria carteira.
   const carteirasVisiveis = useMemo(() => {
     if (isFullAccess) return carteiras;
-    if (meuTimeCodes) return carteiras.filter((v) => meuTimeCodes.has(normCod(v.cod)));
+    if (meuTimeCodes)
+      return carteiras.filter(
+        (v) => meuTimeCodes.has(normCod(v.cod)) || normCod(v.cod) === COD_CARTEIRA_POOL
+      );
     if (meuCod) return carteiras.filter((v) => normCod(v.cod) === meuCod);
     return carteiras;
   }, [carteiras, isFullAccess, meuTimeCodes, meuCod]);
@@ -462,10 +472,12 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
 
   // KPIs globais
   const kpis = useMemo(() => {
+    // Em "todos", a carteira-depósito (ALTERAR VENDEDOR) fica fora dos totais da
+    // equipe. Se o usuário selecionar ela no filtro, aí sim os KPIs são dela.
     const base =
       filtroVendedor !== "todos"
         ? carteirasVisiveis.filter(matchFiltro)
-        : carteirasVisiveis;
+        : carteirasVisiveis.filter((v) => normCod(v.cod) !== COD_CARTEIRA_POOL);
     const totalVend = base.length;
     const totalCli = base.reduce((s, v) => s + v.numClientes, 0);
     const totalValor = base.reduce((s, v) => s + v.valorTotal, 0);
