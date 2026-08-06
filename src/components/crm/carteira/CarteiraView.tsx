@@ -37,6 +37,7 @@ import { TinyDropdown } from "@/components/ui/TinyDropdown";
 import { fmtBRL, fmtBRLCompact, fmtData } from "../clientes/frv-utils";
 import { supabase } from "@/lib/supabase";
 import { buildAvatarResolver } from "@/lib/avatar-by-code";
+import carflaxLogo from "@/assets/Carflax.png";
 
 // ── Config ───────────────────────────────────────────────────────────────────
 const NOW = new Date();
@@ -66,6 +67,44 @@ const normCod = (s?: string) => {
   const t = String(s || "").trim();
   return t.replace(/^0+/, "") || t;
 };
+
+const isCarteiraPool = (cod?: string) => normCod(cod) === COD_CARTEIRA_POOL;
+
+// Avatar do vendedor na tabela e no cabeçalho do drill-down. A Carteira Carflax
+// não é uma pessoa: leva o logo da empresa sobre fundo branco (o logo é azul e
+// dourado — sobre o card escuro ele sumiria) e inteiro, sem o crop do object-cover.
+function VendedorAvatar({
+  cod,
+  nome,
+  foto,
+  size,
+}: {
+  cod: string;
+  nome: string;
+  foto?: string;
+  size: "sm" | "md";
+}) {
+  const box = size === "sm" ? "w-9 h-9" : "w-10 h-10";
+  const icon = size === "sm" ? "w-4 h-4" : "w-5 h-5";
+
+  if (isCarteiraPool(cod)) {
+    return (
+      <div className={cn(box, "shrink-0 rounded-xl bg-white flex items-center justify-center border border-primary/20 overflow-hidden")}>
+        <img src={carflaxLogo} alt="Carteira Carflax" className="w-full h-full object-contain p-1" />
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn(box, "shrink-0 rounded-xl bg-primary/10 flex items-center justify-center border border-primary/10 overflow-hidden")}>
+      {foto ? (
+        <img src={foto} alt={nome} className="w-full h-full object-cover" />
+      ) : (
+        <UserSquare2 className={cn(icon, "text-primary")} />
+      )}
+    </div>
+  );
+}
 
 // Carteira agregada de um vendedor (mês atual)
 interface Carteira {
@@ -575,21 +614,26 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
   const toggleCliSort = (key: CliSortKey) =>
     setCliSort((s) => ({ key, dir: s.key === key && s.dir === "desc" ? "asc" : "desc" }));
 
-  // Vendedores de destino para transferência (todos com meta no mês, exclui o vendedor atual)
+  // Vendedores de destino para transferência (todos com meta no mês, exclui o vendedor atual).
+  // Supervisor só transfere para dentro do próprio time — ele enxerga a Carteira
+  // Carflax justamente para puxar cliente de lá, não para mandar cliente a outra equipe.
   const destinoOptions = useMemo(() => {
     const atual = (transferindo?.cod_vendedor || "").trim();
+    const permitido = (cod: string) =>
+      cod !== atual && (isFullAccess || !meuTimeCodes || meuTimeCodes.has(normCod(cod)));
+
     // Usa a lista de vendedores com meta vinda do backend (CADMET)
     if (data?.vendedores?.length) {
       return data.vendedores
-        .filter((v) => v.cod !== atual)
+        .filter((v) => permitido(v.cod))
         .map((v) => ({ label: `${v.nome} (${v.cod})`, value: v.cod }));
     }
     // Fallback: usa os vendedores que já têm clientes na carteira
     return [...carteiras]
-      .filter((v) => v.cod !== "—" && v.cod !== atual)
+      .filter((v) => v.cod !== "—" && permitido(v.cod))
       .sort((a, b) => a.nome.localeCompare(b.nome))
       .map((v) => ({ label: `${v.nome} (${v.cod})`, value: v.cod }));
-  }, [data?.vendedores, carteiras, transferindo]);
+  }, [data?.vendedores, carteiras, transferindo, isFullAccess, meuTimeCodes]);
 
   const abrirTransferencia = (c: CarteiraCliente) => {
     setTransferindo(c);
@@ -805,13 +849,7 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
                 <ArrowLeft className="w-4 h-4" />
               </button>
             )}
-            <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center overflow-hidden shrink-0 border border-primary/10">
-              {getAvatar(carteiraSel.cod) ? (
-                <img src={getAvatar(carteiraSel.cod)} alt={carteiraSel.nome} className="w-full h-full object-cover" />
-              ) : (
-                <UserSquare2 className="w-5 h-5 text-primary" />
-              )}
-            </div>
+            <VendedorAvatar cod={carteiraSel.cod} nome={carteiraSel.nome} foto={getAvatar(carteiraSel.cod)} size="md" />
             <div>
               <div className="flex items-center gap-2">
                 <span className="text-[10px] font-black text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded uppercase tracking-wider">Cód. {carteiraSel.cod}</span>
@@ -1234,13 +1272,7 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
                 >
                   <td className="px-5 py-4">
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 shrink-0 rounded-xl bg-primary/10 flex items-center justify-center border border-primary/10 overflow-hidden">
-                        {getAvatar(v.cod) ? (
-                          <img src={getAvatar(v.cod)} alt={v.nome} className="w-full h-full object-cover" />
-                        ) : (
-                          <UserSquare2 className="w-4 h-4 text-primary" />
-                        )}
-                      </div>
+                      <VendedorAvatar cod={v.cod} nome={v.nome} foto={getAvatar(v.cod)} size="sm" />
                       <div className="min-w-0">
                         <p className="font-black text-foreground leading-tight truncate group-hover:text-primary transition-colors">{v.nome}</p>
                         <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-0.5">Cód. {v.cod}</p>

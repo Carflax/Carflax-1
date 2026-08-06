@@ -515,7 +515,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
                         >
                           <option value="" className="bg-card">Sem carro</option>
                           {veiculos.map(v => (
-                            <option key={v.id} value={v.id} className="bg-card">{v.placa}</option>
+                            <option key={v.id} value={v.id} className="bg-card">{v.modelo || v.placa}</option>
                           ))}
                         </select>
                       </div>
