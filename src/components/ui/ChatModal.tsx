@@ -14,7 +14,8 @@ import {
   Phone,
   AlertCircle,
 } from "lucide-react";
-import { cn, formatBrTime } from "@/lib/utils";
+import { cn, formatBrTime, shortenName } from "@/lib/utils";
+import { resolverUsuario } from "@/lib/user-lookup";
 import { getConversas, addConversa, getResponsavelIdForVendedor, marcarVista, type CrmConversa } from "@/lib/crm-service";
 import { supabase } from "@/lib/supabase";
 import { apiCrmOrcamentos, apiCrmOrcamentoItens, mapCrmItem, type CrmItem } from "@/lib/api";
@@ -135,6 +136,43 @@ export function ChatModal({
   const [itemsLoading, setItemsLoading] = useState(false);
   const isChatWithSeparator = !amICentralizer && !!sellerName && sellerName.toUpperCase() !== "SISTEMA" && sellerName !== userProfile?.name;
 
+  // Número sem os zeros de preenchimento do ERP: "000001030982-OR" → "1030982-OR".
+  // O número completo continua no title, para conferir contra o Citel.
+  const numeroDocCurto = useMemo(
+    () => documento.replace("#", "").trim().replace(/^0+/, "") || documento,
+    [documento]
+  );
+
+  // Markup consolidado do orçamento, exibido no cabeçalho ao lado do número.
+  // Mesma conta da tela de Orçamentos: (venda / custo - 1), sobre os totais — não
+  // é a média dos markups dos itens, que ignoraria o peso de cada item.
+  const markupPct = useMemo(() => {
+    if (items.length === 0) return null;
+    let venda = 0;
+    let custo = 0;
+    for (const p of items) {
+      const qtd = parseFloat(String(p.QUANTIDADE)) || 0;
+      venda += qtd * (parseFloat(String(p.PRECO_UNITARIO)) || 0);
+      custo += qtd * (parseFloat(String(p.CUSTO_UNITARIO)) || 0);
+    }
+    if (custo <= 0) return null;
+    return (venda / custo - 1) * 100;
+  }, [items]);
+
+  // Busca os itens ao abrir, para o markup aparecer em todo chat de orçamento.
+  // Só pula quando o `itemsInitial` recebido já permite calcular markup — itens
+  // sem custo (que vêm de alguns eventos) não servem, e aí buscamos mesmo assim.
+  // O painel de itens reaproveita este estado, então abri-lo não refaz a busca.
+  const markupJaResolvido = markupPct !== null;
+  useEffect(() => {
+    if (!isOpen || !documento || markupJaResolvido) return;
+    let cancelled = false;
+    apiCrmOrcamentoItens(documento.replace("#", "").trim(), empresa || undefined)
+      .then((rows) => { if (!cancelled && rows.length > 0) setItems(rows.map(mapCrmItem)); })
+      .catch(() => { /* sem itens: o cabeçalho simplesmente não mostra markup */ });
+    return () => { cancelled = true; };
+  }, [isOpen, documento, empresa, markupJaResolvido]);
+
   // 1. Efeito Principal de Inicialização e Realtime
   useEffect(() => {
     if (!isOpen || !documento) return;
@@ -199,19 +237,11 @@ export function ChatModal({
             setOwnerProfile(prev => ({ name: vName, avatar: prev?.avatar || "" }));
           }
 
-          // Fallback: busca no banco só se cache não resolveu
-          if (vCode) {
-            const { data: dbUser } = await supabase.from("usuarios").select("id, name, avatar").eq("operator_code", vCode).maybeSingle();
-            if (dbUser && dbUser.id !== userProfile?.id) {
-              setBudgetOwner(dbUser.id);
-              setOwnerProfile({ name: dbUser.name, avatar: dbUser.avatar || "" });
-            }
-          } else if (vName) {
-            const { data: dbUser } = await supabase.from("usuarios").select("id, name, avatar").ilike("name", `%${vName}%`).maybeSingle();
-            if (dbUser && dbUser.id !== userProfile?.id) {
-              setBudgetOwner(dbUser.id);
-              setOwnerProfile({ name: dbUser.name, avatar: dbUser.avatar || "" });
-            }
+          // Fallback: busca no cadastro (por código ou nome) se o cache não resolveu
+          const dbUser = await resolverUsuario(vCode, vName);
+          if (dbUser && dbUser.id !== userProfile?.id) {
+            setBudgetOwner(dbUser.id);
+            setOwnerProfile({ name: dbUser.name, avatar: dbUser.avatar || "" });
           }
         } catch (e) {
           console.error("[Chat] Erro ao buscar separador:", e);
@@ -250,7 +280,7 @@ export function ChatModal({
 
       // Se sou Centralizador, busca o dono do orçamento (vendedor)
       try {
-        const vCode = sellerCode;
+        const vCode = effectiveSellerCode;
         const vName = sellerName;
 
         // Tenta resolver pelo cache global primeiro (instantâneo)
@@ -268,23 +298,20 @@ export function ChatModal({
           setOwnerProfile(prev => ({ name: vName, avatar: prev?.avatar || "" }));
         }
 
-        // Fallback: busca no banco só se cache não resolveu
-        if (vCode) {
-          const { data: dbUser } = await supabase.from("usuarios").select("id, name, avatar").eq("operator_code", vCode).maybeSingle();
-          if (dbUser && dbUser.id !== userProfile?.id) {
-            setBudgetOwner(dbUser.id);
-            setOwnerProfile({ name: dbUser.name, avatar: dbUser.avatar || "" });
-          }
-        } else {
-          // Sem sellerCode, tenta crm_status
+        // Resolve no cadastro por código OU por nome. Sem o casamento por nome, um
+        // chat sem código de vendedor ficava com o nome cru do ERP e sem foto.
+        const dbUser = await resolverUsuario(vCode, vName);
+        if (dbUser && dbUser.id !== userProfile?.id) {
+          setBudgetOwner(dbUser.id);
+          setOwnerProfile({ name: dbUser.name, avatar: dbUser.avatar || "" });
+        } else if (!vCode) {
+          // Última tentativa: o vendedor gravado no crm_status do documento.
           const docId = documento.replace("#", "").split("-")[0].trim();
           const { data: status } = await supabase.from("crm_status").select("vendedor_codigo, vendedor").eq("documento", docId).maybeSingle();
-          if (status?.vendedor_codigo) {
-            const { data: dbUser } = await supabase.from("usuarios").select("id, name, avatar").eq("operator_code", status.vendedor_codigo).maybeSingle();
-            if (dbUser && dbUser.id !== userProfile?.id) {
-              setBudgetOwner(dbUser.id);
-              setOwnerProfile({ name: dbUser.name, avatar: dbUser.avatar || "" });
-            }
+          const doStatus = await resolverUsuario(status?.vendedor_codigo, status?.vendedor);
+          if (doStatus && doStatus.id !== userProfile?.id) {
+            setBudgetOwner(doStatus.id);
+            setOwnerProfile({ name: doStatus.name, avatar: doStatus.avatar || "" });
           } else if (status?.vendedor && status.vendedor.toUpperCase() !== "SISTEMA") {
             setOwnerProfile(prev => ({ name: status.vendedor, avatar: prev?.avatar || "" }));
           }
@@ -1183,8 +1210,8 @@ export function ChatModal({
           "w-full h-[100dvh] fixed inset-0 sm:relative sm:inset-auto rounded-none sm:rounded-2xl",
           isMaximized ? "sm:w-[900px] sm:h-[85vh]" : "sm:w-[340px] sm:h-[480px]"
         )}>
-        <div className="p-4 pt-[calc(1rem+env(safe-area-inset-top))] sm:pt-4 border-b border-border flex items-center justify-between bg-secondary/30 rounded-t-none sm:rounded-t-2xl shrink-0 transition-all">
-          <div className="flex items-center gap-3">
+        <div className="p-4 pt-[calc(1rem+env(safe-area-inset-top))] sm:pt-4 border-b border-border flex items-center justify-between gap-2 bg-secondary/30 rounded-t-none sm:rounded-t-2xl shrink-0 transition-all">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
             <div className={cn(
               "w-8 h-8 rounded-full flex items-center justify-center text-xs font-black overflow-hidden border border-blue-500/30",
               (headerLoading) ? "bg-secondary/40 animate-pulse" : "bg-blue-500/20 text-blue-500"
@@ -1195,32 +1222,45 @@ export function ChatModal({
                 <span>{displayUser.name.split(" ").filter(Boolean).map(n => n[0]).join("")}</span>
               ) : null}
             </div>
-            <div className="flex flex-col gap-1">
+            {/* Cabeçalho estreito (340px) dividido com 4 botões: nomes vão abreviados
+                e em uma linha só. O nome completo fica no title, ao passar o mouse. */}
+            <div className="flex flex-col gap-1 min-w-0">
               {headerLoading ? (
                 <div className="h-2 w-24 bg-secondary/40 rounded-full animate-pulse" />
               ) : (
-                <span className="text-[13px] font-black text-foreground tracking-tight leading-none uppercase">
-                  {displayUser.name}
+                <span
+                  className="text-[13px] font-black text-foreground tracking-tight leading-none uppercase truncate"
+                  title={displayUser.name}
+                >
+                  {shortenName(displayUser.name)}
                 </span>
               )}
               {documento && !headerLoading ? (
-                <span className="text-[11px] font-black text-blue-500 uppercase tracking-tighter opacity-80 flex items-center gap-1 flex-wrap">
-                  <span>#{documento.replace("#", "")}</span>
-                  {clientName && (
-                    <>
-                      <span className="text-muted-foreground/60 font-medium">•</span>
-                      <span className="text-foreground/90 truncate max-w-[170px] uppercase font-black" title={clientName}>
-                        {clientName}
-                      </span>
-                    </>
+                <span className="text-[11px] font-black text-blue-500 uppercase tracking-tighter opacity-80 flex items-center gap-1 min-w-0">
+                  <span className="shrink-0" title={documento}>#{numeroDocCurto}</span>
+                  {markupPct !== null && (
+                    <span
+                      className="px-1.5 py-0.5 rounded-md text-[9px] font-black border border-emerald-500/20 bg-emerald-500/10 text-emerald-500 tracking-wider shrink-0"
+                      title="Markup do documento (venda ÷ custo)"
+                    >
+                      MKP {markupPct.toFixed(1).replace(".", ",")}%
+                    </span>
                   )}
                 </span>
               ) : (
                 <div className="h-1.5 w-16 bg-secondary/20 rounded-full animate-pulse" />
               )}
+              {clientName && !headerLoading && (
+                <span
+                  className="text-[10px] font-black text-foreground/80 uppercase tracking-tight leading-none truncate"
+                  title={clientName}
+                >
+                  {shortenName(clientName)}
+                </span>
+              )}
             </div>
           </div>
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1 shrink-0">
             {amICentralizer && (
               <button 
                 onClick={(e) => { e.stopPropagation(); handleToggleItems(); }} 
