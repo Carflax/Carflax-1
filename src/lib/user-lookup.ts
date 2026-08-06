@@ -84,17 +84,29 @@ export function casarUsuario(
   }
 
   if (nom) {
-    const tokens = tokensNome(nom);
-    if (tokens.length === 0) return null;
-    const primeiro = tokens[0];
-    const ultimo = tokens[tokens.length - 1];
+    // Pontua por quantidade de nomes em comum. "JOAO PEDRO COSME" divide o "JOAO"
+    // com "Joao Paulo", mas divide dois nomes com "João Pedro" — quem tem mais
+    // nomes em comum vence, e só vale quando não há empate no topo.
+    const alvo = new Set(tokensNome(nom));
+    if (alvo.size === 0) return null;
 
-    const porPrimeiro = usuarios.filter((u) => tokensNome(u.name || "").includes(primeiro));
-    if (porPrimeiro.length === 1) return porPrimeiro[0];
+    let melhor: UsuarioResolvido | null = null;
+    let melhorScore = 0;
+    let empatados = 0;
 
-    // Mais de um "Lucas": desempata pelo sobrenome.
-    const porAmbos = porPrimeiro.filter((u) => tokensNome(u.name || "").includes(ultimo));
-    if (porAmbos.length === 1) return porAmbos[0];
+    for (const u of usuarios) {
+      const score = tokensNome(u.name || "").filter((t) => alvo.has(t)).length;
+      if (score === 0) continue;
+      if (score > melhorScore) {
+        melhor = u;
+        melhorScore = score;
+        empatados = 1;
+      } else if (score === melhorScore) {
+        empatados += 1;
+      }
+    }
+
+    if (melhor && empatados === 1) return melhor;
   }
 
   return null;
