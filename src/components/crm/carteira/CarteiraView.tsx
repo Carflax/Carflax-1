@@ -70,9 +70,10 @@ const normCod = (s?: string) => {
 
 const isCarteiraPool = (cod?: string) => normCod(cod) === COD_CARTEIRA_POOL;
 
-// Avatar do vendedor na tabela e no cabeçalho do drill-down. A Carteira Carflax
-// não é uma pessoa: leva o logo da empresa sobre fundo branco (o logo é azul e
-// dourado — sobre o card escuro ele sumiria) e inteiro, sem o crop do object-cover.
+// Avatar do vendedor na tabela e no cabeçalho do drill-down. A carteira
+// ALTERAR VENDEDOR não é uma pessoa: leva o logo da empresa sobre fundo branco
+// (o logo é azul e dourado — sobre o card escuro ele sumiria) e inteiro, sem o
+// crop do object-cover.
 function VendedorAvatar({
   cod,
   nome,
@@ -90,7 +91,7 @@ function VendedorAvatar({
   if (isCarteiraPool(cod)) {
     return (
       <div className={cn(box, "shrink-0 rounded-xl bg-white flex items-center justify-center border border-primary/20 overflow-hidden")}>
-        <img src={carflaxLogo} alt="Carteira Carflax" className="w-full h-full object-contain p-1" />
+        <img src={carflaxLogo} alt="Alterar Vendedor" className="w-full h-full object-contain p-1" />
       </div>
     );
   }
@@ -122,10 +123,11 @@ interface Carteira {
 type VendSortKey = "nome" | "numClientes" | "valorTotal" | "margemTotal" | "pedidos";
 type CliSortKey = "nome_cliente" | "valor_mes" | "conversao" | "pedidos_mes" | "recencia_dias";
 
-// Taxa de conversão de orçamentos (fechados/total). -1 quando não há orçamentos,
-// para clientes sem orçamento irem ao fim na ordenação decrescente.
+// Taxa de conversão: vendas faturadas no mês por orçamento aberto no mês. Pode
+// passar de 100% (venda direta, sem orçamento). -1 quando não há orçamento, para
+// esses clientes irem ao fim na ordenação decrescente.
 const taxaConversao = (c: CarteiraCliente) =>
-  c.orc_total && c.orc_total > 0 ? (c.orc_fechados || 0) / c.orc_total : -1;
+  c.orc_total && c.orc_total > 0 ? (c.pedidos_mes || 0) / c.orc_total : -1;
 
 const getRecenciaDias = (ultimaCompra: string | null) => {
   if (!ultimaCompra) return Infinity;
@@ -310,6 +312,9 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
   // Modo "completar cadastro": lista só clientes com nascimento/WhatsApp faltando,
   // com edição inline para preencher e gravar no ERP.
   const [soPendentes, setSoPendentes] = useState(false);
+  // Filtro por tipo de pessoa dentro da carteira ALTERAR VENDEDOR (888): são ~15 mil
+  // clientes sem dono, e o supervisor puxa de lá separando PJ (CNPJ) de PF (CPF).
+  const [filtroPessoa, setFiltroPessoa] = useState<"todos" | "pj" | "pf">("todos");
   const [editNasc, setEditNasc] = useState<Record<string, string>>({});
   const [editWpp, setEditWpp] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -571,9 +576,17 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
     [carteiraSel]
   );
 
+  // Quantos clientes da carteira são PJ (CNPJ) e PF (CPF) — rótulo do filtro
+  const contagemPessoa = useMemo(() => {
+    const base = carteiraSel ? carteiraSel.clientes : [];
+    const pf = base.filter((c) => !!c.pessoa_fisica).length;
+    return { pf, pj: base.length - pf, todos: base.length };
+  }, [carteiraSel]);
+
   // Sai do modo pendências ao trocar de vendedor
   useEffect(() => {
     setSoPendentes(false);
+    setFiltroPessoa("todos");
     setSaveErro({});
   }, [selecionado]);
 
@@ -582,6 +595,8 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
     if (!carteiraSel) return [];
     let arr = carteiraSel.clientes;
     if (soPendentes) arr = arr.filter(isPendente);
+    if (isCarteiraPool(carteiraSel.cod) && filtroPessoa !== "todos")
+      arr = arr.filter((c) => (filtroPessoa === "pf" ? !!c.pessoa_fisica : !c.pessoa_fisica));
     const q = buscaCli.trim().toLowerCase();
     if (q) arr = arr.filter((c) => (c.nome_cliente || "").toLowerCase().includes(q));
     const { key, dir } = cliSort;
@@ -596,11 +611,11 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
       if (key === "conversao") return (taxaConversao(a) - taxaConversao(b)) * mult;
       return (((a[key] as number) || 0) - ((b[key] as number) || 0)) * mult;
     });
-  }, [carteiraSel, buscaCli, cliSort, soPendentes]);
+  }, [carteiraSel, buscaCli, cliSort, soPendentes, filtroPessoa]);
 
   useEffect(() => {
     setCliPage(1);
-  }, [buscaCli, cliSort, selecionado, soPendentes]);
+  }, [buscaCli, cliSort, selecionado, soPendentes, filtroPessoa]);
 
   const cliTotalPages = Math.max(1, Math.ceil(clientesSel.length / CLI_POR_PAGINA));
   const cliPageSafe = Math.min(cliPage, cliTotalPages);
@@ -615,8 +630,9 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
     setCliSort((s) => ({ key, dir: s.key === key && s.dir === "desc" ? "asc" : "desc" }));
 
   // Vendedores de destino para transferência (todos com meta no mês, exclui o vendedor atual).
-  // Supervisor só transfere para dentro do próprio time — ele enxerga a Carteira
-  // Carflax justamente para puxar cliente de lá, não para mandar cliente a outra equipe.
+  // Supervisor só transfere para dentro do próprio time — ele enxerga a carteira
+  // ALTERAR VENDEDOR justamente para puxar cliente de lá, não para mandar cliente
+  // a outra equipe.
   const destinoOptions = useMemo(() => {
     const atual = (transferindo?.cod_vendedor || "").trim();
     const permitido = (cod: string) =>
@@ -722,33 +738,57 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
     );
   };
 
-  // Helper para renderizar a conversão de orçamentos (quantidade + valor)
+  // Conversão do mês: orçamentos abertos (esquerda) x vendas faturadas (direita).
+  // As duas pontas vêm de fontes diferentes — orçamento da FATGOR, venda do
+  // faturamento — então o par não é subconjunto: venda direta (pedido que não
+  // passou por orçamento) aparece como 0/1, e o % pode passar de 100%.
   const renderConversao = (c: CarteiraCliente) => {
-    const total = c.orc_total || 0;
-    if (total === 0) {
+    const orcamentos = c.orc_total || 0;
+    const vendas = c.pedidos_mes || 0;
+
+    // Sem nenhum movimento no mês: nada a converter.
+    if (orcamentos === 0 && vendas === 0) {
       return (
         <div className="inline-flex flex-col items-end gap-0.5">
           <span className="font-black text-muted-foreground/50 tabular-nums">0/0</span>
-          <span className="text-[9px] font-bold text-muted-foreground/40 uppercase tracking-wider">sem orçamento</span>
+          <span className="text-[9px] font-bold text-muted-foreground/40 uppercase tracking-wider">
+            sem movimento no mês
+          </span>
         </div>
       );
     }
-    const fechados = c.orc_fechados || 0;
-    const pct = (fechados / total) * 100;
+
+    const pct = orcamentos > 0 ? (vendas / orcamentos) * 100 : null;
     let color = "text-rose-500 bg-rose-500/10 border-rose-500/20";
-    if (pct >= 60) color = "text-emerald-500 bg-emerald-500/10 border-emerald-500/20";
-    else if (pct >= 30) color = "text-amber-500 bg-amber-500/10 border-amber-500/20";
+    if (pct !== null) {
+      if (pct >= 60) color = "text-emerald-500 bg-emerald-500/10 border-emerald-500/20";
+      else if (pct >= 30) color = "text-amber-500 bg-amber-500/10 border-amber-500/20";
+    }
 
     return (
       <div className="inline-flex flex-col items-end gap-0.5">
         <span className="inline-flex items-center gap-1.5">
-          <span className="font-black text-foreground tabular-nums">{total}/{fechados}</span>
-          <span className={cn("px-1.5 py-0.5 rounded-md text-[10px] font-black border tracking-wider", color)}>
-            {pct.toFixed(0)}%
+          <span
+            className="font-black text-foreground tabular-nums"
+            title={`${orcamentos} orçamento(s) no mês · ${vendas} venda(s) faturada(s)`}
+          >
+            {orcamentos}/{vendas}
           </span>
+          {pct !== null ? (
+            <span className={cn("px-1.5 py-0.5 rounded-md text-[10px] font-black border tracking-wider", color)}>
+              {pct.toFixed(0)}%
+            </span>
+          ) : (
+            <span
+              className="px-1.5 py-0.5 rounded-md text-[10px] font-black border tracking-wider text-blue-500 bg-blue-500/10 border-blue-500/20"
+              title="Faturou sem orçamento aberto no mês"
+            >
+              direta
+            </span>
+          )}
         </span>
         <span className="text-[9px] font-bold text-muted-foreground tabular-nums">
-          {fmtBRLCompact(c.orc_valor_total || 0)} / {fmtBRLCompact(c.orc_valor_fechado || 0)}
+          {fmtBRLCompact(c.orc_valor_total || 0)} / {fmtBRLCompact(c.valor_mes || 0)}
         </span>
       </div>
     );
@@ -835,8 +875,8 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
     return (
       <div className="h-full bg-background overflow-y-auto scrollbar-hide p-6 space-y-6">
         {/* Header com breadcrumb */}
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
+        <div className="space-y-4">
+          <div className="flex items-center gap-3 min-w-0">
             {showBackButton && (
               <button
                 onClick={() => {
@@ -850,24 +890,63 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
               </button>
             )}
             <VendedorAvatar cod={carteiraSel.cod} nome={carteiraSel.nome} foto={getAvatar(carteiraSel.cod)} size="md" />
-            <div>
-              <div className="flex items-center gap-2">
-                <span className="text-[10px] font-black text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded uppercase tracking-wider">Cód. {carteiraSel.cod}</span>
-                <h2 className="text-lg font-black text-foreground tracking-tight leading-none">{carteiraSel.nome}</h2>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="shrink-0 text-[10px] font-black text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded uppercase tracking-wider whitespace-nowrap">Cód. {carteiraSel.cod}</span>
+                <h2 className="text-lg font-black text-foreground tracking-tight leading-none truncate">{carteiraSel.nome}</h2>
               </div>
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-1">
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-1.5 truncate">
                 Análise da carteira de clientes ativos · {MES_LABEL}
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Filtro CNPJ / CPF — só na carteira ALTERAR VENDEDOR (888) */}
+            {isCarteiraPool(carteiraSel.cod) && (
+              <div className="inline-flex shrink-0 items-center h-10 p-1 rounded-xl border border-border/80 bg-card/50">
+                {([
+                  { key: "todos", label: "Todos", count: contagemPessoa.todos },
+                  { key: "pj", label: "CNPJ", count: contagemPessoa.pj },
+                  { key: "pf", label: "CPF", count: contagemPessoa.pf },
+                ] as const).map((opt) => (
+                  <button
+                    key={opt.key}
+                    onClick={() => setFiltroPessoa(opt.key)}
+                    title={
+                      opt.key === "pj"
+                        ? "Somente pessoa jurídica (CNPJ)"
+                        : opt.key === "pf"
+                        ? "Somente pessoa física (CPF)"
+                        : "Todos os clientes da carteira"
+                    }
+                    className={cn(
+                      "inline-flex items-center gap-1.5 px-3 h-8 rounded-lg text-[11px] font-black uppercase tracking-widest transition-all cursor-pointer active:scale-95",
+                      filtroPessoa === opt.key
+                        ? "bg-primary text-primary-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {opt.label}
+                    <span
+                      className={cn(
+                        "text-[10px] font-black tabular-nums",
+                        filtroPessoa === opt.key ? "opacity-80" : "opacity-60"
+                      )}
+                    >
+                      {opt.count}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
             {/* Toggle: completar cadastro (nascimento/WhatsApp) */}
             <button
               onClick={() => setSoPendentes((v) => !v)}
               title="Clientes sem data de nascimento (pessoa física) ou WhatsApp cadastrado"
               className={cn(
-                "inline-flex items-center gap-2 px-3.5 h-10 rounded-xl border text-[11px] font-black uppercase tracking-widest transition-all cursor-pointer active:scale-95",
+                "inline-flex shrink-0 items-center gap-2 px-3.5 h-10 rounded-xl border text-[11px] font-black uppercase tracking-widest transition-all cursor-pointer active:scale-95 whitespace-nowrap",
                 soPendentes
                   ? "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
                   : "border-border/80 bg-card/50 text-muted-foreground hover:text-foreground hover:border-border"
@@ -886,7 +965,7 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
             </button>
 
             {/* Pesquisar Cliente (Lá em cima) */}
-            <div className="relative w-64">
+            <div className="relative flex-1 min-w-[220px] max-w-sm ml-auto">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <input
                 value={buscaCli}
