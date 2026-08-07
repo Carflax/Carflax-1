@@ -218,11 +218,16 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
   }, []);
 
   const handleReorder = useCallback((romCode: string, newOrder: Delivery[]) => {
-    // Mantém as entregas dos outros motoristas intactas e só reordena as deste grupo
-    setDeliveries(prev => [
-      ...prev.filter(d => d.romCode !== romCode),
-      ...newOrder,
-    ]);
+    // Substitui os items do grupo in-place, preservando a ordem dos outros grupos
+    setDeliveries(prev => {
+      const result = [...prev];
+      // Acha os índices das entregas deste romCode no array global
+      const indices: number[] = [];
+      result.forEach((d, i) => { if (d.romCode === romCode) indices.push(i); });
+      // Reescreve cada posição com o item na nova ordem
+      indices.forEach((pos, i) => { result[pos] = newOrder[i]; });
+      return result;
+    });
     pendingOrder.current = newOrder;
 
     // Cancela persistência anterior e agenda nova (debounce de 600ms)
