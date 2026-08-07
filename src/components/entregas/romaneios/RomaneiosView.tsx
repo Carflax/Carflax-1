@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { Reorder } from "framer-motion";
 import { cn } from "@/lib/utils";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { apiMotoristas, apiAdminSQL, apiDescobrirVeiculos, apiSalvarVeiculo } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 
@@ -69,10 +69,15 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
   const [driverAvatars, setDriverAvatars] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"pending" | "completed">("pending");
+  const isReordering = useRef(false);
+  const reorderDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingOrder = useRef<Delivery[] | null>(null);
   
   const hoje = new Date().toISOString().split('T')[0];
 
   const fetchData = useCallback(async (isSilent = false) => {
+    // Ignorar chamadas enquanto o usuário está reordenando
+    if (isSilent && isReordering.current) return;
     try {
       if (!isSilent) setLoading(true);
       const motoristasRes = await apiMotoristas();
@@ -95,7 +100,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
       if (activeTab === "completed") {
         query.order("rom_date", { ascending: false }).limit(100); 
       } else {
-        query.order("created_at", { ascending: true });
+        query.order("sort_order", { ascending: true });
       }
 
       const { data: lancados } = await query;
@@ -194,34 +199,41 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
     })();
   }, []);
 
-  const handleReorder = async (newOrder: Delivery[]) => {
-    // Atualiza o estado local imediatamente para fluidez
-    setDeliveries(newOrder);
-
+  const persistOrder = useCallback(async (newOrder: Delivery[]) => {
+    isReordering.current = true;
     try {
-      // Para persistir a ordem via created_at, vamos pegar todos os timestamps 
-      // atuais e reatribuí-los na nova ordem desejada.
-      const { data: currentTimestamps } = await supabase
-        .from("entregas")
-        .select("id, created_at")
-        .in("id", newOrder.map(d => d.id))
-        .order("created_at", { ascending: true });
-
-      if (currentTimestamps && currentTimestamps.length === newOrder.length) {
-        const updates = newOrder.map((delivery, index) => ({
-          id: delivery.id,
-          created_at: currentTimestamps[index].created_at
-        }));
-
-        // Atualização em lote (batch)
-        for (const up of updates) {
-          await supabase.from("entregas").update({ created_at: up.created_at }).eq("id", up.id);
-        }
+      // Salva a posição de cada entrega como 0, 1, 2, 3...
+      for (let i = 0; i < newOrder.length; i++) {
+        await supabase
+          .from("entregas")
+          .update({ sort_order: i })
+          .eq("id", newOrder[i].id);
       }
     } catch (err) {
       console.error("Erro ao persistir nova ordem:", err);
+    } finally {
+      // Aguarda um pouco antes de liberar o realtime
+      setTimeout(() => { isReordering.current = false; }, 800);
     }
-  };
+  }, []);
+
+  const handleReorder = useCallback((romCode: string, newOrder: Delivery[]) => {
+    // Mantém as entregas dos outros motoristas intactas e só reordena as deste grupo
+    setDeliveries(prev => [
+      ...prev.filter(d => d.romCode !== romCode),
+      ...newOrder,
+    ]);
+    pendingOrder.current = newOrder;
+
+    // Cancela persistência anterior e agenda nova (debounce de 600ms)
+    if (reorderDebounce.current) clearTimeout(reorderDebounce.current);
+    reorderDebounce.current = setTimeout(() => {
+      if (pendingOrder.current) {
+        persistOrder(pendingOrder.current);
+        pendingOrder.current = null;
+      }
+    }, 600);
+  }, [persistOrder]);
 
   const handleLancar = async () => {
     try {
@@ -550,7 +562,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
                         values={items} 
                         onReorder={(newOrder) => {
                           // Só permitimos reordenar se estivermos na aba de Pendentes
-                          if (activeTab === "pending") handleReorder(newOrder);
+                          if (activeTab === "pending") handleReorder(romCode!, newOrder);
                         }}
                         className="divide-y divide-border/50"
                       >
