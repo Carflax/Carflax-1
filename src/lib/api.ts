@@ -730,6 +730,8 @@ export interface CarteiraCliente {
   orc_fechados?: number; // orçamentos convertidos em pedido
   orc_valor_total?: number; // R$ orçado
   orc_valor_fechado?: number; // R$ convertido
+  cod_vendedor_ultima_venda?: string;
+  nome_vendedor_ultima_venda?: string;
   pessoa_fisica?: boolean; // true = PF (nascimento faz sentido); false = PJ
   data_nascimento?: string | null; // 'YYYY-MM-DD' ou null
   celular?: string | null; // WhatsApp cadastrado ou null

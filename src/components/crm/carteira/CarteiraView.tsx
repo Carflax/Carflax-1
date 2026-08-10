@@ -43,7 +43,7 @@ import carflaxLogo from "@/assets/Carflax.png";
 const NOW = new Date();
 const MES_LABEL = NOW.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
 const POR_PAGINA = 12; // vendedores por página
-const CLI_POR_PAGINA = 15; // clientes por página no drill-down
+const CLI_POR_PAGINA = 100; // clientes por página no drill-down
 
 interface UserProfile {
   id?: string;
@@ -1119,6 +1119,9 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
                   <th className="text-right px-5 py-3.5 hidden md:table-cell">
                     <SortHeader label="Conversão" active={cliSort.key === "conversao"} direction={cliSort.dir} onClick={() => toggleCliSort("conversao")} className="justify-end" />
                   </th>
+                  <th className="text-left px-5 py-3.5 hidden lg:table-cell">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground select-none">Vend. Última Venda</span>
+                  </th>
                   <th className="text-right px-5 py-3.5">
                     <SortHeader label="Recência" active={cliSort.key === "recencia_dias"} direction={cliSort.dir} onClick={() => toggleCliSort("recencia_dias")} className="justify-end" />
                   </th>
@@ -1154,6 +1157,16 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
                       <td className="px-5 py-4 text-right tabular-nums hidden md:table-cell">
                         {renderConversao(c)}
                       </td>
+                      <td className="px-5 py-4 hidden lg:table-cell">
+                        {c.nome_vendedor_ultima_venda ? (
+                          <div className="min-w-0">
+                            <p className="font-bold text-foreground leading-tight truncate max-w-[160px]">{c.nome_vendedor_ultima_venda}</p>
+                            <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mt-0.5">{c.cod_vendedor_ultima_venda}</p>
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground/45 font-medium">—</span>
+                        )}
+                      </td>
                       <td className="px-5 py-4 text-right tabular-nums">
                         <div className="inline-flex flex-col items-end gap-1">
                           {renderRecenciaBadge(c.ultima_compra)}
@@ -1176,7 +1189,7 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
                 })}
                 {clientesSel.length === 0 && (
                   <tr>
-                    <td colSpan={isAdmin ? 6 : 5} className="px-5 py-16 text-center text-xs font-bold text-muted-foreground uppercase tracking-widest bg-muted/5">
+                    <td colSpan={isAdmin ? 7 : 6} className="px-5 py-16 text-center text-xs font-bold text-muted-foreground uppercase tracking-widest bg-muted/5">
                       Nenhum cliente com movimento nesta carteira
                     </td>
                   </tr>

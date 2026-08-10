@@ -15,7 +15,8 @@
       "PowerShell(npx tsc --noEmit 2>&1)",
       "Bash(git grep *)",
       "Bash(Get-Item -Path .)",
-      "Bash(Select-Object -ExpandProperty FullName)"
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(ls \"C:\\\\Users\\\\Danilo\\\\Desktop\\\\Desenvolvimento\\\\Carflax HUB\\\\\")"
     ]
   }
 }
