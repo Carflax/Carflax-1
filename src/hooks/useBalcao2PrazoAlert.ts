@@ -1,11 +1,14 @@
 import { useEffect, useRef } from "react";
+import { supabase } from "@/lib/supabase";
 import { isBalcao2, parseOrderCreated, b2RemainingMs, B2_AVISO_MS, formatB2Remaining } from "@/lib/balcao2-prazo";
 
 /**
  * Alerta de prazo dos pedidos de BALCÃO 2: cada pedido B2 tem 72h para retirada.
  * Notifica em dois momentos:
- *  - AVISO: quando faltar 1 dia (24h) ou menos e o prazo ainda não estourou; e
- *  - VENCIDO: quando o prazo de 72h estourar.
+ *  - AVISO (48h): quando faltar 1 dia (24h) ou menos e o prazo ainda não estourou; e
+ *  - VENCIDO (72h): quando o prazo de 72h estourar → além da notificação, o gerente
+ *    de estoque envia automaticamente uma mensagem no chat para o vendedor avisando
+ *    que o pedido poderá ser cancelado se não for retirado em 24h.
  * Destinatários (ambos os eventos):
  *  - o VENDEDOR do pedido (quando é o usuário logado); e
  *  - o GERENTE DE ESTOQUE.
@@ -31,6 +34,9 @@ type ShowNotification = (
 ) => void;
 
 interface UP {
+  id?: string;
+  name?: string;
+  avatar?: string;
   operator_code?: string;
   operatorCode?: string;
   role?: string;
@@ -82,6 +88,78 @@ function marcarAvisado(id: string) {
     localStorage.setItem(AVISADOS_KEY, JSON.stringify(obj));
   } catch {
     /* ignore */
+  }
+}
+
+const MSG_ENVIADAS_KEY = "carflax_b2_msg_enviadas";
+
+function loadMsgEnviadas(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(MSG_ENVIADAS_KEY);
+    const obj = raw ? (JSON.parse(raw) as Record<string, number>) : {};
+    const now = Date.now();
+    let changed = false;
+    for (const k of Object.keys(obj)) {
+      if (now - obj[k] > AVISADO_TTL_MS) {
+        delete obj[k];
+        changed = true;
+      }
+    }
+    if (changed) localStorage.setItem(MSG_ENVIADAS_KEY, JSON.stringify(obj));
+    return obj;
+  } catch {
+    return {};
+  }
+}
+
+function marcarMsgEnviada(id: string) {
+  try {
+    const obj = loadMsgEnviadas();
+    obj[id] = Date.now();
+    localStorage.setItem(MSG_ENVIADAS_KEY, JSON.stringify(obj));
+  } catch { /* ignore */ }
+}
+
+async function enviarMensagemAutomatica(
+  gerenteId: string,
+  gerenteNome: string,
+  gerenteAvatar: string | undefined,
+  codVen: string,
+  numDoc: string,
+  empresa: string,
+  cliente: string,
+) {
+  try {
+    const normalized = codVen.replace(/^0+/, "") || codVen;
+    const { data: usuarios } = await supabase
+      .from("usuarios")
+      .select("id, operator_code")
+      .not("operator_code", "is", null);
+
+    const vendedor = (usuarios || []).find((u) => {
+      const code = String(u.operator_code || "").trim().replace(/^0+/, "");
+      return code === normalized || String(u.operator_code || "").trim() === codVen;
+    });
+
+    if (!vendedor) return;
+
+    const pedidoDisplay = String(Number(numDoc) || numDoc);
+    const msg = `⚠️ *Aviso Automático — Prazo de Retirada*\n\nO pedido #${pedidoDisplay} (Balcão 2)${cliente ? ` do cliente *${cliente}*` : ""} ultrapassou 72h sem retirada.\n\nSe o cliente não retirar em até 24h, o pedido será *cancelado* e devolvido ao estoque.\n\nPor favor, entre em contato com o cliente urgentemente.`;
+
+    const { error } = await supabase.from("crm_conversas").insert({
+      documento: numDoc.padStart(12, "0"),
+      empresa: empresa || "001",
+      obs: msg,
+      enviado_por: gerenteId,
+      enviado_por_nome: gerenteNome,
+      enviado_por_foto: gerenteAvatar || null,
+      destino: vendedor.id,
+      timestamp: new Date().toISOString(),
+    });
+
+    if (error) console.error("[Balcao2Prazo] erro ao enviar msg automática:", error);
+  } catch (err) {
+    console.error("[Balcao2Prazo] erro ao enviar msg automática:", err);
   }
 }
 
@@ -165,6 +243,23 @@ export function useBalcao2PrazoAlert(showNotification: ShowNotification, userPro
           }
 
           marcarAvisado(dedupId);
+
+          if (evento === "vencido" && souGerenteEstoque && userProfile?.id) {
+            const msgDedupId = `msg-${normalizedId}`;
+            const msgEnviadas = loadMsgEnviadas();
+            if (!msgEnviadas[msgDedupId]) {
+              marcarMsgEnviada(msgDedupId);
+              enviarMensagemAutomatica(
+                userProfile.id,
+                userProfile.name || "Gerente de Estoque",
+                userProfile.avatar,
+                codVen,
+                numDoc,
+                String((order as Record<string, unknown>).EMPRESA || "001"),
+                cliente,
+              );
+            }
+          }
         }
       } catch (err) {
         console.error("[Balcao2Prazo] erro ao verificar:", err);
