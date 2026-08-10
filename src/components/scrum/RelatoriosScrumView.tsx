@@ -5,9 +5,7 @@ import {
   Clock,
   AlertTriangle,
   TrendingUp,
-  Users,
   Kanban,
-  Construction,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -30,7 +28,7 @@ interface OcorrenciaRow {
   responsavel_nome: string | null;
 }
 
-export function RelatoriosScrumView({ userProfile }: { userProfile?: UserProfile }) {
+export function RelatoriosScrumView({ }: { userProfile?: UserProfile }) {
   const [ocorrencias, setOcorrencias] = useState<OcorrenciaRow[]>([]);
   const [loading, setLoading] = useState(true);
 
