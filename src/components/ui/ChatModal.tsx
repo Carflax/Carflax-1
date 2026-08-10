@@ -536,6 +536,15 @@ export function ChatModal({
         ? title.split("-")[1].trim()
         : title;
       setClientName(cleanTitle);
+    } else if (title.includes("Divergência:") && conversas.length > 0) {
+      // Extrai o nome do cliente da mensagem de divergência (ex: "Cliente: *SM INDUSTRIA*")
+      const divMsg = conversas.find(c => c.obs?.includes("Divergência de Separação"));
+      const clienteMatch = divMsg?.obs?.match(/Cliente:\s*\*?([^*\n]+)\*?/i);
+      if (clienteMatch) {
+        setClientName(clienteMatch[1].trim());
+      } else {
+        setClientName(null);
+      }
     } else {
       setClientName(null);
     }
@@ -563,7 +572,7 @@ export function ChatModal({
     }
 
     fetchClientName();
-  }, [isOpen, documento, title, sellerName, userProfile?.name]);
+  }, [isOpen, documento, title, sellerName, userProfile?.name, conversas]);
 
   // Scroll automático
   useEffect(() => {

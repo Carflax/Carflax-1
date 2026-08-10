@@ -124,12 +124,14 @@ export function ScrumView({ userProfile }: { userProfile?: UserProfile }) {
   }, [ocorrencias]);
 
   const filtered = useMemo(() => {
+    const myId = userProfile?.id;
     return ocorrencias.filter(
       (o) =>
         (filterSetor === "todos" || o.setor === filterSetor) &&
-        (filterPrio === "todos" || o.prioridade === filterPrio),
+        (filterPrio === "todos" || o.prioridade === filterPrio) &&
+        (canManage || !myId || o.autor_id === myId || o.responsavel_id === myId),
     );
-  }, [ocorrencias, filterSetor, filterPrio]);
+  }, [ocorrencias, filterSetor, filterPrio, canManage, userProfile?.id]);
 
   const porColuna = useCallback(
     (status: ScrumStatus) =>
@@ -159,6 +161,9 @@ export function ScrumView({ userProfile }: { userProfile?: UserProfile }) {
   const canEditThis = (o: ScrumOcorrencia | null) =>
     !!o && !!userProfile?.id && (canManage || o.autor_id === userProfile.id);
 
+  const isResponsavel = (o: ScrumOcorrencia | null) =>
+    !!o && !!userProfile?.id && o.responsavel_id === userProfile.id;
+
   const handleSave = async () => {
     if (!form.titulo?.trim() || !form.setor?.trim() || !form.descricao?.trim()) return;
     if (editing && !canEditThis(editing)) {
@@ -168,22 +173,31 @@ export function ScrumView({ userProfile }: { userProfile?: UserProfile }) {
     setSaving(true);
     try {
       if (editing) {
-        const patch: Partial<ScrumOcorrencia> = {
-          titulo: form.titulo,
-          setor: form.setor,
-          descricao: form.descricao,
-          solucao_proposta: form.solucao_proposta || null,
-          prioridade: form.prioridade as ScrumPrioridade,
-        };
-        if (canManage) {
-          patch.status = form.status as ScrumStatus;
-          patch.responsavel_id = form.responsavel_id || null;
-          patch.responsavel_nome = form.responsavel_nome || null;
-          patch.decisao = form.decisao || null;
-          patch.resolved_at =
-            form.status === "resolvido" ? editing.resolved_at || new Date().toISOString() : null;
+        const isResp = isResponsavel(editing);
+        // Responsável pode atualizar apenas sua resposta
+        if (isResp && !canEditThis(editing) && !canManage) {
+          await updateOcorrencia(editing.id, {
+            resposta_responsavel: form.resposta_responsavel || null,
+          });
+        } else {
+          const patch: Partial<ScrumOcorrencia> = {
+            titulo: form.titulo,
+            setor: form.setor,
+            descricao: form.descricao,
+            solucao_proposta: form.solucao_proposta || null,
+            prioridade: form.prioridade as ScrumPrioridade,
+            resposta_responsavel: form.resposta_responsavel || null,
+          };
+          if (canManage) {
+            patch.status = form.status as ScrumStatus;
+            patch.responsavel_id = form.responsavel_id || null;
+            patch.responsavel_nome = form.responsavel_nome || null;
+            patch.decisao = form.decisao || null;
+            patch.resolved_at =
+              form.status === "resolvido" ? editing.resolved_at || new Date().toISOString() : null;
+          }
+          await updateOcorrencia(editing.id, patch);
         }
-        await updateOcorrencia(editing.id, patch);
       } else {
         await createOcorrencia({
           titulo: form.titulo,
@@ -370,6 +384,7 @@ export function ScrumView({ userProfile }: { userProfile?: UserProfile }) {
           setForm={setForm}
           canManage={canManage}
           canEdit={editing ? canEditThis(editing) : true}
+          isResponsavel={editing ? isResponsavel(editing) : false}
           users={users}
           saving={saving}
           onClose={() => setIsModalOpen(false)}
@@ -432,6 +447,12 @@ function ScrumCard({
 
       <p className="mt-2 text-[10px] font-medium text-muted-foreground leading-snug line-clamp-2 cursor-pointer" onClick={onOpen}>{o.descricao}</p>
 
+      {o.resposta_responsavel && (
+        <div className="mt-2 px-2 py-1.5 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
+          <p className="text-[9px] font-medium text-emerald-700 dark:text-emerald-400 leading-snug line-clamp-2">{o.resposta_responsavel}</p>
+        </div>
+      )}
+
       <div className="mt-2.5 pt-2 border-t border-border/60 flex items-center justify-between gap-2">
         <div className="min-w-0">
           <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest truncate flex items-center gap-1">
@@ -441,6 +462,9 @@ function ScrumCard({
             <p className="text-[8px] font-black text-primary uppercase tracking-widest truncate mt-0.5">→ {o.responsavel_nome}</p>
           )}
         </div>
+        <span className="text-[8px] font-bold text-muted-foreground/60 tabular-nums shrink-0">
+          {new Date(o.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} {new Date(o.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
+        </span>
       </div>
     </div>
   );
@@ -453,6 +477,7 @@ function OcorrenciaModal({
   setForm,
   canManage,
   canEdit,
+  isResponsavel,
   users,
   saving,
   onClose,
@@ -464,6 +489,7 @@ function OcorrenciaModal({
   setForm: React.Dispatch<React.SetStateAction<Partial<ScrumOcorrencia>>>;
   canManage: boolean;
   canEdit: boolean;
+  isResponsavel: boolean;
   users: { id: string; name: string }[];
   saving: boolean;
   onClose: () => void;
@@ -474,7 +500,8 @@ function OcorrenciaModal({
   const inputCls =
     "w-full bg-background border border-border rounded-xl px-3 py-2.5 text-[12px] font-medium text-foreground outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all disabled:opacity-60";
   const labelCls = "text-[9px] font-black text-muted-foreground uppercase tracking-widest mb-1.5 block";
-  const readOnly = !canEdit;
+  const canOnlyRespond = isResponsavel && !canEdit;
+  const readOnly = !canEdit && !isResponsavel;
 
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
@@ -493,17 +520,17 @@ function OcorrenciaModal({
         <div className="flex-1 overflow-y-auto scrollbar-hide p-6 space-y-4">
           <div>
             <label className={labelCls}>Título *</label>
-            <input className={inputCls} value={form.titulo || ""} disabled={readOnly} onChange={(e) => set("titulo", e.target.value)} placeholder="Resumo da ocorrência" />
+            <input className={inputCls} value={form.titulo || ""} disabled={readOnly || canOnlyRespond} onChange={(e) => set("titulo", e.target.value)} placeholder="Resumo da ocorrência" />
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className={labelCls}>Setor *</label>
-              <input className={inputCls} value={form.setor || ""} disabled={readOnly} onChange={(e) => set("setor", e.target.value)} placeholder="Ex.: Comercial, Logística..." />
+              <input className={inputCls} value={form.setor || ""} disabled={readOnly || canOnlyRespond} onChange={(e) => set("setor", e.target.value)} placeholder="Ex.: Comercial, Logística..." />
             </div>
             <div>
               <label className={labelCls}>Prioridade</label>
-              <select className={inputCls} value={form.prioridade || "media"} disabled={readOnly} onChange={(e) => set("prioridade", e.target.value as ScrumPrioridade)}>
+              <select className={inputCls} value={form.prioridade || "media"} disabled={readOnly || canOnlyRespond} onChange={(e) => set("prioridade", e.target.value as ScrumPrioridade)}>
                 {(Object.keys(PRIOS) as ScrumPrioridade[]).map((p) => (
                   <option key={p} value={p}>{PRIOS[p].label}</option>
                 ))}
@@ -513,12 +540,12 @@ function OcorrenciaModal({
 
           <div>
             <label className={labelCls}>Ocorrência / Problema *</label>
-            <textarea className={cn(inputCls, "min-h-[90px] resize-y")} value={form.descricao || ""} disabled={readOnly} onChange={(e) => set("descricao", e.target.value)} placeholder="Descreva o problema do setor" />
+            <textarea className={cn(inputCls, "min-h-[90px] resize-y")} value={form.descricao || ""} disabled={readOnly || canOnlyRespond} onChange={(e) => set("descricao", e.target.value)} placeholder="Descreva o problema do setor" />
           </div>
 
           <div>
             <label className={labelCls}>Solução Proposta</label>
-            <textarea className={cn(inputCls, "min-h-[70px] resize-y")} value={form.solucao_proposta || ""} disabled={readOnly} onChange={(e) => set("solucao_proposta", e.target.value)} placeholder="Sugestão de solução (opcional)" />
+            <textarea className={cn(inputCls, "min-h-[70px] resize-y")} value={form.solucao_proposta || ""} disabled={readOnly || canOnlyRespond} onChange={(e) => set("solucao_proposta", e.target.value)} placeholder="Sugestão de solução (opcional)" />
           </div>
 
           {/* Área da diretoria */}
@@ -567,6 +594,29 @@ function OcorrenciaModal({
               <p className="text-[12px] font-medium text-foreground whitespace-pre-wrap">{form.decisao}</p>
             </div>
           )}
+
+          {/* Campo de resposta do responsável */}
+          {editing && (isResponsavel || canManage) && (
+            <div className="p-4 rounded-xl border border-blue-500/20 bg-blue-500/5 space-y-2">
+              <p className="text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest flex items-center gap-1.5">
+                <UserIcon className="w-3.5 h-3.5" /> Resposta do Responsável
+              </p>
+              <textarea
+                className={cn(inputCls, "min-h-[70px] resize-y")}
+                value={form.resposta_responsavel || ""}
+                onChange={(e) => set("resposta_responsavel", e.target.value)}
+                placeholder="Descreva o que foi feito ou o andamento da ação..."
+              />
+            </div>
+          )}
+
+          {/* Somente leitura da resposta para quem não é responsável nem gestor */}
+          {editing && !isResponsavel && !canManage && form.resposta_responsavel && (
+            <div className="p-4 rounded-xl border border-blue-500/20 bg-blue-500/5">
+              <p className="text-[9px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-widest mb-1">Resposta do Responsável</p>
+              <p className="text-[12px] font-medium text-foreground whitespace-pre-wrap">{form.resposta_responsavel}</p>
+            </div>
+          )}
         </div>
 
         <div className="px-6 py-4 border-t border-border bg-secondary/10 flex items-center justify-between gap-3 shrink-0">
@@ -584,7 +634,7 @@ function OcorrenciaModal({
             {!readOnly && (
               <button
                 onClick={onSave}
-                disabled={saving || !form.titulo?.trim() || !form.setor?.trim() || !form.descricao?.trim()}
+                disabled={saving || (!canOnlyRespond && (!form.titulo?.trim() || !form.setor?.trim() || !form.descricao?.trim()))}
                 className="px-6 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest bg-primary text-primary-foreground hover:opacity-90 transition-all shadow-lg shadow-primary/20 disabled:opacity-40"
               >
                 {saving ? "Salvando..." : editing ? "Salvar" : "Registrar"}
