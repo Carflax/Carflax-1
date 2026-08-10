@@ -182,7 +182,7 @@ function HistoricoModal({ cod, nome, podeExcluir, onChanged, onClose }: { cod: s
             <History className="w-4 h-4 text-blue-500" />
             <div>
               <h3 className="text-sm font-black text-foreground uppercase tracking-tight leading-none">{nome}</h3>
-              <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mt-0.5">{scans.length} avaliações</p>
+              <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mt-0.5">{scans.length} scans</p>
             </div>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary transition-colors"><X className="w-4 h-4 text-muted-foreground" /></button>
