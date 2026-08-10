@@ -15,6 +15,8 @@ export interface ScrumOcorrencia {
   autor_nome: string | null;
   responsavel_id: string | null;
   responsavel_nome: string | null;
+  responsavel_ids: string[] | null;
+  responsavel_nomes: string[] | null;
   decisao: string | null;
   resposta_responsavel: string | null;
   created_at: string;

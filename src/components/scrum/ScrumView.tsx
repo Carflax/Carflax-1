@@ -66,7 +66,7 @@ const emptyForm = (setor = ""): Partial<ScrumOcorrencia> => ({
 export function ScrumView({ userProfile }: { userProfile?: UserProfile }) {
   const [ocorrencias, setOcorrencias] = useState<ScrumOcorrencia[]>([]);
   const [loading, setLoading] = useState(true);
-  const [users, setUsers] = useState<{ id: string; name: string }[]>([]);
+  const [users, setUsers] = useState<{ id: string; name: string; avatar?: string | null }[]>([]);
   const [dragOverCol, setDragOverCol] = useState<ScrumStatus | null>(null);
   const draggingId = useRef<string | null>(null);
 
@@ -102,9 +102,9 @@ export function ScrumView({ userProfile }: { userProfile?: UserProfile }) {
   useEffect(() => {
     supabase
       .from("usuarios")
-      .select("id, name")
+      .select("id, name, avatar")
       .order("name")
-      .then(({ data }) => setUsers((data || []) as { id: string; name: string }[]));
+      .then(({ data }) => setUsers((data || []) as { id: string; name: string; avatar?: string | null }[]));
   }, []);
 
   // Realtime: mantém o quadro ao vivo durante a reunião (silent para não piscar)
@@ -129,7 +129,7 @@ export function ScrumView({ userProfile }: { userProfile?: UserProfile }) {
       (o) =>
         (filterSetor === "todos" || o.setor === filterSetor) &&
         (filterPrio === "todos" || o.prioridade === filterPrio) &&
-        (canManage || !myId || o.autor_id === myId || o.responsavel_id === myId),
+        (canManage || !myId || o.autor_id === myId || (o.responsavel_ids || []).includes(myId) || o.responsavel_id === myId),
     );
   }, [ocorrencias, filterSetor, filterPrio, canManage, userProfile?.id]);
 
@@ -154,7 +154,9 @@ export function ScrumView({ userProfile }: { userProfile?: UserProfile }) {
 
   const openEdit = (o: ScrumOcorrencia) => {
     setEditing(o);
-    setForm({ ...o });
+    const ids = o.responsavel_ids?.length ? o.responsavel_ids : o.responsavel_id ? [o.responsavel_id] : [];
+    const nomes = o.responsavel_nomes?.length ? o.responsavel_nomes : o.responsavel_nome ? [o.responsavel_nome] : [];
+    setForm({ ...o, responsavel_ids: ids, responsavel_nomes: nomes });
     setIsModalOpen(true);
   };
 
@@ -162,20 +164,20 @@ export function ScrumView({ userProfile }: { userProfile?: UserProfile }) {
     !!o && !!userProfile?.id && (canManage || o.autor_id === userProfile.id);
 
   const isResponsavel = (o: ScrumOcorrencia | null) =>
-    !!o && !!userProfile?.id && o.responsavel_id === userProfile.id;
+    !!o && !!userProfile?.id && ((o.responsavel_ids || []).includes(userProfile.id) || o.responsavel_id === userProfile.id);
 
   const handleSave = async () => {
-    if (!form.titulo?.trim() || !form.setor?.trim() || !form.descricao?.trim()) return;
-    if (editing && !canEditThis(editing)) {
+    const isResp = editing ? isResponsavel(editing) : false;
+    const canOnlyResp = isResp && !canEditThis(editing) && !canManage;
+    if (!canOnlyResp && (!form.titulo?.trim() || !form.setor?.trim() || !form.descricao?.trim())) return;
+    if (editing && !canEditThis(editing) && !isResp) {
       alert("Você não tem permissão para editar esta ocorrência.");
       return;
     }
     setSaving(true);
     try {
       if (editing) {
-        const isResp = isResponsavel(editing);
-        // Responsável pode atualizar apenas sua resposta
-        if (isResp && !canEditThis(editing) && !canManage) {
+        if (canOnlyResp) {
           await updateOcorrencia(editing.id, {
             resposta_responsavel: form.resposta_responsavel || null,
           });
@@ -190,8 +192,10 @@ export function ScrumView({ userProfile }: { userProfile?: UserProfile }) {
           };
           if (canManage) {
             patch.status = form.status as ScrumStatus;
-            patch.responsavel_id = form.responsavel_id || null;
-            patch.responsavel_nome = form.responsavel_nome || null;
+            patch.responsavel_ids = form.responsavel_ids || [];
+            patch.responsavel_nomes = form.responsavel_nomes || [];
+            patch.responsavel_id = (form.responsavel_ids || [])[0] || null;
+            patch.responsavel_nome = (form.responsavel_nomes || [])[0] || null;
             patch.decisao = form.decisao || null;
             patch.resolved_at =
               form.status === "resolvido" ? editing.resolved_at || new Date().toISOString() : null;
@@ -363,6 +367,7 @@ export function ScrumView({ userProfile }: { userProfile?: UserProfile }) {
                       o={o}
                       canManage={canManage}
                       userId={userProfile?.id}
+                      users={users}
                       onOpen={() => openEdit(o)}
                       onDragStart={() => { draggingId.current = o.id; }}
                       onDragEnd={() => { draggingId.current = null; setDragOverCol(null); }}
@@ -401,6 +406,7 @@ function ScrumCard({
   o,
   canManage,
   userId,
+  users,
   onOpen,
   onDragStart,
   onDragEnd,
@@ -408,6 +414,7 @@ function ScrumCard({
   o: ScrumOcorrencia;
   canManage: boolean;
   userId?: string;
+  users: { id: string; name: string; avatar?: string | null }[];
   onOpen: () => void;
   onDragStart: () => void;
   onDragEnd: () => void;
@@ -447,20 +454,63 @@ function ScrumCard({
 
       <p className="mt-2 text-[10px] font-medium text-muted-foreground leading-snug line-clamp-2 cursor-pointer" onClick={onOpen}>{o.descricao}</p>
 
-      {o.resposta_responsavel && (
-        <div className="mt-2 px-2 py-1.5 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
-          <p className="text-[9px] font-medium text-emerald-700 dark:text-emerald-400 leading-snug line-clamp-2">{o.resposta_responsavel}</p>
-        </div>
-      )}
+      {o.resposta_responsavel && (() => {
+        const respIds = o.responsavel_ids?.length ? o.responsavel_ids : o.responsavel_id ? [o.responsavel_id] : [];
+        const respNomes = o.responsavel_nomes?.length ? o.responsavel_nomes : o.responsavel_nome ? [o.responsavel_nome] : [];
+        const respUsers = respIds.map(id => users.find(u => u.id === id)).filter(Boolean);
+        return (
+          <div className="mt-2 px-2 py-1.5 rounded-lg bg-emerald-500/5 border border-emerald-500/20 flex items-start gap-2">
+            <div className="flex -space-x-1.5 shrink-0 mt-0.5">
+              {respUsers.length > 0 ? respUsers.map((u) => (
+                u?.avatar ? (
+                  <img key={u.id} src={u.avatar} alt="" className="w-5 h-5 rounded-full object-cover border border-background" />
+                ) : (
+                  <div key={u?.id} className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center border border-background">
+                    <UserIcon className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                )
+              )) : (
+                <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center">
+                  <UserIcon className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                </div>
+              )}
+            </div>
+            <div className="min-w-0">
+              {respNomes.length > 0 && (
+                <p className="text-[8px] font-black text-emerald-600 dark:text-emerald-400 uppercase tracking-widest mb-0.5">{respNomes.join(", ")}</p>
+              )}
+              <p className="text-[9px] font-medium text-emerald-700 dark:text-emerald-400 leading-snug line-clamp-2">{o.resposta_responsavel}</p>
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="mt-2.5 pt-2 border-t border-border/60 flex items-center justify-between gap-2">
         <div className="min-w-0">
           <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest truncate flex items-center gap-1">
             <UserIcon className="w-2.5 h-2.5" /> {o.autor_nome || "—"}
           </p>
-          {o.responsavel_nome && (
-            <p className="text-[8px] font-black text-primary uppercase tracking-widest truncate mt-0.5">→ {o.responsavel_nome}</p>
-          )}
+          {(() => {
+            const rIds = o.responsavel_ids?.length ? o.responsavel_ids : o.responsavel_id ? [o.responsavel_id] : [];
+            if (!rIds.length) return null;
+            const rUsers = rIds.map(id => users.find(u => u.id === id)).filter(Boolean);
+            return (
+              <div className="flex items-center gap-1 mt-0.5">
+                <span className="text-[8px] font-black text-primary">→</span>
+                <div className="flex -space-x-1">
+                  {rUsers.map((u) => (
+                    u?.avatar ? (
+                      <img key={u.id} src={u.avatar} alt={u.name} title={u.name} className="w-4 h-4 rounded-full object-cover border border-background" />
+                    ) : (
+                      <div key={u?.id} title={u?.name} className="w-4 h-4 rounded-full bg-primary/20 flex items-center justify-center border border-background">
+                        <UserIcon className="w-2.5 h-2.5 text-primary" />
+                      </div>
+                    )
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
         </div>
         <span className="text-[8px] font-bold text-muted-foreground/60 tabular-nums shrink-0">
           {new Date(o.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} {new Date(o.created_at).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}
@@ -564,20 +614,40 @@ function OcorrenciaModal({
                   </select>
                 </div>
                 <div>
-                  <label className={labelCls}>Responsável</label>
-                  <select
-                    className={inputCls}
-                    value={form.responsavel_id || ""}
-                    onChange={(e) => {
-                      const u = users.find((x) => x.id === e.target.value);
-                      setForm((f) => ({ ...f, responsavel_id: u?.id || null, responsavel_nome: u?.name || null }));
-                    }}
-                  >
-                    <option value="">— Ninguém —</option>
-                    {users.map((u) => (
-                      <option key={u.id} value={u.id}>{u.name}</option>
-                    ))}
-                  </select>
+                  <label className={labelCls}>Responsáveis</label>
+                  <div className={cn(inputCls, "max-h-[120px] overflow-y-auto space-y-1 !py-1.5")}>
+                    {users.map((u) => {
+                      const ids = form.responsavel_ids || [];
+                      const checked = ids.includes(u.id);
+                      return (
+                        <label key={u.id} className="flex items-center gap-2 cursor-pointer px-1 py-0.5 rounded hover:bg-primary/5">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            className="accent-primary w-3.5 h-3.5"
+                            onChange={() => {
+                              const nomes = form.responsavel_nomes || [];
+                              if (checked) {
+                                const idx = ids.indexOf(u.id);
+                                setForm((f) => ({
+                                  ...f,
+                                  responsavel_ids: ids.filter((_, i) => i !== idx),
+                                  responsavel_nomes: nomes.filter((_, i) => i !== idx),
+                                }));
+                              } else {
+                                setForm((f) => ({
+                                  ...f,
+                                  responsavel_ids: [...ids, u.id],
+                                  responsavel_nomes: [...nomes, u.name],
+                                }));
+                              }
+                            }}
+                          />
+                          <span className="text-[10px] font-medium truncate">{u.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
               <div>
