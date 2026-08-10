@@ -21,7 +21,15 @@
       "mcp__visualize__show_widget",
       "Bash(node --check src/lib/googleReviewsScheduler.js)",
       "Bash(node --check src/routes/HUB/Marketing/avaliacaoCampanha.js)",
-      "Bash(node --check src/handlers/HUB/Comercial/orcamentosHandler.js)"
+      "Bash(node --check src/handlers/HUB/Comercial/orcamentosHandler.js)",
+      "PowerShell(Invoke-WebRequest -Method POST -Uri \"https://marketing-banco-de-dados.velbav.easypanel.host/api/estoque/b2-prazo/enviar-mensagens\" -UseBasicParsing)",
+      "PowerShell(Invoke-WebRequest -Uri \"https://marketing-banco-de-dados.velbav.easypanel.host/api/estoque/separacao\" -UseBasicParsing)",
+      "PowerShell(try { Invoke-WebRequest -Uri \"https://marketing-banco-de-dados.velbav.easypanel.host/api/estoque/separacao\" -UseBasicParsing -TimeoutSec 10 | Select-Object StatusCode } catch { $_.Exception.Message })",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"https://marketing-banco-de-dados.velbav.easypanel.host/api/estoque/retirada/pedidos\" -UseBasicParsing -TimeoutSec 10; $r.StatusCode } catch { $_.Exception.Message })",
+      "Bash(node --check \"C:\\\\Users\\\\Danilo\\\\Desktop\\\\Desenvolvimento\\\\Carflax HUB\\\\db\\\\src\\\\handlers\\\\HUB\\\\Estoque\\\\b2PrazoHandler.js\")",
+      "Bash(echo \"exit: $?\")",
+      "Bash(node --check \"C:\\\\Users\\\\Danilo\\\\Desktop\\\\Desenvolvimento\\\\Carflax HUB\\\\db\\\\src\\\\routes\\\\HUB\\\\Estoque\\\\expedicao.js\")",
+      "PowerShell(try { $r = Invoke-WebRequest -Method POST -Uri \"https://marketing-carflax.velbav.easypanel.host/api/estoque/b2-prazo/enviar-mensagens\" -UseBasicParsing -TimeoutSec 30; $r.Content } catch { $_.Exception.Response.StatusCode; $_.Exception.Message })"
     ]
   }
 }
