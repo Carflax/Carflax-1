@@ -62,7 +62,7 @@ function CopyLinkButton({ url }: { url: string }) {
   );
 }
 
-// Card do vendedor: QR (baixável) + nº de avaliações (scans).
+// Card do vendedor: QR (baixável) + nº de avaliações confirmadas no Google.
 function VendedorCard({ score, baseUrl, rank, onHistorico }: { score: VendedorScore; baseUrl: string; rank: number; onHistorico: () => void }) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const url = `${baseUrl}/avaliar?vendedor=${encodeURIComponent(score.vendedor_cod)}`;
@@ -78,7 +78,7 @@ function VendedorCard({ score, baseUrl, rank, onHistorico }: { score: VendedorSc
         <History className="w-3.5 h-3.5" />
       </button>
       <div className="flex items-center gap-2 mb-3">
-        {rank < 3 && score.scans > 0 && <Trophy className={cn("w-4 h-4", medalha)} />}
+        {rank < 3 && score.confirmadas > 0 && <Trophy className={cn("w-4 h-4", medalha)} />}
         <span className="text-xs font-black text-foreground uppercase tracking-tight truncate">{score.vendedor_nome}</span>
       </div>
 
@@ -96,9 +96,15 @@ function VendedorCard({ score, baseUrl, rank, onHistorico }: { score: VendedorSc
         <CopyLinkButton url={url} />
       </div>
 
-      <div className="w-full mt-4 pt-4 border-t border-border/50">
-        <p className="text-2xl font-black text-blue-600 dark:text-blue-400 tracking-tighter leading-none">{score.scans}</p>
-        <span className="text-[8px] font-black text-muted-foreground uppercase tracking-widest">Avaliações</span>
+      <div className="w-full mt-4 pt-4 border-t border-border/50 flex items-end justify-center gap-4">
+        <div className="text-center">
+          <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400 tracking-tighter leading-none">{score.confirmadas}</p>
+          <span className="text-[8px] font-black text-muted-foreground uppercase tracking-widest">Confirmadas</span>
+        </div>
+        <div className="text-center">
+          <p className="text-lg font-black text-muted-foreground/60 tracking-tighter leading-none">{score.scans}</p>
+          <span className="text-[8px] font-bold text-muted-foreground/50 uppercase tracking-widest">Scans</span>
+        </div>
       </div>
     </div>
   );
@@ -319,9 +325,10 @@ export function AvaliacoesView({ userProfile }: { userProfile?: UserProfile | nu
     catch (e) { setErro(e instanceof Error ? e.message : String(e)); }
   };
 
+  const confirmadasTotal = scores.reduce((a, s) => a + s.confirmadas, 0);
   const scansVendedores = scores.reduce((a, s) => a + s.scans, 0);
   const scansCanais = canais.reduce((a, c) => a + c.scans, 0);
-  const lider = scores.find(s => s.scans > 0);
+  const lider = scores.find(s => s.confirmadas > 0);
 
   return (
     <div className="flex-1 p-6 lg:p-8 bg-background h-full overflow-y-auto">
@@ -333,7 +340,7 @@ export function AvaliacoesView({ userProfile }: { userProfile?: UserProfile | nu
           </div>
           <div>
             <h1 className="text-2xl font-black text-foreground uppercase tracking-tighter leading-none">Avaliações Google</h1>
-            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-1">Cada QR escaneado conta uma avaliação</p>
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-1">Pontuação por avaliações confirmadas no Google</p>
           </div>
         </div>
         <button
@@ -367,14 +374,14 @@ export function AvaliacoesView({ userProfile }: { userProfile?: UserProfile | nu
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mt-5">
         <div className="bg-card border border-border rounded-xl p-4">
-          <Star className="w-4 h-4 text-blue-600 dark:text-blue-400 mb-2 fill-current" />
-          <p className="text-xl font-black text-foreground tracking-tighter">{scansVendedores + scansCanais}</p>
-          <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">Avaliações no total</span>
+          <Star className="w-4 h-4 text-emerald-600 dark:text-emerald-400 mb-2 fill-current" />
+          <p className="text-xl font-black text-foreground tracking-tighter">{confirmadasTotal}</p>
+          <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">Confirmadas no Google</span>
         </div>
         <div className="bg-card border border-border rounded-xl p-4">
           <ScanLine className="w-4 h-4 text-muted-foreground mb-2" />
           <p className="text-xl font-black text-foreground tracking-tighter">{scansVendedores}</p>
-          <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">Via vendedores</span>
+          <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">QRs escaneados</span>
         </div>
         <div className="bg-card border border-border rounded-xl p-4">
           <Ticket className="w-4 h-4 text-muted-foreground mb-2" />

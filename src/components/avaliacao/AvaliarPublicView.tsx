@@ -84,6 +84,14 @@ export function AvaliarPublicView() {
     if (scanIdRef.current && (nome.trim() || telefone.trim())) {
       await atualizarScanCliente(scanIdRef.current, nome.trim() || null, telefone.trim() || null);
     }
+    // Agenda syncs no backend (1.5min, 3min, 5min) para verificar se o cliente
+    // completou a avaliação no Google. Usa keepalive para sobreviver à navegação.
+    try {
+      fetch("/api-marketing/api/avaliacao-campanha/sync-after-scan", {
+        method: "POST",
+        keepalive: true,
+      });
+    } catch {}
     if (reviewUrl) {
       window.location.replace(reviewUrl);
     } else {
