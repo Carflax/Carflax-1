@@ -75,9 +75,17 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Conferência" },
       { label: "Retirada" },
       { label: "Furos" },
+      { label: "Relatórios", value: "Relatórios Estoque" },
     ],
   },
-  { label: "Compras", permGroup: "COMPRAS" },
+  {
+    label: "Compras",
+    permGroup: "COMPRAS",
+    subItems: [
+      { label: "Painel", value: "Compras" },
+      { label: "Relatórios", value: "Relatórios Compras" },
+    ],
+  },
   {
     label: "Entregas",
     permGroup: "LOGÍSTICA",
@@ -87,7 +95,15 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Mapa ao Vivo", value: "Mapa Entregas" },
     ],
   },
-  { label: "Scrum", permGroup: "GESTÃO & ADMIN", leaderOnly: true },
+  {
+    label: "Scrum",
+    permGroup: "GESTÃO & ADMIN",
+    leaderOnly: true,
+    subItems: [
+      { label: "Board", value: "Scrum" },
+      { label: "Relatórios", value: "Relatórios Scrum" },
+    ],
+  },
   { label: "Usuários", permGroup: "GESTÃO & ADMIN", leaderOnly: true },
   { label: "DB Admin", permGroup: "GESTÃO & ADMIN", leaderOnly: true },
   { label: "Sugestões", permGroup: "ESSENCIAL" },
@@ -167,7 +183,7 @@ const PUBLIC_SECTIONS = [
   "Dashboard", "Geral", "Produtos",
   "Calendário", "Agenda", "Férias",
   "Esteira", "Minha Esteira", "Sugestões",
-  "Organograma", "Estoque", "Separação", "Conferência", "Retirada", "Furos",
+  "Organograma", "Estoque", "Separação", "Conferência", "Retirada", "Furos", "Relatórios Estoque",
   "Relatórios", "Relatórios Mkt",
 ];
 
@@ -185,7 +201,7 @@ const VENDAS_SECTIONS = [
 ];
 
 // Módulos de Gestão & Admin liberados automaticamente para líderes
-const LEADER_SECTIONS = ["Scrum", "Usuários", "DB Admin"];
+const LEADER_SECTIONS = ["Scrum", "Relatórios Scrum", "Usuários", "DB Admin"];
 
 export function canAccessSection(profile: AccessProfile | null | undefined, item: string): boolean {
   if (!item) return false;
@@ -209,7 +225,7 @@ export function canAccessSection(profile: AccessProfile | null | undefined, item
   const dept = profile.department?.toUpperCase();
   if ((dept === "VENDAS" || dept === "COMERCIAL") && VENDAS_SECTIONS.includes(item)) return true;
 
-  if (dept === "COMPRAS" && item === "Compras") return true;
+  if (dept === "COMPRAS" && (item === "Compras" || item === "Relatórios Compras")) return true;
 
   // Permissões manuais atribuídas no cadastro do usuário
   if (profile.permissions?.includes(item)) return true;

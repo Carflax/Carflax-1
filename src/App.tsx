@@ -30,6 +30,9 @@ import { SeparacaoView, ConferenciaView } from "@/components/estoque/ExpedicaoVi
 import { RetiradaView } from "@/components/estoque/RetiradaView";
 import { FurosView } from "@/components/estoque/FurosView";
 import { ComprasView } from "@/components/compras/ComprasView";
+import { RelatoriosComprasView } from "@/components/compras/RelatoriosComprasView";
+import { RelatoriosEstoqueView } from "@/components/estoque/RelatoriosEstoqueView";
+import { RelatoriosScrumView } from "@/components/scrum/RelatoriosScrumView";
 import { EntregasView } from "@/components/entregas";
 import { MotoristaView } from "@/components/entregas/motorista/MotoristaView";
 import { UsersView } from "@/components/users/UsersView";
@@ -1391,8 +1394,12 @@ function DashboardContent({
             <RetiradaView userProfile={userProfile || undefined} />
           ) : activeItem === "Furos" ? (
             <FurosView />
+          ) : activeItem === "Relatórios Estoque" ? (
+            <RelatoriosEstoqueView />
           ) : activeItem === "Compras" ? (
             <ComprasView />
+          ) : activeItem === "Relatórios Compras" ? (
+            <RelatoriosComprasView />
           ) : activeItem === "Usuários" ? (
             <div className="p-6 pt-4 h-full overflow-y-auto scrollbar-hide">
               <UsersView />
@@ -1403,6 +1410,8 @@ function DashboardContent({
             </div>
           ) : activeItem === "Scrum" ? (
             <ScrumView userProfile={userProfile || undefined} />
+          ) : activeItem === "Relatórios Scrum" ? (
+            <RelatoriosScrumView userProfile={userProfile || undefined} />
           ) : activeItem === "DB Admin" ? (
             <SqlRunnerView />
           ) : activeItem === "Geral" ? (
