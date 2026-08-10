@@ -20,7 +20,8 @@
       "mcp__visualize__read_me",
       "mcp__visualize__show_widget",
       "Bash(node --check src/lib/googleReviewsScheduler.js)",
-      "Bash(node --check src/routes/HUB/Marketing/avaliacaoCampanha.js)"
+      "Bash(node --check src/routes/HUB/Marketing/avaliacaoCampanha.js)",
+      "Bash(node --check src/handlers/HUB/Comercial/orcamentosHandler.js)"
     ]
   }
 }

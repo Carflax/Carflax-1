@@ -544,10 +544,13 @@ export function ChatModal({
       try {
         const cleanDocId = documento.replace("#", "").split("-")[0].trim();
         const raw = await apiCrmOrcamentos({ documento: cleanDocId });
-        const budget = raw.find(b => 
-          b.ORCAMENTO === cleanDocId || 
-          b.ORCAMENTO?.includes(cleanDocId)
-        );
+        const isDivergencia = title.includes("Divergência:");
+        // Divergências são sobre pedidos (PD). Se houver um PD e um OR com mesmo
+        // número, prioriza o PD para mostrar o cliente correto.
+        const matches = raw.filter(b => b.ORCAMENTO === cleanDocId || b.ORCAMENTO?.includes(cleanDocId));
+        let budget = isDivergencia
+          ? matches.find(b => (b as unknown as { ESPDOC?: string }).ESPDOC === "PD" || b.PEDIDO === "Sim") || matches[0]
+          : matches[0];
         if (budget && budget.CLIENTE) {
           const cleanName = budget.CLIENTE.includes("-")
             ? budget.CLIENTE.slice(budget.CLIENTE.indexOf("-") + 1).trim()
