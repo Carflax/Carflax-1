@@ -19,6 +19,7 @@ import {
   type ClienteKnowledgeMessage,
 } from "@/lib/gemini-service";
 import type { CarteiraCliente } from "@/lib/api";
+import { apiMixCliente, apiHistoricoCliente, apiProdutosCliente } from "@/lib/api";
 
 interface Props {
   cliente: CarteiraCliente;
@@ -63,11 +64,15 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
   const [dadosExtraidos, setDadosExtraidos] = useState<Record<string, unknown>>({});
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState<"citel" | "ia" | null>(null);
+  const [loadingTextIdx, setLoadingTextIdx] = useState(0);
   const [initialLoading, setInitialLoading] = useState(true);
   const [showJson, setShowJson] = useState(false);
   const [proximaAcao, setProximaAcao] = useState<ProximaAcao | null>(null);
   const [lembrete, setLembrete] = useState<Lembrete | null>(null);
   const [lembreteConfirmado, setLembreteConfirmado] = useState(false);
+  const [dadosErp, setDadosErp] = useState<Record<string, unknown>>({});
+  const dadosErpRef = useRef<Record<string, unknown>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -92,13 +97,14 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
   );
 
   const loadHistory = useCallback(async () => {
+    // 1) Supabase history — fast, controls the loading spinner
     try {
       const { data } = await supabase
         .from("cliente_conhecimento")
         .select("historico, dados_extraidos, dados_cadcli")
         .eq("cliente_id", cliente.cliente_id)
         .eq("empresa", cliente.empresa)
-        .single();
+        .maybeSingle();
 
       if (data) {
         setMessages(data.historico || []);
@@ -106,15 +112,34 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
       }
     } catch {
       // No record yet
-    } finally {
-      setInitialLoading(false);
-      setTimeout(() => inputRef.current?.focus(), 100);
     }
+    setInitialLoading(false);
+    setTimeout(() => inputRef.current?.focus(), 100);
   }, [cliente.cliente_id, cliente.empresa]);
 
   useEffect(() => {
     loadHistory();
   }, [loadHistory]);
+
+  const LOADING_CITEL = [
+    "Buscando dados na Citel...",
+    "Consultando mix de marcas...",
+    "Carregando histórico de compras...",
+    "Verificando produtos recentes...",
+  ];
+  const LOADING_IA = [
+    "Analisando com IA...",
+    "Interpretando os dados...",
+    "Montando a resposta...",
+  ];
+
+  useEffect(() => {
+    if (!loading) { setLoadingTextIdx(0); return; }
+    const interval = setInterval(() => {
+      setLoadingTextIdx((prev) => prev + 1);
+    }, 2200);
+    return () => clearInterval(interval);
+  }, [loading, loadingStep]);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -204,9 +229,54 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
     }
 
     try {
+      const needsErpFetch = Object.keys(dadosErpRef.current).length === 0;
+
+      if (needsErpFetch) {
+        setLoadingStep("citel");
+        try {
+          const [mixResult, histResult, prodResult] = await Promise.allSettled([
+            apiMixCliente(cliente.cliente_id),
+            apiHistoricoCliente(cliente.cliente_id),
+            apiProdutosCliente(cliente.cliente_id),
+          ]);
+
+          const erp: Record<string, unknown> = {};
+          if (mixResult.status === "fulfilled") {
+            const marcas = mixResult.value.marcas || [];
+            erp.mix_marcas = marcas.slice(0, 20).map((m) => ({
+              marca: m.marca,
+              valor_12m: m.valor_atual,
+              pedidos: m.pedidos_atual,
+              status: m.status,
+              variacao: `${m.variacao_pct > 0 ? "+" : ""}${m.variacao_pct.toFixed(0)}%`,
+            }));
+          }
+          if (histResult.status === "fulfilled") {
+            erp.historico_anual = histResult.value.anos || [];
+            erp.eventos_timeline = histResult.value.eventos || [];
+          }
+          if (prodResult.status === "fulfilled") {
+            erp.produtos_comprados = (prodResult.value.produtos || []).map((p) => ({
+              codigo: p.codigo,
+              descricao: p.descricao,
+              marca: p.marca,
+              qtd: p.qtd_total,
+              valor: p.valor_total,
+              pedidos: p.pedidos,
+            }));
+          }
+          dadosErpRef.current = erp;
+          setDadosErp(erp);
+        } catch {
+          // ERP optional
+        }
+      }
+
+      setLoadingStep("ia");
+      setLoadingTextIdx(0);
       const response = await chatClienteKnowledge(
         newMessages,
-        dadosCadcli,
+        { ...dadosCadcli, ...dadosErpRef.current },
         dadosExtraidos,
       );
 
@@ -261,7 +331,17 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
       setMessages((prev) => [...prev, errorMsg]);
     }
     setLoading(false);
+    setLoadingStep(null);
     setTimeout(() => inputRef.current?.focus(), 50);
+  }
+
+  function formatModelText(text: string): string {
+    return text
+      .replace(/\*\*(.+?)\*\*/g, '<strong class="font-bold text-foreground">$1</strong>')
+      .replace(/^\s*(\d+)\.\s+/gm, '<br/><span class="text-primary font-black mr-1">$1.</span> ')
+      .replace(/^\s*[-•]\s+/gm, '<br/><span class="text-primary mr-1">•</span> ')
+      .replace(/\n/g, "<br/>")
+      .replace(/^(<br\/>)+/, "");
   }
 
   function formatTime(ts: string) {
@@ -377,7 +457,9 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
                           : "bg-muted/70 border border-border/50 text-foreground rounded-tl-xs shadow-xs backdrop-blur-sm"
                       }`}
                     >
-                      {m.role === "model" ? cleanResponse(m.text) : m.text}
+                      {m.role === "model" ? (
+                        <span dangerouslySetInnerHTML={{ __html: formatModelText(cleanResponse(m.text)) }} />
+                      ) : m.text}
                     </div>
                     <span className="text-[9px] font-medium text-muted-foreground/60 mt-1 px-1">
                       {formatTime(m.timestamp)}
@@ -454,10 +536,13 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
                   <MessageSquareText className="w-4.5 h-4.5 text-primary" />
                 </div>
                 <div className="bg-muted/70 rounded-2xl rounded-tl-xs px-4.5 py-3.5 border border-border/50 shadow-xs">
-                  <div className="flex gap-1.5 items-center">
-                    <span className="w-2 h-2 rounded-full bg-primary animate-bounce [animation-delay:0ms]" />
-                    <span className="w-2 h-2 rounded-full bg-primary animate-bounce [animation-delay:150ms]" />
-                    <span className="w-2 h-2 rounded-full bg-primary animate-bounce [animation-delay:300ms]" />
+                  <div className="flex items-center gap-2.5">
+                    <Loader2 className="w-4 h-4 text-primary animate-spin" />
+                    <span className="text-xs font-bold text-muted-foreground transition-opacity duration-300">
+                      {loadingStep === "citel"
+                        ? LOADING_CITEL[loadingTextIdx % LOADING_CITEL.length]
+                        : LOADING_IA[loadingTextIdx % LOADING_IA.length]}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -552,13 +637,40 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
                           {key.replace(/_/g, " ")}
                         </span>
                         {Array.isArray(val) ? (
-                          <div className="flex flex-wrap gap-1.5 pt-0.5">
-                            {val.map((item, idx) => (
-                              <span key={idx} className="px-2.5 py-1 rounded-xl bg-primary/15 text-foreground border border-primary/25 text-xs font-bold shadow-2xs">
-                                {String(item)}
-                              </span>
-                            ))}
-                          </div>
+                          typeof val[0] === "object" && val[0] !== null ? (
+                            <div className="space-y-1.5 pt-0.5">
+                              {val.map((item, idx) => (
+                                <div key={idx} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-background/50 border border-border/30 text-xs">
+                                  <span className="text-primary font-black">{idx + 1}.</span>
+                                  <span className="font-bold text-foreground">
+                                    {(item as Record<string, unknown>).produto || (item as Record<string, unknown>).marca || (item as Record<string, unknown>).descricao || JSON.stringify(item)}
+                                  </span>
+                                  {(item as Record<string, unknown>).valor != null && (
+                                    <span className="ml-auto text-emerald-400 font-bold shrink-0">
+                                      R$ {Number((item as Record<string, unknown>).valor).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
+                                    </span>
+                                  )}
+                                  {(item as Record<string, unknown>).status && (
+                                    <span className={`ml-auto text-[10px] font-black uppercase px-1.5 py-0.5 rounded-md ${
+                                      String((item as Record<string, unknown>).status) === "crescendo" ? "bg-emerald-500/15 text-emerald-400" :
+                                      String((item as Record<string, unknown>).status) === "caindo" ? "bg-rose-500/15 text-rose-400" :
+                                      "bg-muted text-muted-foreground"
+                                    }`}>
+                                      {String((item as Record<string, unknown>).status)}
+                                    </span>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap gap-1.5 pt-0.5">
+                              {val.map((item, idx) => (
+                                <span key={idx} className="px-2.5 py-1 rounded-xl bg-primary/15 text-foreground border border-primary/25 text-xs font-bold shadow-2xs">
+                                  {String(item)}
+                                </span>
+                              ))}
+                            </div>
+                          )
                         ) : typeof val === "object" && val !== null ? (
                           <pre className="text-[11px] font-mono text-foreground/90 whitespace-pre-wrap bg-background/50 rounded-xl p-2.5 border border-border/30">{JSON.stringify(val, null, 2)}</pre>
                         ) : (

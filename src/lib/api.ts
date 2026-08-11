@@ -821,6 +821,27 @@ export interface HistoricoClienteResponse {
 export const apiHistoricoCliente = (clienteId: string) =>
   get<HistoricoClienteResponse>(`/api/crm/historico-cliente?cliente=${encodeURIComponent(clienteId)}`);
 
+// ── Produtos comprados por Cliente (top 20, últimos 6 meses) ────────────────
+export interface ProdutoCliente {
+  codigo: string;
+  descricao: string;
+  marca: string;
+  qtd_total: number;
+  valor_total: number;
+  pedidos: number;
+  ultima_compra: string | null;
+}
+
+export interface ProdutosClienteResponse {
+  cliente_id: string;
+  gerado_em: string;
+  periodo_inicio: string;
+  produtos: ProdutoCliente[];
+}
+
+export const apiProdutosCliente = (clienteId: string) =>
+  get<ProdutosClienteResponse>(`/api/crm/produtos-cliente?cliente=${encodeURIComponent(clienteId)}`);
+
 // ── Expedição: Separação e Conferência ───────────────────────────────────────
 export interface ExpedicaoItem {
   pedido: string;
