@@ -204,9 +204,6 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
       const finalMessages = [...newMessages, modelMsg];
       setMessages(finalMessages);
       setDadosExtraidos(updatedExtracted);
-      if (extracted && Object.keys(extracted).length > 0) {
-        setShowJson(true);
-      }
       await saveToSupabase(finalMessages, updatedExtracted);
     } catch (err) {
       console.error("[KnowledgeChat] Erro:", err);
@@ -384,7 +381,7 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
                       handleSend();
                     }
                   }}
-                  placeholder="Digite uma informação sobre o cliente..."
+                  placeholder="Digite uma informação… (Shift+Enter para nova linha)"
                   disabled={loading}
                   rows={1}
                   className="w-full bg-transparent pl-4 pr-12 py-2.5 text-sm placeholder:text-muted-foreground/40 focus:outline-none disabled:opacity-50 transition-all resize-none leading-normal"
