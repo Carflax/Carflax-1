@@ -6,6 +6,12 @@ import {
   Loader2,
   Database,
   MessageSquareText,
+  Bell,
+  Zap,
+  Phone,
+  MapPin,
+  FileText,
+  CheckCheck,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
@@ -25,6 +31,17 @@ interface StoredData {
   historico: ClienteKnowledgeMessage[];
   dados_extraidos: Record<string, unknown>;
   dados_cadcli: Record<string, unknown>;
+}
+
+interface ProximaAcao {
+  descricao: string;
+  tipo: "ligação" | "visita" | "proposta" | "outro";
+}
+
+interface Lembrete {
+  descricao: string;
+  data_iso: string | null;
+  prazo_texto: string;
 }
 
 function Avatar({ src, fallback, size = "sm" }: { src?: string; fallback: string; size?: "sm" | "md" }) {
@@ -48,6 +65,9 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
   const [showJson, setShowJson] = useState(false);
+  const [proximaAcao, setProximaAcao] = useState<ProximaAcao | null>(null);
+  const [lembrete, setLembrete] = useState<Lembrete | null>(null);
+  const [lembreteConfirmado, setLembreteConfirmado] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -203,8 +223,34 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
 
       const finalMessages = [...newMessages, modelMsg];
       setMessages(finalMessages);
-      setDadosExtraidos(updatedExtracted);
-      await saveToSupabase(finalMessages, updatedExtracted);
+
+      // Extract special __ fields from JSON before updating dados
+      const cleanedExtracted = { ...updatedExtracted };
+      if (extracted?.__proxima_acao) {
+        setProximaAcao(extracted.__proxima_acao as ProximaAcao);
+        delete cleanedExtracted.__proxima_acao;
+      }
+      if (extracted?.__lembrete) {
+        const lembreteData = extracted.__lembrete as Lembrete;
+        setLembrete(lembreteData);
+        setLembreteConfirmado(false);
+        delete cleanedExtracted.__lembrete;
+        // Save lembrete to Supabase
+        supabase.from("cliente_lembretes").insert({
+          cliente_id: cliente.cliente_id,
+          empresa: cliente.empresa,
+          descricao: lembreteData.descricao,
+          data_iso: lembreteData.data_iso,
+          prazo_texto: lembreteData.prazo_texto,
+          nome_cliente: cliente.nome_cliente,
+          created_at: new Date().toISOString(),
+        }).then(({ error }) => {
+          if (error) console.error("[Lembrete] Erro ao salvar:", error);
+        });
+      }
+
+      setDadosExtraidos(cleanedExtracted);
+      await saveToSupabase(finalMessages, cleanedExtracted);
     } catch (err) {
       console.error("[KnowledgeChat] Erro:", err);
       const errorMsg: ClienteKnowledgeMessage = {
@@ -339,6 +385,68 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
                   </div>
                 </div>
               ))
+            )}
+
+            {/* Próxima Ação Card */}
+            {proximaAcao && (
+              <div className="animate-in slide-in-from-bottom-3 fade-in duration-300">
+                <div className="flex gap-2 items-start p-3 rounded-2xl bg-amber-500/10 border border-amber-500/25 mt-1">
+                  <div className="w-7 h-7 rounded-xl bg-amber-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                    {proximaAcao.tipo === "ligação" ? <Phone className="w-3.5 h-3.5 text-amber-400" /> :
+                     proximaAcao.tipo === "visita" ? <MapPin className="w-3.5 h-3.5 text-amber-400" /> :
+                     proximaAcao.tipo === "proposta" ? <FileText className="w-3.5 h-3.5 text-amber-400" /> :
+                     <Zap className="w-3.5 h-3.5 text-amber-400" />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-amber-400 mb-0.5">Próxima Ação Sugerida</p>
+                    <p className="text-xs font-bold text-foreground">{proximaAcao.descricao}</p>
+                  </div>
+                  <button
+                    onClick={() => setProximaAcao(null)}
+                    className="p-1 rounded-lg text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Lembrete Card */}
+            {lembrete && (
+              <div className="animate-in slide-in-from-bottom-3 fade-in duration-300">
+                <div className="flex gap-2 items-start p-3 rounded-2xl bg-blue-500/10 border border-blue-500/25 mt-1">
+                  <div className="w-7 h-7 rounded-xl bg-blue-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                    <Bell className="w-3.5 h-3.5 text-blue-400" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-blue-400 mb-0.5">
+                      Lembrete {lembreteConfirmado ? "✓ Salvo" : "Criado"}
+                    </p>
+                    <p className="text-xs font-bold text-foreground">{lembrete.descricao}</p>
+                    {(lembrete.data_iso || lembrete.prazo_texto) && (
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
+                        {lembrete.data_iso
+                          ? new Date(lembrete.data_iso + "T12:00:00").toLocaleDateString("pt-BR", { weekday: "short", day: "numeric", month: "short" })
+                          : lembrete.prazo_texto}
+                      </p>
+                    )}
+                  </div>
+                  {!lembreteConfirmado && (
+                    <button
+                      onClick={() => setLembreteConfirmado(true)}
+                      className="flex items-center gap-1 px-2 py-1 rounded-lg bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors text-[10px] font-black shrink-0"
+                    >
+                      <CheckCheck className="w-3 h-3" /> OK
+                    </button>
+                  )}
+                  <button
+                    onClick={() => setLembrete(null)}
+                    className="p-1 rounded-lg text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
             )}
             {loading && (
               <div className="flex gap-3">
