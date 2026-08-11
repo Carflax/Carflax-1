@@ -1469,12 +1469,7 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, l
                   <m.icon className="w-3.5 h-3.5 text-muted-foreground group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" />
                 </div>
                 <div className="flex flex-col min-w-0">
-                  <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider truncate mb-0.5 flex items-center gap-1">
-                    {m.label}
-                    {m.tooltip && (
-                      <span title={m.tooltip} className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-muted-foreground/15 text-muted-foreground text-[7px] font-black cursor-help shrink-0">!</span>
-                    )}
-                  </span>
+                  <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider truncate mb-0.5">{m.label}</span>
                   <span className={cn("text-xs font-black tracking-tight", m.valueColor.includes('slate-900') ? 'text-foreground' : m.valueColor)}>
                     {m.value}
                   </span>
