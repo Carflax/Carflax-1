@@ -139,7 +139,7 @@ export async function generateCreativeImage(parts: CreativePart[]): Promise<stri
     "image" in p
       ? { inlineData: { data: p.image.data, mimeType: p.image.mimeType } }
       : { text: p.text }
-  );
+  ) as Part[];
 
   let lastError: unknown = null;
   for (const modelName of IMAGE_MODELS) {
