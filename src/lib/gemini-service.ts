@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { GoogleGenerativeAI, type Part } from "@google/generative-ai";
 
 const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_IA || "");
 
@@ -27,7 +27,7 @@ const WARM_PATTERNS: RegExp[] = [
 
 // Mensagens sem contexto de compra → Frio.
 const GREETING_ONLY =
-  /^(oi+|ola|e?\s*ai|bom\s+dia|boa\s+tarde|boa\s+noite|opa|blz|beleza|tudo\s+bem|ok+|obrigad[oa]|valeu|\?|\.|\!)+$/;
+  /^(oi+|ola|e?\s*ai|bom\s+dia|boa\s+tarde|boa\s+noite|opa|blz|beleza|tudo\s+bem|ok+|obrigad[oa]|valeu|\?|\.|!)+$/;
 
 /**
  * Classificação por regras (heurística, custo zero). Cobre a maioria das conversas
@@ -59,11 +59,10 @@ export function classifyByRules(
   // Apenas cumprimentos / mensagens vazias de contexto → Frio.
   if (contactMsgs.every((m) => GREETING_ONLY.test(normalize(m)))) return "Frio";
 
-  // Pergunta sobre produto/compatibilidade, ou qualquer pergunta com contexto → Morno.
-  if (WARM_PATTERNS.some((r) => r.test(recent)) || recent.includes("?"))
-    return "Morno";
+  // Perguntas de compatibilidade/dúvidas em mensagens recentes → Morno.
+  if (WARM_PATTERNS.some((r) => r.test(recent))) return "Morno";
 
-  // Sem sinal claro → deixa a IA decidir.
+  // Nada identificado → ambíguo, cai na IA.
   return null;
 }
 
@@ -210,19 +209,17 @@ ${JSON.stringify(dadosCadcli, null, 2)}
 DADOS JÁ REGISTRADOS PELO VENDEDOR:
 ${Object.keys(dadosExtraidos).length > 0 ? JSON.stringify(dadosExtraidos, null, 2) : "(nenhum dado registrado ainda)"}
 
-INSTRUÇÕES:
-- Quando o vendedor informar um dado novo (ex: "o comprador agora é o Jerson"), confirme que armazenou e SEMPRE faça uma pergunta de follow-up para extrair mais informações.
-- Responda de forma curta e objetiva.
-- SEMPRE termine sua resposta com uma pergunta relevante para aprofundar o conhecimento sobre o cliente. Nunca encerre sem perguntar algo.
-- Perguntas úteis (use como guia, varie entre elas): quem é o decisor de compras, qual o segmento (indústria/comércio/oficina/obra/manutenção), quais concorrentes atendem esse cliente, qual o potencial estimado de compra mensal, quais categorias de produtos mais compram, qual o prazo de pagamento preferido, tem contrato com algum concorrente, qual o melhor horário para contato, tem alguma reclamação ou pendência, qual a frequência ideal de visitas.
-- Use os dados do ERP para contextualizar (ex: se o cliente não compra há muito tempo, pergunte o motivo).
-- Quando o vendedor perguntar algo sobre o cliente, use os dados do ERP e os dados registrados para responder, e faça uma pergunta adicional.
+INSTRUÇÕES DE COMPORTAMENTO:
+- Quando o vendedor informar um dado novo, apenas confirme de forma curta e direta que a informação foi registrada (ex: "Entendido! Registrei a informação.").
+- NÃO faça perguntas a todo momento. Apenas faça uma pergunta SE houver algo de EXTREMA relevância para esclarecer no contexto. Na maioria das vezes, apenas confirme e registre os dados sem perguntar nada de volta.
+- Responda de forma amigável, direta e concisa (1 a 2 frases curtas).
+- Quando o vendedor fizer uma pergunta sobre o cliente, responda usando os dados do ERP e os dados já registrados.
 - Retorne no final da resposta um bloco JSON (entre \`\`\`json e \`\`\`) com os dados extraídos ATUALIZADOS caso o vendedor tenha informado algo novo. O JSON deve conter TODOS os dados já registrados + os novos. Se nenhum dado novo foi informado, NÃO inclua o bloco JSON.
 
-Exemplo de resposta com dado novo:
-"Anotado! O novo comprador dessa empresa é o Jerson. Você sabe qual o cargo dele?
+Exemplo de resposta (apenas registro, sem pergunta):
+"Entendido! Registrei as informações atualizadas sobre este cliente.
 \`\`\`json
-{"comprador":"Jerson"}
+{"compradores":["Vinicius","Tatiane"]}
 \`\`\`"`;
 
   const contents = [

@@ -6,10 +6,6 @@ import {
   Loader2,
   Database,
   MessageSquareText,
-  Users,
-  ShoppingBag,
-  Building2,
-  HelpCircle,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
@@ -76,7 +72,6 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
   );
 
   const loadHistory = useCallback(async () => {
-    setInitialLoading(true);
     try {
       const { data } = await supabase
         .from("cliente_conhecimento")
@@ -91,9 +86,10 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
       }
     } catch {
       // No record yet
+    } finally {
+      setInitialLoading(false);
+      setTimeout(() => inputRef.current?.focus(), 100);
     }
-    setInitialLoading(false);
-    setTimeout(() => inputRef.current?.focus(), 100);
   }, [cliente.cliente_id, cliente.empresa]);
 
   useEffect(() => {
@@ -233,13 +229,6 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
     }
   }
 
-  const promptSuggestions = [
-    { label: "Quem é o comprador?", icon: Users },
-    { label: "O que eles mais compram?", icon: ShoppingBag },
-    { label: "Quais os concorrentes?", icon: Building2 },
-    { label: "Potencial de compra mensal", icon: HelpCircle },
-  ];
-
   return createPortal(
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
       {/* Overlay Backdrop */}
@@ -308,29 +297,20 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
                 <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Carregando histórico…</p>
               </div>
             ) : messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-center gap-4 py-8">
-                <div className="w-16 h-16 rounded-3xl bg-primary/10 flex items-center justify-center border border-primary/20 shadow-xs">
+              <div className="flex flex-col items-center justify-center h-full text-center py-8">
+                <div className="w-16 h-16 rounded-3xl bg-primary/10 flex items-center justify-center border border-primary/20 shadow-xs mb-4">
                   <MessageSquareText className="w-8 h-8 text-primary" />
                 </div>
-                <div className="space-y-1">
-                  <h3 className="text-base font-black text-foreground">
-                    Conhecimento de {cliente.nome_cliente}
+                <div className="space-y-1.5 max-w-md mx-auto flex flex-col items-center text-center px-4">
+                  <h3 className="text-base font-black text-foreground leading-snug">
+                    Conhecimento do Cliente
                   </h3>
-                  <p className="text-xs text-muted-foreground max-w-[380px] leading-relaxed">
+                  <p className="text-xs font-bold text-primary truncate max-w-full">
+                    {cliente.nome_cliente}
+                  </p>
+                  <p className="text-xs text-muted-foreground leading-relaxed pt-1 max-w-[400px]">
                     Registre informações estratégicas sobre este cliente: decisores de compras, preferências, hábitos e concorrentes.
                   </p>
-                </div>
-                <div className="grid grid-cols-2 gap-2 max-w-md mt-2 w-full">
-                  {promptSuggestions.map(({ label, icon: Icon }) => (
-                    <button
-                      key={label}
-                      onClick={() => { setInput(label); inputRef.current?.focus(); }}
-                      className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-muted/50 border border-border/50 text-[11px] font-bold text-muted-foreground hover:text-foreground hover:bg-muted/90 hover:border-primary/40 transition-all text-left group"
-                    >
-                      <Icon className="w-3.5 h-3.5 text-primary group-hover:scale-110 transition-transform shrink-0" />
-                      <span className="truncate">{label}</span>
-                    </button>
-                  ))}
                 </div>
               </div>
             ) : (
