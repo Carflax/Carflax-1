@@ -188,6 +188,56 @@ export async function askGenos(prompt: string, context?: string): Promise<string
   return result.response.text().trim();
 }
 
+export interface ClienteKnowledgeMessage {
+  role: "user" | "model";
+  text: string;
+  timestamp: string;
+}
+
+export async function chatClienteKnowledge(
+  messages: ClienteKnowledgeMessage[],
+  dadosCadcli: Record<string, unknown>,
+  dadosExtraidos: Record<string, unknown>,
+): Promise<string> {
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+  const system = `Você é o assistente de conhecimento de clientes da Carflax (distribuidora de autopeças).
+Seu papel é ajudar o vendedor a registrar e consultar informações sobre cada cliente.
+
+DADOS DO SISTEMA (ERP Citel - CADCLI):
+${JSON.stringify(dadosCadcli, null, 2)}
+
+DADOS JÁ REGISTRADOS PELO VENDEDOR:
+${Object.keys(dadosExtraidos).length > 0 ? JSON.stringify(dadosExtraidos, null, 2) : "(nenhum dado registrado ainda)"}
+
+INSTRUÇÕES:
+- Quando o vendedor informar um dado novo (ex: "o comprador agora é o Jerson"), confirme que armazenou e SEMPRE faça uma pergunta de follow-up para extrair mais informações.
+- Responda de forma curta e objetiva.
+- SEMPRE termine sua resposta com uma pergunta relevante para aprofundar o conhecimento sobre o cliente. Nunca encerre sem perguntar algo.
+- Perguntas úteis (use como guia, varie entre elas): quem é o decisor de compras, qual o segmento (indústria/comércio/oficina/obra/manutenção), quais concorrentes atendem esse cliente, qual o potencial estimado de compra mensal, quais categorias de produtos mais compram, qual o prazo de pagamento preferido, tem contrato com algum concorrente, qual o melhor horário para contato, tem alguma reclamação ou pendência, qual a frequência ideal de visitas.
+- Use os dados do ERP para contextualizar (ex: se o cliente não compra há muito tempo, pergunte o motivo).
+- Quando o vendedor perguntar algo sobre o cliente, use os dados do ERP e os dados registrados para responder, e faça uma pergunta adicional.
+- Retorne no final da resposta um bloco JSON (entre \`\`\`json e \`\`\`) com os dados extraídos ATUALIZADOS caso o vendedor tenha informado algo novo. O JSON deve conter TODOS os dados já registrados + os novos. Se nenhum dado novo foi informado, NÃO inclua o bloco JSON.
+
+Exemplo de resposta com dado novo:
+"Anotado! O novo comprador dessa empresa é o Jerson. Você sabe qual o cargo dele?
+\`\`\`json
+{"comprador":"Jerson"}
+\`\`\`"`;
+
+  const contents = [
+    { role: "user" as const, parts: [{ text: system }] },
+    { role: "model" as const, parts: [{ text: "Entendido! Sou o assistente de conhecimento de clientes da Carflax. Estou pronto para ajudar a registrar e consultar informações sobre este cliente. O que você gostaria de me contar ou perguntar?" }] },
+    ...messages.map(m => ({
+      role: m.role === "user" ? "user" as const : "model" as const,
+      parts: [{ text: m.text }],
+    })),
+  ];
+
+  const result = await model.generateContent({ contents });
+  return result.response.text().trim();
+}
+
 export async function transcribeAudio(audioBase64: string, mimeType: string): Promise<string> {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });

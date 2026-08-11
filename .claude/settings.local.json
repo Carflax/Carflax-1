@@ -29,7 +29,8 @@
       "Bash(node --check \"C:\\\\Users\\\\Danilo\\\\Desktop\\\\Desenvolvimento\\\\Carflax HUB\\\\db\\\\src\\\\handlers\\\\HUB\\\\Estoque\\\\b2PrazoHandler.js\")",
       "Bash(echo \"exit: $?\")",
       "Bash(node --check \"C:\\\\Users\\\\Danilo\\\\Desktop\\\\Desenvolvimento\\\\Carflax HUB\\\\db\\\\src\\\\routes\\\\HUB\\\\Estoque\\\\expedicao.js\")",
-      "PowerShell(try { $r = Invoke-WebRequest -Method POST -Uri \"https://marketing-carflax.velbav.easypanel.host/api/estoque/b2-prazo/enviar-mensagens\" -UseBasicParsing -TimeoutSec 30; $r.Content } catch { $_.Exception.Response.StatusCode; $_.Exception.Message })"
+      "PowerShell(try { $r = Invoke-WebRequest -Method POST -Uri \"https://marketing-carflax.velbav.easypanel.host/api/estoque/b2-prazo/enviar-mensagens\" -UseBasicParsing -TimeoutSec 30; $r.Content } catch { $_.Exception.Response.StatusCode; $_.Exception.Message })",
+      "Bash(pip install *)"
     ]
   }
 }

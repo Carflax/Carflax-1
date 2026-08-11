@@ -11,7 +11,6 @@ import {
   ChevronUp,
   ChevronDown,
   UserSquare2,
-  ShoppingCart,
   AlertTriangle,
   Building2,
   RefreshCw,
@@ -25,6 +24,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { cn, formatTeamName } from "@/lib/utils";
+import { ClienteKnowledgeChat } from "./ClienteKnowledgeChat";
 import {
   apiCarteira,
   apiTransferirCliente,
@@ -47,6 +47,8 @@ const CLI_POR_PAGINA = 100; // clientes por página no drill-down
 
 interface UserProfile {
   id?: string;
+  name?: string;
+  avatar?: string;
   role?: string;
   department?: string;
   operator_code?: string;
@@ -315,6 +317,7 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
   // Filtro por tipo de pessoa dentro da carteira ALTERAR VENDEDOR (888): são ~15 mil
   // clientes sem dono, e o supervisor puxa de lá separando PJ (CNPJ) de PF (CPF).
   const [filtroPessoa, setFiltroPessoa] = useState<"todos" | "pj" | "pf">("todos");
+  const [chatCliente, setChatCliente] = useState<CarteiraCliente | null>(null);
   const [editNasc, setEditNasc] = useState<Record<string, string>>({});
   const [editWpp, setEditWpp] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -874,115 +877,101 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
   if (carteiraSel) {
     return (
       <div className="h-full bg-background overflow-y-auto scrollbar-hide p-6 space-y-6">
-        {/* Header com breadcrumb */}
-        <div className="space-y-4">
-          <div className="flex items-center gap-3 min-w-0">
-            {showBackButton && (
-              <button
-                onClick={() => {
-                  setSelecionado(null);
-                  setBuscaCli("");
-                }}
-                className="inline-flex items-center justify-center w-10 h-10 rounded-xl border border-border bg-card text-muted-foreground hover:text-foreground hover:border-border hover:shadow-sm transition-all cursor-pointer"
-                title="Voltar para a lista"
-              >
-                <ArrowLeft className="w-4 h-4" />
-              </button>
-            )}
-            <VendedorAvatar cod={carteiraSel.cod} nome={carteiraSel.nome} foto={getAvatar(carteiraSel.cod)} size="md" />
-            <div className="min-w-0">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="shrink-0 text-[10px] font-black text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded uppercase tracking-wider whitespace-nowrap">Cód. {carteiraSel.cod}</span>
-                <h2 className="text-lg font-black text-foreground tracking-tight leading-none truncate">{carteiraSel.nome}</h2>
-              </div>
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-1.5 truncate">
-                Análise da carteira de clientes ativos · {MES_LABEL}
-              </p>
+        {/* Header — tudo numa linha só */}
+        <div className="flex flex-wrap items-center gap-3">
+          {showBackButton && (
+            <button
+              onClick={() => {
+                setSelecionado(null);
+                setBuscaCli("");
+              }}
+              className="inline-flex items-center justify-center w-10 h-10 rounded-xl border border-border bg-card text-muted-foreground hover:text-foreground hover:border-border hover:shadow-sm transition-all cursor-pointer"
+              title="Voltar para a lista"
+            >
+              <ArrowLeft className="w-4 h-4" />
+            </button>
+          )}
+          <VendedorAvatar cod={carteiraSel.cod} nome={carteiraSel.nome} foto={getAvatar(carteiraSel.cod)} size="md" />
+          <div className="min-w-0 mr-auto">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="shrink-0 text-[10px] font-black text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded uppercase tracking-wider whitespace-nowrap">Cód. {carteiraSel.cod}</span>
+              <h2 className="text-lg font-black text-foreground tracking-tight leading-none truncate">{carteiraSel.nome}</h2>
             </div>
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mt-1.5 truncate">
+              Análise da carteira de clientes ativos · {MES_LABEL}
+            </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Filtro CNPJ / CPF — só na carteira ALTERAR VENDEDOR (888) */}
-            {isCarteiraPool(carteiraSel.cod) && (
-              <div className="inline-flex shrink-0 items-center h-10 p-1 rounded-xl border border-border/80 bg-card/50">
-                {([
-                  { key: "todos", label: "Todos", count: contagemPessoa.todos },
-                  { key: "pj", label: "CNPJ", count: contagemPessoa.pj },
-                  { key: "pf", label: "CPF", count: contagemPessoa.pf },
-                ] as const).map((opt) => (
-                  <button
-                    key={opt.key}
-                    onClick={() => setFiltroPessoa(opt.key)}
-                    title={
-                      opt.key === "pj"
-                        ? "Somente pessoa jurídica (CNPJ)"
-                        : opt.key === "pf"
-                        ? "Somente pessoa física (CPF)"
-                        : "Todos os clientes da carteira"
-                    }
+          {/* Filtro CNPJ / CPF — só na carteira ALTERAR VENDEDOR (888) */}
+          {isCarteiraPool(carteiraSel.cod) && (
+            <div className="inline-flex shrink-0 items-center h-10 p-1 rounded-xl border border-border/80 bg-card/50">
+              {([
+                { key: "todos", label: "Todos", count: contagemPessoa.todos },
+                { key: "pj", label: "CNPJ", count: contagemPessoa.pj },
+                { key: "pf", label: "CPF", count: contagemPessoa.pf },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.key}
+                  onClick={() => setFiltroPessoa(opt.key)}
+                  title={
+                    opt.key === "pj"
+                      ? "Somente pessoa jurídica (CNPJ)"
+                      : opt.key === "pf"
+                      ? "Somente pessoa física (CPF)"
+                      : "Todos os clientes da carteira"
+                  }
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-3 h-8 rounded-lg text-[11px] font-black uppercase tracking-widest transition-all cursor-pointer active:scale-95",
+                    filtroPessoa === opt.key
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {opt.label}
+                  <span
                     className={cn(
-                      "inline-flex items-center gap-1.5 px-3 h-8 rounded-lg text-[11px] font-black uppercase tracking-widest transition-all cursor-pointer active:scale-95",
-                      filtroPessoa === opt.key
-                        ? "bg-primary text-primary-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
+                      "text-[10px] font-black tabular-nums",
+                      filtroPessoa === opt.key ? "opacity-80" : "opacity-60"
                     )}
                   >
-                    {opt.label}
-                    <span
-                      className={cn(
-                        "text-[10px] font-black tabular-nums",
-                        filtroPessoa === opt.key ? "opacity-80" : "opacity-60"
-                      )}
-                    >
-                      {opt.count}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Toggle: completar cadastro (nascimento/WhatsApp) */}
-            <button
-              onClick={() => setSoPendentes((v) => !v)}
-              title="Clientes sem data de nascimento (pessoa física) ou WhatsApp cadastrado"
-              className={cn(
-                "inline-flex shrink-0 items-center gap-2 px-3.5 h-10 rounded-xl border text-[11px] font-black uppercase tracking-widest transition-all cursor-pointer active:scale-95 whitespace-nowrap",
-                soPendentes
-                  ? "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                  : "border-border/80 bg-card/50 text-muted-foreground hover:text-foreground hover:border-border"
-              )}
-            >
-              <ClipboardList className="w-4 h-4" />
-              Completar cadastro
-              {pendentesCount > 0 && (
-                <span className={cn(
-                  "inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-black tabular-nums",
-                  soPendentes ? "bg-amber-500 text-white" : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-                )}>
-                  {pendentesCount}
-                </span>
-              )}
-            </button>
-
-            {/* Pesquisar Cliente (Lá em cima) */}
-            <div className="relative flex-1 min-w-[220px] max-w-sm ml-auto">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <input
-                value={buscaCli}
-                onChange={(e) => setBuscaCli(e.target.value)}
-                placeholder="Pesquisar cliente..."
-                className="w-full pl-9 pr-3 h-10 rounded-xl border border-border/80 bg-card/50 text-xs font-semibold text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-              />
+                    {opt.count}
+                  </span>
+                </button>
+              ))}
             </div>
-          </div>
-        </div>
+          )}
 
-        {/* Cards de Métricas */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <KpiCard label="Clientes Ativos" value={String(carteiraSel.numClientes)} icon={Users} colorClass="text-blue-500 bg-blue-500/10 border-blue-500/20" sub="carteira ativa" />
-          <KpiCard label="Faturamento" value={fmtBRL(carteiraSel.valorTotal)} icon={Wallet} colorClass="text-emerald-500 bg-emerald-500/10 border-emerald-500/20" sub={`Total em ${MES_LABEL}`} />
-          <KpiCard label="Margem Média" value={`${carteiraSel.margemPct.toFixed(1).replace(".", ",")}%`} icon={Percent} colorClass="text-violet-500 bg-violet-500/10 border-violet-500/20" sub={fmtBRL(carteiraSel.margemTotal)} />
-          <KpiCard label="Total Pedidos" value={String(carteiraSel.pedidos)} icon={ShoppingCart} colorClass="text-amber-500 bg-amber-500/10 border-amber-500/20" sub={`Ticket Médio: ${fmtBRL(carteiraSel.ticketMedio)}`} />
+          <button
+            onClick={() => setSoPendentes((v) => !v)}
+            title="Clientes sem data de nascimento (pessoa física) ou WhatsApp cadastrado"
+            className={cn(
+              "inline-flex shrink-0 items-center gap-2 px-3.5 h-10 rounded-xl border text-[11px] font-black uppercase tracking-widest transition-all cursor-pointer active:scale-95 whitespace-nowrap",
+              soPendentes
+                ? "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                : "border-border/80 bg-card/50 text-muted-foreground hover:text-foreground hover:border-border"
+            )}
+          >
+            <ClipboardList className="w-4 h-4" />
+            Completar cadastro
+            {pendentesCount > 0 && (
+              <span className={cn(
+                "inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-black tabular-nums",
+                soPendentes ? "bg-amber-500 text-white" : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+              )}>
+                {pendentesCount}
+              </span>
+            )}
+          </button>
+
+          <div className="relative min-w-[220px] max-w-sm">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <input
+              value={buscaCli}
+              onChange={(e) => setBuscaCli(e.target.value)}
+              placeholder="Pesquisar cliente..."
+              className="w-full pl-9 pr-3 h-10 rounded-xl border border-border/80 bg-card/50 text-xs font-semibold text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+            />
+          </div>
         </div>
 
         {/* Tabela de completar cadastro (nascimento / WhatsApp) */}
@@ -1130,6 +1119,9 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
                       <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground select-none">Ações</span>
                     </th>
                   )}
+                  <th className="text-center px-3 py-3.5">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground select-none">Info</span>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/65">
@@ -1184,12 +1176,21 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
                           </button>
                         </td>
                       )}
+                      <td className="px-3 py-4 text-center">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setChatCliente(c); }}
+                          title="Conhecimento do cliente"
+                          className="inline-flex items-center justify-center p-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-all"
+                        >
+                          <MessageCircle className="w-4 h-4" />
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
                 {clientesSel.length === 0 && (
                   <tr>
-                    <td colSpan={isAdmin ? 7 : 6} className="px-5 py-16 text-center text-xs font-bold text-muted-foreground uppercase tracking-widest bg-muted/5">
+                    <td colSpan={isAdmin ? 8 : 7} className="px-5 py-16 text-center text-xs font-bold text-muted-foreground uppercase tracking-widest bg-muted/5">
                       Nenhum cliente com movimento nesta carteira
                     </td>
                   </tr>
@@ -1272,6 +1273,15 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
             </div>,
             document.body
           )}
+
+        {chatCliente && (
+          <ClienteKnowledgeChat
+            cliente={chatCliente}
+            userName={userProfile?.name}
+            userAvatar={userProfile?.avatar || getAvatar(chatCliente.cod_vendedor)}
+            onClose={() => setChatCliente(null)}
+          />
+        )}
       </div>
     );
   }
@@ -1396,6 +1406,15 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
         </div>
         <Pagination page={pageSafe} totalItems={carteirasFiltradas.length} perPage={POR_PAGINA} onPage={setPage} />
       </div>
+
+      {chatCliente && (
+        <ClienteKnowledgeChat
+          cliente={chatCliente}
+          userName={userProfile?.name}
+          userAvatar={userProfile?.avatar || getAvatar(chatCliente.cod_vendedor)}
+          onClose={() => setChatCliente(null)}
+        />
+      )}
     </div>
   );
 }
