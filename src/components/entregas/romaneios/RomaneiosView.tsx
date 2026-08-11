@@ -250,9 +250,9 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
         SELECT 
           GER_NUMDOC as NF,
           GER_NOMCON as CLIENTE,
-          GER_ENDCON as ENDERECO,
-          GER_BAICON as BAIRRO,
-          GER_CIDCON as CIDADE,
+          COALESCE(NULLIF(TRIM(GER_ENDENT), ''), GER_ENDCON) as ENDERECO,
+          COALESCE(NULLIF(TRIM(GER_BAIENT), ''), GER_BAICON) as BAIRRO,
+          COALESCE(NULLIF(TRIM(GER_CIDENT), ''), GER_CIDCON) as CIDADE,
           GER_VLRCON as VALOR,
           GER_MENEX2 as OBS,
           GER_CODVEN as VENDEDOR_COD
