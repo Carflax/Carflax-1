@@ -38,6 +38,7 @@ import {
   FolderDown,
   CornerUpLeft,
   Eye,
+  Phone,
 } from "lucide-react";
 import { evolutionApi } from "@/lib/evolution-v2";
 import { supabase } from "@/lib/supabase";
@@ -4690,6 +4691,28 @@ export function WhatsappView({
               </div>
 
               <div className="flex items-center gap-2">
+                {/* Botão de ligação via WhatsApp */}
+                <button
+                  onClick={async () => {
+                    try {
+                      const base = "/api-marketing";
+                      const fullBase = base.startsWith("http") ? base : window.location.origin + base;
+                      await fetch(`${fullBase}/api/whatsapp/send-call-button`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ to: selectedChat.id }),
+                      });
+                      showNotification("success", "Ligação", "Botão de ligação enviado ao contato!");
+                    } catch {
+                      showNotification("error", "Erro", "Não foi possível enviar o botão de ligação.");
+                    }
+                  }}
+                  className="h-9 w-9 rounded-xl border border-border/80 bg-secondary/30 flex items-center justify-center text-muted-foreground hover:text-emerald-500 hover:border-emerald-500/30 hover:bg-emerald-500/10 transition-all"
+                  title="Enviar botão de ligação WhatsApp"
+                >
+                  <Phone className="w-4 h-4" />
+                </button>
+
                 {/* Atendente (vendedor_id) Estático */}
                 {selectedChat.vendedor_id ? (
                   <div className="h-9 px-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
