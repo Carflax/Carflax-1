@@ -193,16 +193,95 @@ export interface ClienteKnowledgeMessage {
   timestamp: string;
 }
 
+const ERP_KEYWORDS = /\b(produto|material|compra|comprou|marca|fatura|valor|quanto|mix|histor|pedido|item|vend[eiu]|gast|consum|categoria|segmento|top\s*\d|mais\s+(comprad|vendid)|ultim[ao]|recente|frequen|tendencia|cresci|cai[iu]|perd|nov[ao]s?\s*marca|citel|erp)\b/i;
+
+export function needsErpData(text: string): boolean {
+  const normalized = text.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  return ERP_KEYWORDS.test(normalized);
+}
+
+export const SUMMARY_THRESHOLD = 20;
+
+export async function summarizeConversation(
+  messages: ClienteKnowledgeMessage[],
+): Promise<string> {
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  const transcript = messages
+    .map(m => `${m.role === "user" ? "Vendedor" : "IA"}: ${m.text}`)
+    .join("\n");
+
+  const result = await model.generateContent(
+    `Resuma esta conversa entre vendedor e assistente sobre um cliente de autopeças.
+Foque nos FATOS registrados: nomes de compradores, preferências, ações planejadas, observações do vendedor.
+Descarte cumprimentos e conversa trivial. Máximo 150 palavras, em texto corrido.
+
+Conversa:
+${transcript}
+
+Resumo:`
+  );
+  return result.response.text().trim();
+}
+
+export interface ClienteConhecimentoRecord {
+  cliente_id: string;
+  nome_cliente?: string;
+  dados_extraidos: Record<string, unknown>;
+}
+
+export async function searchAcrossClients(
+  query: string,
+  records: ClienteConhecimentoRecord[],
+): Promise<string> {
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+  const clientesData = records
+    .filter(r => Object.keys(r.dados_extraidos).length > 0)
+    .map(r => ({
+      id: r.cliente_id,
+      nome: r.nome_cliente || r.cliente_id,
+      dados: r.dados_extraidos,
+    }));
+
+  if (clientesData.length === 0) {
+    return "Ainda não há dados registrados sobre nenhum cliente. Comece conversando sobre seus clientes para construir a base de conhecimento.";
+  }
+
+  const result = await model.generateContent(
+    `Você é o analista de carteira da Carflax (distribuidora de autopeças).
+O vendedor quer uma análise cruzada dos seus clientes.
+
+DADOS DE CONHECIMENTO DOS CLIENTES (registrados pelo vendedor + ERP):
+${JSON.stringify(clientesData, null, 2)}
+
+PERGUNTA DO VENDEDOR: "${query}"
+
+INSTRUÇÕES:
+- Responda baseado APENAS nos dados disponíveis.
+- Use listas formatadas com **negrito** para nomes e valores.
+- Se não tiver dados suficientes, diga quais clientes precisam de mais informações.
+- Seja direto e prático, máximo 300 palavras.
+
+Resposta:`
+  );
+  return result.response.text().trim();
+}
+
 export async function chatClienteKnowledge(
   messages: ClienteKnowledgeMessage[],
   dadosCadcli: Record<string, unknown>,
   dadosExtraidos: Record<string, unknown>,
+  resumoAnterior?: string,
 ): Promise<string> {
   const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
+  const resumoBlock = resumoAnterior
+    ? `\nRESUMO DE CONVERSAS ANTERIORES (mensagens mais antigas foram resumidas):\n${resumoAnterior}\n`
+    : "";
+
   const system = `Você é o assistente de conhecimento de clientes da Carflax (distribuidora de autopeças).
 Seu papel é ajudar o vendedor a registrar informações estratégicas sobre clientes.
-
+${resumoBlock}
 DADOS DO SISTEMA (ERP Citel — cadastro, mix de marcas, histórico de compras):
 ${JSON.stringify(dadosCadcli, null, 2)}
 COMO INTERPRETAR OS DADOS:

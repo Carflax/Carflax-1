@@ -16,6 +16,9 @@ import {
 import { supabase } from "@/lib/supabase";
 import {
   chatClienteKnowledge,
+  summarizeConversation,
+  needsErpData,
+  SUMMARY_THRESHOLD,
   type ClienteKnowledgeMessage,
 } from "@/lib/gemini-service";
 import type { CarteiraCliente } from "@/lib/api";
@@ -71,7 +74,7 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
   const [proximaAcao, setProximaAcao] = useState<ProximaAcao | null>(null);
   const [lembrete, setLembrete] = useState<Lembrete | null>(null);
   const [lembreteConfirmado, setLembreteConfirmado] = useState(false);
-  const [dadosErp, setDadosErp] = useState<Record<string, unknown>>({});
+  const [resumo, setResumo] = useState<string | null>(null);
   const dadosErpRef = useRef<Record<string, unknown>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -101,7 +104,7 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
     try {
       const { data } = await supabase
         .from("cliente_conhecimento")
-        .select("historico, dados_extraidos, dados_cadcli")
+        .select("historico, dados_extraidos, dados_cadcli, resumo")
         .eq("cliente_id", cliente.cliente_id)
         .eq("empresa", cliente.empresa)
         .maybeSingle();
@@ -109,6 +112,7 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
       if (data) {
         setMessages(data.historico || []);
         setDadosExtraidos(data.dados_extraidos || {});
+        if (data.resumo) setResumo(data.resumo);
       }
     } catch {
       // No record yet
@@ -151,8 +155,9 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
     async (
       msgs: ClienteKnowledgeMessage[],
       extracted: Record<string, unknown>,
+      savedResumo?: string | null,
     ) => {
-      const row: StoredData & { cliente_id: string; empresa: string; updated_at: string } = {
+      const row: Record<string, unknown> = {
         cliente_id: cliente.cliente_id,
         empresa: cliente.empresa,
         historico: msgs,
@@ -160,6 +165,7 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
         dados_cadcli: dadosCadcli,
         updated_at: new Date().toISOString(),
       };
+      if (savedResumo !== undefined) row.resumo = savedResumo;
 
       await supabase
         .from("cliente_conhecimento")
@@ -209,6 +215,45 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
     return cleaned.replace(/\n\s*\n/g, "\n").trim();
   }
 
+  async function fetchErpData() {
+    try {
+      const [mixResult, histResult, prodResult] = await Promise.allSettled([
+        apiMixCliente(cliente.cliente_id),
+        apiHistoricoCliente(cliente.cliente_id),
+        apiProdutosCliente(cliente.cliente_id),
+      ]);
+
+      const erp: Record<string, unknown> = {};
+      if (mixResult.status === "fulfilled") {
+        const marcas = mixResult.value.marcas || [];
+        erp.mix_marcas = marcas.slice(0, 20).map((m) => ({
+          marca: m.marca,
+          valor_12m: m.valor_atual,
+          pedidos: m.pedidos_atual,
+          status: m.status,
+          variacao: `${m.variacao_pct > 0 ? "+" : ""}${m.variacao_pct.toFixed(0)}%`,
+        }));
+      }
+      if (histResult.status === "fulfilled") {
+        erp.historico_anual = histResult.value.anos || [];
+        erp.eventos_timeline = histResult.value.eventos || [];
+      }
+      if (prodResult.status === "fulfilled") {
+        erp.produtos_comprados = (prodResult.value.produtos || []).map((p) => ({
+          codigo: p.codigo,
+          descricao: p.descricao,
+          marca: p.marca,
+          qtd: p.qtd_total,
+          valor: p.valor_total,
+          pedidos: p.pedidos,
+        }));
+      }
+      dadosErpRef.current = erp;
+    } catch {
+      // ERP optional
+    }
+  }
+
   async function handleSend() {
     const text = input.trim();
     if (!text || loading) return;
@@ -229,55 +274,40 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
     }
 
     try {
-      const needsErpFetch = Object.keys(dadosErpRef.current).length === 0;
-
-      if (needsErpFetch) {
+      // --- ERP sob demanda: só busca se a pergunta precisa ---
+      const erpNotCached = Object.keys(dadosErpRef.current).length === 0;
+      if (erpNotCached && needsErpData(text)) {
         setLoadingStep("citel");
-        try {
-          const [mixResult, histResult, prodResult] = await Promise.allSettled([
-            apiMixCliente(cliente.cliente_id),
-            apiHistoricoCliente(cliente.cliente_id),
-            apiProdutosCliente(cliente.cliente_id),
-          ]);
+        await fetchErpData();
+      }
 
-          const erp: Record<string, unknown> = {};
-          if (mixResult.status === "fulfilled") {
-            const marcas = mixResult.value.marcas || [];
-            erp.mix_marcas = marcas.slice(0, 20).map((m) => ({
-              marca: m.marca,
-              valor_12m: m.valor_atual,
-              pedidos: m.pedidos_atual,
-              status: m.status,
-              variacao: `${m.variacao_pct > 0 ? "+" : ""}${m.variacao_pct.toFixed(0)}%`,
-            }));
-          }
-          if (histResult.status === "fulfilled") {
-            erp.historico_anual = histResult.value.anos || [];
-            erp.eventos_timeline = histResult.value.eventos || [];
-          }
-          if (prodResult.status === "fulfilled") {
-            erp.produtos_comprados = (prodResult.value.produtos || []).map((p) => ({
-              codigo: p.codigo,
-              descricao: p.descricao,
-              marca: p.marca,
-              qtd: p.qtd_total,
-              valor: p.valor_total,
-              pedidos: p.pedidos,
-            }));
-          }
-          dadosErpRef.current = erp;
-          setDadosErp(erp);
+      // --- Resumo automático: compacta conversas longas ---
+      let currentResumo = resumo;
+      const MAX_MSGS_TO_AI = 16;
+      let messagesToSend = newMessages;
+
+      if (newMessages.length > SUMMARY_THRESHOLD) {
+        const toSummarize = newMessages.slice(0, newMessages.length - MAX_MSGS_TO_AI);
+        const toKeep = newMessages.slice(newMessages.length - MAX_MSGS_TO_AI);
+        try {
+          const newResumo = currentResumo
+            ? `${currentResumo}\n\n--- Atualização ---\n${(await summarizeConversation(toSummarize)).trim()}`
+            : await summarizeConversation(toSummarize);
+          currentResumo = newResumo;
+          setResumo(newResumo);
         } catch {
-          // ERP optional
+          // summary is optional
         }
+        messagesToSend = toKeep;
       }
 
       setLoadingStep("ia");
       setLoadingTextIdx(0);
       const response = await chatClienteKnowledge(
-        newMessages,
+        messagesToSend,
         { ...dadosCadcli, ...dadosErpRef.current },
         dadosExtraidos,
+        currentResumo || undefined,
       );
 
       const extracted = extractJson(response);
@@ -294,7 +324,6 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
       const finalMessages = [...newMessages, modelMsg];
       setMessages(finalMessages);
 
-      // Extract special __ fields from JSON before updating dados
       const cleanedExtracted = { ...updatedExtracted };
       if (extracted?.__proxima_acao) {
         setProximaAcao(extracted.__proxima_acao as ProximaAcao);
@@ -305,7 +334,6 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
         setLembrete(lembreteData);
         setLembreteConfirmado(false);
         delete cleanedExtracted.__lembrete;
-        // Save lembrete to Supabase
         supabase.from("cliente_lembretes").insert({
           cliente_id: cliente.cliente_id,
           empresa: cliente.empresa,
@@ -320,7 +348,14 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
       }
 
       setDadosExtraidos(cleanedExtracted);
-      await saveToSupabase(finalMessages, cleanedExtracted);
+
+      // Save with trimmed history if summarized
+      if (newMessages.length > SUMMARY_THRESHOLD) {
+        const trimmedFinal = finalMessages.slice(finalMessages.length - MAX_MSGS_TO_AI);
+        await saveToSupabase(trimmedFinal, cleanedExtracted, currentResumo);
+      } else {
+        await saveToSupabase(finalMessages, cleanedExtracted);
+      }
     } catch (err) {
       console.error("[KnowledgeChat] Erro:", err);
       const errorMsg: ClienteKnowledgeMessage = {
@@ -643,14 +678,14 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
                                 <div key={idx} className="flex items-center gap-2 px-3 py-2 rounded-xl bg-background/50 border border-border/30 text-xs">
                                   <span className="text-primary font-black">{idx + 1}.</span>
                                   <span className="font-bold text-foreground">
-                                    {(item as Record<string, unknown>).produto || (item as Record<string, unknown>).marca || (item as Record<string, unknown>).descricao || JSON.stringify(item)}
+                                    {String((item as Record<string, unknown>).produto || (item as Record<string, unknown>).marca || (item as Record<string, unknown>).descricao || JSON.stringify(item))}
                                   </span>
                                   {(item as Record<string, unknown>).valor != null && (
                                     <span className="ml-auto text-emerald-400 font-bold shrink-0">
                                       R$ {Number((item as Record<string, unknown>).valor).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
                                     </span>
                                   )}
-                                  {(item as Record<string, unknown>).status && (
+                                  {(item as Record<string, unknown>).status != null && (
                                     <span className={`ml-auto text-[10px] font-black uppercase px-1.5 py-0.5 rounded-md ${
                                       String((item as Record<string, unknown>).status) === "crescendo" ? "bg-emerald-500/15 text-emerald-400" :
                                       String((item as Record<string, unknown>).status) === "caindo" ? "bg-rose-500/15 text-rose-400" :
