@@ -311,12 +311,13 @@ const getDiasUteisNoMes = (ref: Date = new Date()) => {
 const getDiasUteisRestantes = (ref: Date = new Date()) => {
   const y = ref.getFullYear();
   const feriados = getFeriados(y);
-  const start = new Date(y, ref.getMonth(), ref.getDate());
   const end = new Date(y, ref.getMonth() + 1, 0);
   const hoje = new Date();
   const mesEncerrado =
     y < hoje.getFullYear() || (y === hoje.getFullYear() && ref.getMonth() < hoje.getMonth());
   if (mesEncerrado) return 0;
+  // Começa a partir do dia seguinte — o dia atual já conta como trabalhado
+  const start = new Date(y, ref.getMonth(), ref.getDate() + 1);
   let count = 0;
   for (let dt = new Date(start); dt <= end; dt.setDate(dt.getDate() + 1)) {
     if (isDiaUtil(dt, feriados)) count++;
@@ -342,6 +343,22 @@ const calcDiarioNecessario = (row?: VendedorResumo | null, ref?: Date) => {
   if (restantes <= 0) return 0;
   const faltante = typeof row.FALTANTE === 'string' ? parseFloat(row.FALTANTE) : (row.FALTANTE || 0);
   return Math.max(0, Number(faltante) / restantes);
+};
+
+const calcDiariaPraticada = (row?: VendedorResumo | null, ref?: Date) => {
+  if (!row) return 0;
+  const totalWorkingDays = getDiasUteisNoMes(ref);
+  const remainingDays = getDiasUteisRestantes(ref);
+  const daysPassed = row.dias_trabalhados ?? Math.max(1, totalWorkingDays - remainingDays);
+  if (daysPassed <= 0) return 0;
+  return Number(row.TOTAL || 0) / daysPassed;
+};
+
+const calcProjecao = (row?: VendedorResumo | null, ref?: Date) => {
+  if (!row) return 0;
+  const totalWorkingDays = getDiasUteisNoMes(ref);
+  const diaria = calcDiariaPraticada(row, ref);
+  return diaria * totalWorkingDays;
 };
 
 // % do ritmo: quanto já vendeu em relação ao equilíbrio da data de referência.
@@ -394,16 +411,18 @@ function VendedorMiniCard({ row, perdidoMap, refDate, isActive, onSelect }: {
     : (row.NOME_VENDEDOR || "").trim().split(/\s+/).slice(0, 2).join(" ");
 
   const miniMetrics = [
-    { label: "Meta", value: formatBRL(row.META), icon: Target, valueColor: "text-foreground" },
-    { label: "Faltante", value: formatBRL(row.FALTANTE), icon: ArrowDownRight, valueColor: Number(row.FALTANTE) <= 0 ? "text-emerald-600" : "text-rose-600" },
-    { label: "Faturado", value: formatBRL(row.FATURADO), icon: Clock, valueColor: "text-emerald-600" },
-    { label: "Em Aberto", value: formatBRL(row.EM_ABERTO), icon: Clock, valueColor: "text-amber-600" },
-    { label: "Total", value: formatBRL(row.TOTAL), icon: TrendingUp, valueColor: "text-foreground" },
-    { label: "Equilíbrio", value: formatBRL(equilibrio), icon: BarChart3, valueColor: "text-blue-600" },
-    { label: "Diário", value: formatBRL(calcDiarioNecessario(row, refDate)), icon: Zap, valueColor: "text-foreground" },
-    { label: "Tx Conversão", value: perdidoMap ? `${calcTaxaConversao(row, perdidoMap).toFixed(1)}%` : "—", icon: PieChart, valueColor: "text-blue-600" },
-    { label: "Ticket Médio", value: formatBRL(row.TICKET_MEDIO), icon: DollarSign, valueColor: "text-foreground" },
-    { label: "Margem", value: `${Number(row.MARGEM_REAL_PERC || row.MARGEM_PCT || 0).toFixed(1)}%`, icon: TrendingUp, valueColor: "text-blue-600" },
+    { label: "Meta", value: formatBRL(row.META), icon: Target, valueColor: "text-foreground", tooltip: "Meta de faturamento do mês" },
+    { label: "Faltante", value: formatBRL(row.FALTANTE), icon: ArrowDownRight, valueColor: Number(row.FALTANTE) <= 0 ? "text-emerald-600" : "text-rose-600", tooltip: "Meta − Total (faturado + em aberto)" },
+    { label: "Faturado", value: formatBRL(row.FATURADO), icon: Clock, valueColor: "text-emerald-600", tooltip: "Notas fiscais emitidas no mês" },
+    { label: "Em Aberto", value: formatBRL(row.EM_ABERTO), icon: Clock, valueColor: "text-amber-600", tooltip: "Pedidos em aberto (ainda não faturados)" },
+    { label: "Total", value: formatBRL(row.TOTAL), icon: TrendingUp, valueColor: "text-foreground", tooltip: "Faturado + Em Aberto" },
+    { label: "Equilíbrio", value: formatBRL(equilibrio), icon: BarChart3, valueColor: "text-blue-600", tooltip: "Meta ÷ Dias úteis × Dias trabalhados" },
+    { label: "Diário", value: formatBRL(calcDiarioNecessario(row, refDate)), icon: Zap, valueColor: "text-foreground", tooltip: "Faltante ÷ Dias úteis restantes" },
+    { label: "Diária Realizada", value: formatBRL(calcDiariaPraticada(row, refDate)), icon: Zap, valueColor: "text-cyan-600", tooltip: "Total ÷ Dias úteis trabalhados" },
+    { label: "Projeção", value: formatBRL(calcProjecao(row, refDate)), icon: TrendingUp, valueColor: calcProjecao(row, refDate) >= Number(row.META || 0) ? "text-emerald-600" : "text-rose-600", tooltip: "Diária realizada × Total dias úteis do mês" },
+    { label: "Tx Conversão", value: perdidoMap ? `${calcTaxaConversao(row, perdidoMap).toFixed(1)}%` : "—", icon: PieChart, valueColor: "text-blue-600", tooltip: "Vendas ÷ (Vendas + Perdidos)" },
+    { label: "Ticket Médio", value: formatBRL(row.TICKET_MEDIO), icon: DollarSign, valueColor: "text-foreground", tooltip: "Faturado ÷ Quantidade de vendas" },
+    { label: "Margem", value: `${Number(row.MARGEM_REAL_PERC || row.MARGEM_PCT || 0).toFixed(1)}%`, icon: TrendingUp, valueColor: "text-blue-600", tooltip: "Margem real sobre o faturado" },
   ];
 
   return (
@@ -490,7 +509,12 @@ function VendedorMiniCard({ row, perdidoMap, refDate, isActive, onSelect }: {
           <div key={i} className="flex items-start gap-1.5 min-w-0">
             <mm.icon className="w-3 h-3 text-muted-foreground shrink-0 mt-0.5" />
             <div className="flex flex-col min-w-0">
-              <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-wider truncate">{mm.label}</span>
+              <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-wider truncate flex items-center gap-1">
+                {mm.label}
+                {mm.tooltip && (
+                  <span title={mm.tooltip} className="inline-flex items-center justify-center w-3 h-3 rounded-full bg-muted-foreground/15 text-muted-foreground text-[7px] font-black cursor-help shrink-0">!</span>
+                )}
+              </span>
               <span className={cn("text-[10px] font-black tracking-tight truncate", mm.valueColor)}>{mm.value}</span>
             </div>
           </div>
@@ -1094,8 +1118,8 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, l
     { label: m("Equilíbrio"), value: formatBRL(calculateEquilibrio()), icon: BarChart3, valueColor: "text-blue-600" },
     { label: m("Dias Restantes"), value: `${getDiasRestantes()}`, icon: Calendar, valueColor: "text-slate-900" },
     { label: m("Diário"), value: formatBRL(calculateDiarioNecessario()), icon: Zap, valueColor: "text-slate-900" },
-    // Visão "Meu Time" (supervisor): soma o perdido só dos vendedores do time,
-    // em vez de pegar o total da loja (chave "MEDIA" do perdidoMap).
+    { label: m("Diária Realizada"), value: formatBRL(calcDiariaPraticada(data, refDate)), icon: Zap, valueColor: "text-cyan-600" },
+    { label: m("Projeção"), value: formatBRL(calcProjecao(data, refDate)), icon: TrendingUp, valueColor: calcProjecao(data, refDate) >= Number(data.META || 0) ? "text-emerald-600" : "text-rose-600" },
     { label: m("Tx Conversão"), value: perdidoMap ? `${calcTaxaConversao(data, perdidoMap, teamCodes).toFixed(2)}%` : "—", icon: PieChart, valueColor: "text-blue-600" },
     { label: m("Ticket Médio"), value: formatBRL(data.TICKET_MEDIO), icon: DollarSign, valueColor: "text-slate-900" },
     { label: m("Margem Real"), value: `${Number(data.MARGEM_REAL_PERC || data.MARGEM_PCT || 0).toFixed(2)}%`, icon: TrendingUp, valueColor: "text-blue-600" },
@@ -1445,7 +1469,12 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, l
                   <m.icon className="w-3.5 h-3.5 text-muted-foreground group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors" />
                 </div>
                 <div className="flex flex-col min-w-0">
-                  <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider truncate mb-0.5">{m.label}</span>
+                  <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-wider truncate mb-0.5 flex items-center gap-1">
+                    {m.label}
+                    {m.tooltip && (
+                      <span title={m.tooltip} className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-muted-foreground/15 text-muted-foreground text-[7px] font-black cursor-help shrink-0">!</span>
+                    )}
+                  </span>
                   <span className={cn("text-xs font-black tracking-tight", m.valueColor.includes('slate-900') ? 'text-foreground' : m.valueColor)}>
                     {m.value}
                   </span>
