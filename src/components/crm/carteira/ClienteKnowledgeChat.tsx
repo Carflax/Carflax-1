@@ -31,11 +31,6 @@ interface Props {
   onClose: () => void;
 }
 
-interface StoredData {
-  historico: ClienteKnowledgeMessage[];
-  dados_extraidos: Record<string, unknown>;
-  dados_cadcli: Record<string, unknown>;
-}
 
 interface ProximaAcao {
   descricao: string;
