@@ -14,20 +14,21 @@
       --verde: #16a34a;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      width: 340px;
-      font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    html, body {
+      width: 520px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
       background: var(--bg);
       color: var(--texto);
+      overflow-x: hidden;
     }
     header {
       background: #ffffff;
-      padding: 10px 12px 8px;
+      padding: 12px 16px 10px;
       display: flex;
       justify-content: center;
       border-bottom: 1px solid var(--linha);
     }
-    header img.brand { height: 42px; width: auto; display: block; }
+    header img.brand { height: 46px; width: auto; display: block; }
 
     /* === TABS === */
     .tabs {
@@ -37,8 +38,8 @@
     }
     .tabs button {
       flex: 1;
-      padding: 9px 6px;
-      font-size: 11px;
+      padding: 11px 12px;
+      font-size: 12px;
       font-weight: 700;
       letter-spacing: .06em;
       text-transform: uppercase;
@@ -52,14 +53,14 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 5px;
+      gap: 6px;
     }
     .tabs button:hover { color: var(--azul); }
     .tabs button.active {
       color: var(--azul);
       border-bottom-color: var(--azul);
     }
-    .tabs button svg { width: 14px; height: 14px; }
+    .tabs button svg { width: 16px; height: 16px; }
 
     .tab-content { display: none; }
     .tab-content.active { display: block; }
@@ -67,31 +68,31 @@
     /* === RAMAIS === */
     .subbar {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 7px 14px; background: #fff; border-bottom: 1px solid var(--linha);
+      padding: 8px 16px; background: #fff; border-bottom: 1px solid var(--linha);
     }
     .subbar .titulo {
       font-size: 12px; font-weight: 800; letter-spacing: .14em;
       text-transform: uppercase; color: var(--azul-escuro);
     }
-    .subbar .count { font-size: 10px; font-weight: 700; color: var(--muted); }
-    .search { padding: 8px; border-bottom: 1px solid var(--linha); }
+    .subbar .count { font-size: 11px; font-weight: 700; color: var(--muted); }
+    .search { padding: 10px 14px; border-bottom: 1px solid var(--linha); }
     .search input {
-      width: 100%; padding: 8px 10px; border: 1px solid var(--linha); border-radius: 8px;
-      font-size: 13px; background: #fff; color: var(--texto); outline: none;
+      width: 100%; padding: 9px 12px; border: 1px solid var(--linha); border-radius: 8px;
+      font-size: 13.5px; background: #fff; color: var(--texto); outline: none;
     }
     .search input:focus { border-color: var(--azul); }
     #list { max-height: 400px; overflow-y: auto; background: #fff; }
     .row {
-      display: flex; align-items: center; gap: 10px; padding: 6px 14px;
+      display: flex; align-items: center; gap: 14px; padding: 8px 16px;
       border-bottom: 1px solid var(--linha); cursor: pointer;
     }
     .row:hover { background: var(--hover); }
     .row .ramal {
       font-variant-numeric: tabular-nums; font-weight: 800; color: var(--azul);
-      min-width: 42px; font-size: 13px;
+      min-width: 48px; font-size: 14px;
     }
-    .row .nome { font-size: 12.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .01em; }
-    .empty, .err { padding: 24px 12px; text-align: center; color: var(--muted); font-size: 12px; }
+    .row .nome { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .01em; }
+    .empty, .err { padding: 24px 12px; text-align: center; color: var(--muted); font-size: 13px; }
     .err { color: #dc2626; }
 
     /* === ENTREGAS === */
@@ -100,15 +101,15 @@
       grid-template-columns: repeat(5, 1fr);
       gap: 0;
       border: 1px solid var(--linha);
-      margin: 8px;
+      margin: 10px 14px;
       border-radius: 8px;
       overflow: hidden;
     }
     .dia-col { border-right: 1px solid var(--linha); }
     .dia-col:last-child { border-right: none; }
     .dia-header {
-      padding: 7px 4px;
-      font-size: 9px;
+      padding: 8px 6px;
+      font-size: 11px;
       font-weight: 800;
       text-transform: uppercase;
       letter-spacing: .08em;
@@ -117,44 +118,48 @@
       color: #fff;
     }
     .dia-city {
-      padding: 5px 4px;
-      font-size: 10px;
+      padding: 7px 6px;
+      font-size: 11.5px;
       font-weight: 600;
       text-align: center;
       border-bottom: 1px solid var(--linha);
       color: var(--texto);
+      white-space: nowrap;
+      text-overflow: ellipsis;
+      overflow: hidden;
     }
     .dia-city:last-child { border-bottom: none; }
     .dia-city.destaque {
       color: var(--azul);
       font-weight: 800;
+      background-color: #f0f7ff;
     }
     .hoje-indicator {
-      padding: 8px 12px;
+      padding: 9px 14px;
       text-align: center;
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 700;
       color: var(--verde);
       background: #f0fdf4;
       border-bottom: 1px solid #bbf7d0;
     }
-    .hoje-indicator svg { vertical-align: -2px; margin-right: 4px; width: 14px; height: 14px; }
+    .hoje-indicator svg { vertical-align: -2px; margin-right: 5px; width: 15px; height: 15px; }
 
     /* === FRETES === */
-    .fretes-search { padding: 8px; border-bottom: 1px solid var(--linha); }
+    .fretes-search { padding: 10px 14px; border-bottom: 1px solid var(--linha); }
     .fretes-search input {
-      width: 100%; padding: 8px 10px; border: 1px solid var(--linha); border-radius: 8px;
-      font-size: 13px; background: #fff; color: var(--texto); outline: none;
+      width: 100%; padding: 9px 12px; border: 1px solid var(--linha); border-radius: 8px;
+      font-size: 13.5px; background: #fff; color: var(--texto); outline: none;
     }
     .fretes-search input:focus { border-color: var(--azul); }
     .fretes-table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 12px;
+      font-size: 13px;
     }
     .fretes-table thead th {
-      padding: 8px 10px;
-      font-size: 10px;
+      padding: 9px 14px;
+      font-size: 11px;
       font-weight: 800;
       text-transform: uppercase;
       letter-spacing: .08em;
@@ -166,7 +171,7 @@
     }
     .fretes-table thead th:not(:first-child) { text-align: right; }
     .fretes-table tbody td {
-      padding: 7px 10px;
+      padding: 8px 14px;
       border-bottom: 1px solid var(--linha);
       font-weight: 600;
     }
@@ -180,18 +185,18 @@
       color: var(--texto);
     }
     .fretes-table tbody tr:hover { background: var(--hover); }
-    #fretes-container { max-height: 440px; overflow-y: auto; }
+    #fretes-container { max-height: 400px; overflow-y: auto; }
 
     /* === TOAST / FOOTER === */
     #toast {
-      position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%);
-      background: var(--azul-escuro); color: #fff; font-size: 11px; font-weight: 700;
-      padding: 6px 12px; border-radius: 999px; opacity: 0; transition: opacity .2s;
-      pointer-events: none; z-index: 10;
+      position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
+      background: var(--azul-escuro); color: #fff; font-size: 11.5px; font-weight: 700;
+      padding: 7px 14px; border-radius: 999px; opacity: 0; transition: opacity .2s;
+      pointer-events: none; z-index: 10; box-shadow: 0 2px 8px rgba(0,0,0,0.15);
     }
     #toast.show { opacity: 1; }
     footer {
-      padding: 6px 12px; font-size: 9px; color: var(--muted);
+      padding: 8px 14px; font-size: 10.5px; font-weight: 500; color: var(--muted);
       text-align: center; border-top: 1px solid var(--linha); background: #fff;
     }
   </style>
