@@ -23,6 +23,8 @@ import {
   ClipboardList,
   Loader2,
   Sparkles,
+  Trophy,
+  Medal,
 } from "lucide-react";
 import { cn, formatTeamName } from "@/lib/utils";
 import { ClienteKnowledgeChat } from "./ClienteKnowledgeChat";
@@ -45,6 +47,197 @@ const NOW = new Date();
 const MES_LABEL = NOW.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
 const POR_PAGINA = 12; // vendedores por página
 const CLI_POR_PAGINA = 100; // clientes por página no drill-down
+
+// ── Ranking IA Modal ─────────────────────────────────────────────────────────
+interface RankingEntry {
+  cod_vendedor: string;
+  nome_vendedor: string;
+  total_clientes: number;
+  clientes_com_ia: number;
+  pct: number;
+}
+
+function RankingIAModal({
+  carteiraClientes,
+  onClose,
+}: {
+  carteiraClientes?: CarteiraCliente[];
+  onClose: () => void;
+}) {
+  const [loading, setLoading] = useState(true);
+  const [ranking, setRanking] = useState<RankingEntry[]>([]);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        // 1. Obter lista de clientes da carteira
+        let listaClientes = carteiraClientes || [];
+        if (!listaClientes.length) {
+          const resp = await apiCarteira();
+          listaClientes = resp.clientes || [];
+        }
+
+        // 2. Busca todos os registros de cliente_conhecimento do Supabase
+        const { data: conhecimento, error: errSupabase } = await supabase
+          .from("cliente_conhecimento")
+          .select("cliente_id, dados_extraidos, historico, resumo");
+
+        if (errSupabase) {
+          console.error("[RankingIA] Erro ao buscar conhecimento no Supabase:", errSupabase);
+        }
+
+        // Monta conjunto de cliente_ids com IA preenchida
+        const comIA = new Set(
+          (conhecimento || [])
+            .filter((r) => {
+              const d = r.dados_extraidos;
+              const h = r.historico;
+              const res = r.resumo;
+              if (d && typeof d === "object" && !Array.isArray(d) && Object.keys(d as object).length > 0) return true;
+              if (Array.isArray(h) && h.length > 0) return true;
+              if (res && String(res).trim().length > 0) return true;
+              return false;
+            })
+            .map((r) => String(r.cliente_id).trim())
+        );
+
+        // Agrupa por vendedor
+        const map = new Map<string, { nome: string; total: number; comIA: number }>();
+        for (const c of listaClientes) {
+          const key = c.cod_vendedor || "0";
+          const nome = c.nome_vendedor || `Vendedor ${key}`;
+          const entry = map.get(key) ?? { nome, total: 0, comIA: 0 };
+          entry.total += 1;
+          if (comIA.has(String(c.cliente_id).trim())) {
+            entry.comIA += 1;
+          }
+          map.set(key, entry);
+        }
+
+        const result: RankingEntry[] = Array.from(map.entries())
+          .map(([cod, v]) => ({
+            cod_vendedor: cod,
+            nome_vendedor: v.nome,
+            total_clientes: v.total,
+            clientes_com_ia: v.comIA,
+            pct: v.total > 0 ? Math.round((v.comIA / v.total) * 100) : 0,
+          }))
+          .sort((a, b) => b.clientes_com_ia - a.clientes_com_ia || b.pct - a.pct)
+          .filter((e) => e.total_clientes > 0);
+
+        setRanking(result);
+      } catch (err) {
+        console.error("[RankingIA]", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [carteiraClientes]);
+
+  const medalColors = ["text-yellow-400", "text-slate-400", "text-amber-600"];
+  const medalBg = ["bg-yellow-400/10 border-yellow-400/30", "bg-slate-400/10 border-slate-400/30", "bg-amber-600/10 border-amber-600/30"];
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div className="relative w-full max-w-lg mx-4 bg-card border border-border/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border/60 bg-gradient-to-r from-amber-500/10 via-yellow-500/5 to-transparent">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-yellow-400/15 border border-yellow-400/30 flex items-center justify-center">
+              <Trophy className="w-5 h-5 text-yellow-400" />
+            </div>
+            <div>
+              <p className="text-sm font-black text-foreground uppercase tracking-wide">Ranking de Preenchimento IA</p>
+              <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-widest">Clientes com dados preenchidos via IA</p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-hide">
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-3">
+              <Loader2 className="w-8 h-8 text-yellow-400 animate-spin" />
+              <p className="text-xs text-muted-foreground font-semibold">Calculando ranking...</p>
+            </div>
+          ) : ranking.length === 0 ? (
+            <div className="py-12 text-center text-muted-foreground text-sm font-semibold">
+              Nenhum dado encontrado.
+            </div>
+          ) : (
+            ranking.map((entry, idx) => {
+              const isTop3 = idx < 3;
+              return (
+                <div
+                  key={entry.cod_vendedor}
+                  className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                    isTop3
+                      ? `${medalBg[idx]} shadow-sm`
+                      : "border-border/50 bg-muted/20"
+                  }`}
+                >
+                  {/* Posição */}
+                  <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                    isTop3 ? `border ${medalBg[idx]}` : "bg-muted/50"
+                  }`}>
+                    {isTop3 ? (
+                      <Medal className={`w-4 h-4 ${medalColors[idx]}`} />
+                    ) : (
+                      <span className="text-xs font-black text-muted-foreground">{idx + 1}</span>
+                    )}
+                  </div>
+
+                  {/* Nome */}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-foreground truncate">{entry.nome_vendedor}</p>
+                    <p className="text-[10px] text-muted-foreground font-semibold">Cód. {entry.cod_vendedor}</p>
+                  </div>
+
+                  {/* Contagens */}
+                  <div className="text-right shrink-0">
+                    <div className="flex items-center gap-1.5 justify-end">
+                      <Sparkles className="w-3.5 h-3.5 text-yellow-400" />
+                      <span className="text-sm font-black text-foreground">{entry.clientes_com_ia}</span>
+                      <span className="text-[10px] text-muted-foreground font-semibold">/ {entry.total_clientes}</span>
+                    </div>
+                    {/* Barra de progresso */}
+                    <div className="mt-1 h-1.5 w-24 rounded-full bg-muted/60 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full transition-all ${
+                          isTop3 ? "bg-yellow-400" : "bg-primary/60"
+                        }`}
+                        style={{ width: `${entry.pct}%` }}
+                      />
+                    </div>
+                    <p className="text-[10px] text-muted-foreground font-bold mt-0.5">{entry.pct}% preenchido</p>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-3 border-t border-border/60 bg-muted/20">
+          <p className="text-[10px] text-muted-foreground font-semibold text-center">
+            Baseado em conversas com o assistente de carteira (IA Gemini)
+          </p>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
 
 interface UserProfile {
   id?: string;
@@ -327,6 +520,7 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
   const [chatCliente, setChatCliente] = useState<CarteiraCliente | null>(null);
   const [radarAberto, setRadarAberto] = useState(false);
   const [radarDispensado, setRadarDispensado] = useState(false);
+  const [showRankingIA, setShowRankingIA] = useState(false);
   const [editNasc, setEditNasc] = useState<Record<string, string>>({});
   const [editWpp, setEditWpp] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -604,7 +798,7 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
     setRadarDispensado(localStorage.getItem(key) === "1");
     const timeout = window.setTimeout(() => setRadarAberto(true), 700);
     return () => window.clearTimeout(timeout);
-  }, [radarOportunidade?.cliente.cliente_id]);
+  }, [radarOportunidade]);
 
   const dispensarRadar = useCallback(() => {
     if (radarOportunidade) {
@@ -1387,12 +1581,23 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
             Métricas consolidadas de clientes por vendedor · {MES_LABEL}
           </p>
         </div>
-        <button
-          onClick={loadData}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border/80 bg-card text-xs font-black uppercase tracking-widest text-muted-foreground hover:text-foreground hover:shadow-sm active:scale-95 transition-all cursor-pointer"
-        >
-          <RefreshCw className="w-3.5 h-3.5" /> Atualizar
-        </button>
+        <div className="flex items-center gap-2">
+          {isAdmin && (
+            <button
+              onClick={() => setShowRankingIA(true)}
+              title="Ranking de preenchimento IA"
+              className="w-10 h-10 rounded-xl border border-yellow-400/40 bg-yellow-400/10 flex items-center justify-center text-yellow-400 hover:bg-yellow-400/20 hover:border-yellow-400/60 active:scale-95 transition-all cursor-pointer"
+            >
+              <Trophy className="w-5 h-5" />
+            </button>
+          )}
+          <button
+            onClick={loadData}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border/80 bg-card text-xs font-black uppercase tracking-widest text-muted-foreground hover:text-foreground hover:shadow-sm active:scale-95 transition-all cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Atualizar
+          </button>
+        </div>
       </div>
 
       {/* Cards de KPIs Globais */}
@@ -1502,6 +1707,10 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
           userAvatar={userProfile?.avatar || getAvatar(chatCliente.cod_vendedor)}
           onClose={() => setChatCliente(null)}
         />
+      )}
+
+      {showRankingIA && (
+        <RankingIAModal carteiraClientes={data?.clientes} onClose={() => setShowRankingIA(false)} />
       )}
     </div>
   );
