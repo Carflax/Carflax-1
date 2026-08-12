@@ -1,4 +1,4 @@
-// Carflax Hub — popup com abas: Ramais, Entregas, Fretes
+// Carflax Hub — popup com abas: Ramais, Entregas (com tooltip de frete global)
 
 const SUPABASE_URL = "https://zwfvrmqffxcqurxpfewi.supabase.co";
 const ANON_KEY =
@@ -22,23 +22,33 @@ const DIAS_LABELS = {
   "SEX": "Sexta"
 };
 
+// Mapa de fretes (será preenchido pela config do Supabase)
 let FRETES = [
-  { cidade: "Jundiaí",         minimo: 500,  frete: 40  },
-  { cidade: "Vinhedo",         minimo: 600,  frete: 60  },
-  { cidade: "Valinhos",        minimo: 1300, frete: 100 },
-  { cidade: "Itupeva",         minimo: 600,  frete: 60  },
-  { cidade: "Várzea Pta",      minimo: 500,  frete: 35  },
-  { cidade: "Campo Limpo Pta", minimo: 500,  frete: 40  },
-  { cidade: "Louveira",        minimo: 500,  frete: 40  },
-  { cidade: "Jarinu",          minimo: 800,  frete: 70  },
-  { cidade: "Cabreúva",        minimo: 1300, frete: 100 },
-  { cidade: "Franco da Rocha", minimo: 850,  frete: 50  },
-  { cidade: "São Paulo",       minimo: 2000, frete: 150 },
-  { cidade: "Campinas",        minimo: 1600, frete: 150 },
-  { cidade: "Atibaia",         minimo: 2000, frete: 100 },
-  { cidade: "Itu",             minimo: 1800, frete: 150 },
-  { cidade: "Itatiba",         minimo: 1000, frete: 90  }
+  { cidade: "Jundiaí",         minimo: 500,  frete: 40,  bairros: [] },
+  { cidade: "Vinhedo",         minimo: 600,  frete: 60,  bairros: [] },
+  { cidade: "Valinhos",        minimo: 1300, frete: 100, bairros: [] },
+  { cidade: "Itupeva",         minimo: 600,  frete: 60,  bairros: [] },
+  { cidade: "Várzea Pta",      minimo: 500,  frete: 35,  bairros: [] },
+  { cidade: "Campo Limpo Pta", minimo: 500,  frete: 40,  bairros: [] },
+  { cidade: "Louveira",        minimo: 500,  frete: 40,  bairros: [] },
+  { cidade: "Jarinu",          minimo: 800,  frete: 70,  bairros: [] },
+  { cidade: "Cabreúva",        minimo: 1300, frete: 100, bairros: [] },
+  { cidade: "São Paulo",       minimo: 2000, frete: 150, bairros: [] },
+  { cidade: "Campinas",        minimo: 1600, frete: 150, bairros: [] },
+  { cidade: "Atibaia",         minimo: 2000, frete: 100, bairros: [] },
+  { cidade: "Itatiba",         minimo: 1000, frete: 90,  bairros: [] }
 ];
+
+// Índice normalizado de fretes por cidade (para busca rápida no tooltip)
+let FRETES_MAP = {};
+
+function buildFretesMap() {
+  FRETES_MAP = {};
+  for (const f of FRETES) {
+    const key = f.cidade.toLowerCase().trim();
+    FRETES_MAP[key] = f;
+  }
+}
 
 // ===================== UTILITÁRIOS =====================
 
@@ -51,7 +61,7 @@ function nomeCurto(full) {
 }
 
 function moeda(valor) {
-  return "R$ " + valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 });
+  return "R$ " + Number(valor).toLocaleString("pt-BR", { minimumFractionDigits: 2 });
 }
 
 function escapeHtml(value) {
@@ -59,7 +69,7 @@ function escapeHtml(value) {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/\"/g, "&quot;")
+    .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
 
@@ -78,7 +88,20 @@ function normalizarFretes(value) {
   if (!Array.isArray(value)) return null;
   return value
     .filter((item) => item && typeof item.cidade === "string" && item.cidade.trim())
-    .map((item) => ({ cidade: item.cidade.trim(), minimo: Number(item.minimo) || 0, frete: Number(item.frete) || 0 }));
+    .map((item) => ({
+      cidade: item.cidade.trim(),
+      minimo: Number(item.minimo) || 0,
+      frete: Number(item.frete) || 0,
+      bairros: Array.isArray(item.bairros)
+        ? item.bairros
+            .filter((b) => b && typeof b.bairro === "string" && b.bairro.trim())
+            .map((b) => ({
+              bairro: b.bairro.trim(),
+              minimo: Number(b.minimo) || 0,
+              frete: Number(b.frete) || 0,
+            }))
+        : [],
+    }));
 }
 
 let toastTimer;
@@ -106,10 +129,6 @@ tabBtns.forEach((btn) => {
     if (target === "ramais") {
       const q = document.getElementById("q");
       if (q) q.focus();
-    }
-    if (target === "fretes") {
-      const qf = document.getElementById("qf");
-      if (qf) qf.focus();
     }
   });
 });
@@ -228,17 +247,86 @@ async function carregarConfiguracoes() {
   } catch (_) {
     // Mantem os valores padrao quando a extensao estiver offline.
   }
+  buildFretesMap();
   renderEntregas();
-  filtrarFretes();
 }
 
-// ===================== ENTREGAS =====================
+// ===================== ENTREGAS (com tooltip de frete) =====================
+
+// ===================== TOOLTIP GLOBAL =====================
+
+const tooltipEl = document.getElementById("frete-tooltip");
+let tooltipHideTimer = null;
+
+function buildTooltipContent(freteCidade) {
+  if (!freteCidade) return "";
+  const { minimo, frete, bairros } = freteCidade;
+
+  let bairrosHtml = "";
+  if (bairros && bairros.length > 0) {
+    bairrosHtml = '<div class="frete-tip-bairros">';
+    for (const b of bairros) {
+      bairrosHtml +=
+        '<div class="frete-tip-bairro-item">' +
+        '<span class="frete-tip-bairro-nome">↳ ' + escapeHtml(b.bairro) + '</span>' +
+        '<span class="frete-tip-bairro-val">' + moeda(b.frete) + '</span>' +
+        '</div>';
+    }
+    bairrosHtml += '</div>';
+  }
+
+  return (
+    '<div class="frete-tip-title">Informações de Frete</div>' +
+    '<div class="frete-tip-row">' +
+      '<span class="frete-tip-label">Ped. mínimo</span>' +
+      '<span class="frete-tip-val minimo">' + moeda(minimo) + '</span>' +
+    '</div>' +
+    '<div class="frete-tip-row">' +
+      '<span class="frete-tip-label">Frete</span>' +
+      '<span class="frete-tip-val frete">' + moeda(frete) + '</span>' +
+    '</div>' +
+    bairrosHtml
+  );
+}
+
+function showTooltip(el, freteCidade) {
+  if (!freteCidade) return;
+  clearTimeout(tooltipHideTimer);
+
+  tooltipEl.innerHTML = buildTooltipContent(freteCidade);
+  tooltipEl.classList.add("visible");
+
+  // Measure tooltip after rendering
+  const rect = el.getBoundingClientRect();
+  const tipW = tooltipEl.offsetWidth;
+  const popupW = document.documentElement.offsetWidth;
+  const MARGIN = 8;
+
+  // Ideal: center tooltip above the element
+  let left = rect.left + rect.width / 2 - tipW / 2;
+
+  // Clamp so it never leaves the popup
+  left = Math.max(MARGIN, Math.min(left, popupW - tipW - MARGIN));
+
+  const top = rect.top - tooltipEl.offsetHeight - 8;
+
+  tooltipEl.style.left = left + "px";
+  tooltipEl.style.top = top + "px";
+
+  // Position the CSS arrow to point at the center of the hovered element
+  const arrowLeft = (rect.left + rect.width / 2) - left;
+  tooltipEl.style.setProperty("--arrow-left", arrowLeft + "px");
+}
+
+function hideTooltip() {
+  tooltipHideTimer = setTimeout(() => tooltipEl.classList.remove("visible"), 220);
+}
 
 function renderEntregas() {
   const grid = document.getElementById("entregas-grid");
 
   const diasOrdem = ["SEG", "TER", "QUA", "QUI", "SEX"];
-  const dow = new Date().getDay(); // 0=dom, 1=seg...
+  const dow = new Date().getDay();
   const hojeKey = dow >= 1 && dow <= 5 ? diasOrdem[dow - 1] : null;
 
   const maxRows = Math.max(...diasOrdem.map((d) => ENTREGAS[d].length));
@@ -255,7 +343,17 @@ function renderEntregas() {
     const cidades = ENTREGAS[dia];
     for (let i = 0; i < maxRows; i++) {
       if (i < cidades.length) {
-        html += '<div class="dia-city' + (isHoje ? ' destaque' : '') + '" title="' + escapeHtml(cidades[i]) + '">' + escapeHtml(cidades[i]) + '</div>';
+        const nomeCidade = cidades[i];
+        const freteDados = FRETES_MAP[nomeCidade.toLowerCase().trim()];
+        const temFrete = Boolean(freteDados);
+
+        html +=
+          '<div class="dia-city' + (isHoje ? ' destaque' : '') + '"' +
+          ' data-tem-frete="' + temFrete + '"' +
+          ' data-cidade="' + escapeHtml(nomeCidade) + '"' +
+          '>' +
+          escapeHtml(nomeCidade) +
+          '</div>';
       } else {
         html += '<div class="dia-city empty-cell"></div>';
       }
@@ -263,39 +361,18 @@ function renderEntregas() {
     html += '</div></div>';
   }
   grid.innerHTML = html;
+
+  // Attach tooltip events via delegation
+  // Adiciona eventos diretamente em cada card (mouseenter/leave não borbulham)
+  grid.querySelectorAll('.dia-city[data-tem-frete="true"]').forEach((city) => {
+    const nomeCidade = city.dataset.cidade || "";
+    const freteDados = FRETES_MAP[nomeCidade.toLowerCase().trim()];
+    city.addEventListener("mouseenter", () => showTooltip(city, freteDados));
+    city.addEventListener("mouseleave", () => hideTooltip());
+  });
 }
 
+// Inicializa o mapa de fretes com os dados estáticos antes de buscar do Supabase
+buildFretesMap();
 renderEntregas();
-
-// ===================== FRETES =====================
-
-const qfEl = document.getElementById("qf");
-
-function renderFretes(lista) {
-  const container = document.getElementById("fretes-container");
-  if (!lista.length) {
-    container.innerHTML = '<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:32px;height:32px;margin:0 auto 8px;opacity:0.5;display:block"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>Nenhuma cidade encontrada.</div>';
-    return;
-  }
-  let html = '<table class="fretes-table"><thead><tr><th>CIDADE</th><th style="text-align:right">PEDIDO MÍN.</th><th style="text-align:right">FRETE</th></tr></thead><tbody>';
-  for (const f of lista) {
-    html += "<tr>" +
-      '<td><div class="cidade-cell"><div class="city-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-10a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg></div>' + escapeHtml(f.cidade) + "</div></td>" +
-      '<td style="text-align:right"><span class="badge-minimo">' + moeda(f.minimo) + "</span></td>" +
-      '<td style="text-align:right"><span class="badge-frete">' + moeda(f.frete) + "</span></td>" +
-      "</tr>";
-  }
-  html += "</tbody></table>";
-  container.innerHTML = html;
-}
-
-function filtrarFretes() {
-  const q = qfEl.value.trim().toLowerCase();
-  const filtrados = q
-    ? FRETES.filter((f) => f.cidade.toLowerCase().includes(q))
-    : FRETES;
-  renderFretes(filtrados);
-}
-
-qfEl.addEventListener("input", filtrarFretes);
 carregarConfiguracoes();

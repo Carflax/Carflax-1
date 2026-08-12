@@ -179,7 +179,7 @@ export interface AccessProfile {
 
 // Liberado para todos (configurações pessoais + dashboards + módulos essenciais)
 const PUBLIC_SECTIONS = [
-  "Meu Perfil", "Aparência", "Assinatura", "Notificações", "Segurança",
+  "Meu Perfil", "Aparência", "Assinatura", "Notificações", "Segurança", "Extensão",
   "Dashboard", "Geral", "Produtos",
   "Calendário", "Agenda", "Férias",
   "Esteira", "Minha Esteira", "Sugestões",

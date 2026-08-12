@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, Fragment } from "react";
 import {
   User,
   Smartphone,
@@ -34,6 +34,8 @@ import {
   Signature,
   Truck,
   DollarSign,
+  ChevronDown,
+  ChevronRight,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -1668,19 +1670,26 @@ const DIAS_LABELS: Record<string, string> = {
   SEX: "Sexta-feira",
 };
 
+interface FreteBairro {
+  bairro: string;
+  minimo: number;
+  frete: number;
+}
+
 interface FreteRow {
   cidade: string;
   minimo: number;
   frete: number;
+  bairros?: FreteBairro[];
 }
 
 function corrigirNomeCidade(value: unknown): string {
   const cidade = String(value ?? "").trim();
   return cidade
-    .replace(/jundia\?/gi, "Jundia\u00ed")
-    .replace(/v\?rzea/gi, "V\u00e1rzea")
-    .replace(/cabre\?va/gi, "Cabre\u00fava")
-    .replace(/s\?o paulo/gi, "S\u00e3o Paulo");
+    .replace(/jundia\?/gi, "Jundiaí")
+    .replace(/v\?rzea/gi, "Várzea")
+    .replace(/cabre\?va/gi, "Cabreúva")
+    .replace(/s\?o paulo/gi, "São Paulo");
 }
 
 function normalizarEntregas(value: unknown): Record<string, string[]> {
@@ -1699,11 +1708,20 @@ function normalizarEntregas(value: unknown): Record<string, string[]> {
 function normalizarFretes(value: unknown): FreteRow[] {
   if (!Array.isArray(value)) return [];
   return value
-    .filter((item): item is Partial<FreteRow> => Boolean(item) && typeof item === "object")
+    .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === "object")
     .map((item) => ({
       cidade: corrigirNomeCidade(item.cidade),
       minimo: Number(item.minimo) || 0,
       frete: Number(item.frete) || 0,
+      bairros: Array.isArray(item.bairros)
+        ? item.bairros
+            .filter((b): b is Record<string, unknown> => Boolean(b) && typeof b === "object" && Boolean(b.bairro))
+            .map((b) => ({
+              bairro: String(b.bairro || "").trim(),
+              minimo: Number(b.minimo) || 0,
+              frete: Number(b.frete) || 0,
+            }))
+        : [],
     }))
     .filter((item) => Boolean(item.cidade));
 }
@@ -1827,6 +1845,53 @@ function ExtensaoTab({ userProfile }: { userProfile?: UserProfile | null }) {
   function updateFrete(idx: number, field: keyof FreteRow, value: string | number) {
     setFretes((prev) =>
       prev.map((f, i) => (i === idx ? { ...f, [field]: value } : f))
+    );
+  }
+
+  const [expandedCities, setExpandedCities] = useState<Record<number, boolean>>({});
+  const [newBairroInput, setNewBairroInput] = useState<Record<number, { bairro: string; minimo: number; frete: number }>>({});
+
+  function toggleExpandCity(idx: number) {
+    setExpandedCities((prev) => ({ ...prev, [idx]: !prev[idx] }));
+  }
+
+  function addBairro(cidadeIdx: number) {
+    const input = newBairroInput[cidadeIdx];
+    if (!input || !input.bairro.trim()) return;
+    setFretes((prev) =>
+      prev.map((f, i) => {
+        if (i !== cidadeIdx) return f;
+        const bairros = f.bairros || [];
+        return {
+          ...f,
+          bairros: [...bairros, { bairro: input.bairro.trim(), minimo: Number(input.minimo) || 0, frete: Number(input.frete) || 0 }],
+        };
+      })
+    );
+    setNewBairroInput((prev) => ({ ...prev, [cidadeIdx]: { bairro: "", minimo: 0, frete: 0 } }));
+  }
+
+  function removeBairro(cidadeIdx: number, bairroIdx: number) {
+    setFretes((prev) =>
+      prev.map((f, i) => {
+        if (i !== cidadeIdx) return f;
+        return {
+          ...f,
+          bairros: (f.bairros || []).filter((_, bIdx) => bIdx !== bairroIdx),
+        };
+      })
+    );
+  }
+
+  function updateBairro(cidadeIdx: number, bairroIdx: number, field: keyof FreteBairro, value: string | number) {
+    setFretes((prev) =>
+      prev.map((f, i) => {
+        if (i !== cidadeIdx) return f;
+        const bairros = (f.bairros || []).map((b, bIdx) =>
+          bIdx === bairroIdx ? { ...b, [field]: value } : b
+        );
+        return { ...f, bairros };
+      })
     );
   }
 
@@ -1986,60 +2051,224 @@ function ExtensaoTab({ userProfile }: { userProfile?: UserProfile | null }) {
               </tr>
             </thead>
             <tbody>
-              {fretes.map((f, idx) => (
-                <tr
-                  key={idx}
-                  className="border-b border-slate-100 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-slate-700/30 group"
-                >
-                  <td className="px-4 py-2">
-                    <input
-                      type="text"
-                      value={f.cidade}
-                      readOnly={!isManager}
-                      onChange={(e) => isManager && updateFrete(idx, "cidade", e.target.value)}
-                      className={`w-full text-sm font-bold text-slate-800 dark:text-white bg-transparent outline-none rounded px-1 -mx-1 ${
-                        isManager ? "focus:bg-blue-50 dark:focus:bg-slate-700" : ""
-                      }`}
-                    />
-                  </td>
-                  <td className="px-4 py-2">
-                    <input
-                      type="number"
-                      value={f.minimo}
-                      readOnly={!isManager}
-                      onChange={(e) =>
-                        isManager && updateFrete(idx, "minimo", parseFloat(e.target.value) || 0)
-                      }
-                      className={`w-full text-sm font-semibold text-right text-slate-700 dark:text-slate-200 bg-transparent outline-none rounded px-1 -mx-1 tabular-nums ${
-                        isManager ? "focus:bg-blue-50 dark:focus:bg-slate-700" : ""
-                      }`}
-                    />
-                  </td>
-                  <td className="px-4 py-2">
-                    <input
-                      type="number"
-                      value={f.frete}
-                      readOnly={!isManager}
-                      onChange={(e) =>
-                        isManager && updateFrete(idx, "frete", parseFloat(e.target.value) || 0)
-                      }
-                      className={`w-full text-sm font-semibold text-right text-slate-700 dark:text-slate-200 bg-transparent outline-none rounded px-1 -mx-1 tabular-nums ${
-                        isManager ? "focus:bg-blue-50 dark:focus:bg-slate-700" : ""
-                      }`}
-                    />
-                  </td>
-                  {isManager && (
-                    <td className="px-2 py-2">
-                      <button
-                        onClick={() => removeFrete(idx)}
-                        className="text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  )}
-                </tr>
-              ))}
+              {fretes.map((f, idx) => {
+                const temBairros = Boolean(f.bairros && f.bairros.length > 0);
+                const isExpanded = Boolean(expandedCities[idx]);
+
+                return (
+                  <Fragment key={idx}>
+                    <tr className="border-b border-slate-100 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-slate-700/30 group">
+                      <td className="px-4 py-2">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => toggleExpandCity(idx)}
+                            className="p-1 rounded text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors"
+                            title={isExpanded ? "Recolher bairros" : "Expandir bairros"}
+                          >
+                            {isExpanded ? (
+                              <ChevronDown className="w-4 h-4 text-blue-600" />
+                            ) : (
+                              <ChevronRight className="w-4 h-4" />
+                            )}
+                          </button>
+                          <input
+                            type="text"
+                            value={f.cidade}
+                            readOnly={!isManager}
+                            onChange={(e) => isManager && updateFrete(idx, "cidade", e.target.value)}
+                            className={`flex-1 text-sm font-bold text-slate-800 dark:text-white bg-transparent outline-none rounded px-1 -mx-1 ${
+                              isManager ? "focus:bg-blue-50 dark:focus:bg-slate-700" : ""
+                            }`}
+                          />
+                          {temBairros && (
+                            <button
+                              type="button"
+                              onClick={() => toggleExpandCity(idx)}
+                              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 hover:bg-blue-200 transition-colors"
+                            >
+                              <MapPin className="w-3 h-3" />
+                              {f.bairros!.length} bairro(s)
+                            </button>
+                          )}
+                          {isManager && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (!isExpanded) toggleExpandCity(idx);
+                              }}
+                              className="inline-flex items-center gap-0.5 text-[11px] font-bold text-slate-400 hover:text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <Plus className="w-3 h-3" /> Bairro
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-2">
+                        <input
+                          type="number"
+                          value={f.minimo}
+                          readOnly={!isManager}
+                          onChange={(e) =>
+                            isManager && updateFrete(idx, "minimo", parseFloat(e.target.value) || 0)
+                          }
+                          className={`w-full text-sm font-semibold text-right text-slate-700 dark:text-slate-200 bg-transparent outline-none rounded px-1 -mx-1 tabular-nums ${
+                            isManager ? "focus:bg-blue-50 dark:focus:bg-slate-700" : ""
+                          }`}
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        <input
+                          type="number"
+                          value={f.frete}
+                          readOnly={!isManager}
+                          onChange={(e) =>
+                            isManager && updateFrete(idx, "frete", parseFloat(e.target.value) || 0)
+                          }
+                          className={`w-full text-sm font-semibold text-right text-slate-700 dark:text-slate-200 bg-transparent outline-none rounded px-1 -mx-1 tabular-nums ${
+                            isManager ? "focus:bg-blue-50 dark:focus:bg-slate-700" : ""
+                          }`}
+                        />
+                      </td>
+                      {isManager && (
+                        <td className="px-2 py-2">
+                          <button
+                            onClick={() => removeFrete(idx)}
+                            className="text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+
+                    {/* Sub-bairros expansíveis */}
+                    {isExpanded && (
+                      <tr className="bg-slate-50/80 dark:bg-slate-900/40 border-b border-slate-200 dark:border-white/10">
+                        <td colSpan={isManager ? 4 : 3} className="px-6 py-3">
+                          <div className="rounded-xl border border-blue-100 dark:border-blue-900/30 bg-blue-50/30 dark:bg-slate-900/60 p-3 space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-black text-blue-900 dark:text-blue-200 flex items-center gap-1.5">
+                                <MapPin className="w-3.5 h-3.5 text-blue-600 dark:text-blue-400" />
+                                Bairros com frete específico em {f.cidade}
+                              </span>
+                              <span className="text-[11px] font-semibold text-slate-500">
+                                {(f.bairros || []).length} bairro(s) cadastrado(s)
+                              </span>
+                            </div>
+
+                            <div className="space-y-2">
+                              {(f.bairros || []).map((b, bIdx) => (
+                                <div key={bIdx} className="flex items-center gap-2 bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-white/10">
+                                  <span className="text-blue-500 font-bold text-xs pl-1">↳</span>
+                                  <input
+                                    type="text"
+                                    value={b.bairro}
+                                    readOnly={!isManager}
+                                    onChange={(e) => updateBairro(idx, bIdx, "bairro", e.target.value)}
+                                    placeholder="Nome do Bairro (ex: Eloy Chaves)..."
+                                    className="flex-1 text-xs font-bold text-slate-800 dark:text-white bg-transparent outline-none px-2 py-1 rounded border border-slate-200 dark:border-white/10"
+                                  />
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <span className="text-slate-400 font-medium">Ped. Mín:</span>
+                                    <input
+                                      type="number"
+                                      value={b.minimo}
+                                      readOnly={!isManager}
+                                      onChange={(e) => updateBairro(idx, bIdx, "minimo", parseFloat(e.target.value) || 0)}
+                                      className="w-20 text-xs font-semibold text-right text-slate-700 dark:text-slate-200 bg-transparent outline-none px-2 py-1 rounded border border-slate-200 dark:border-white/10 tabular-nums"
+                                    />
+                                    <span className="text-slate-400 font-medium">Frete:</span>
+                                    <input
+                                      type="number"
+                                      value={b.frete}
+                                      readOnly={!isManager}
+                                      onChange={(e) => updateBairro(idx, bIdx, "frete", parseFloat(e.target.value) || 0)}
+                                      className="w-20 text-xs font-semibold text-right text-slate-700 dark:text-slate-200 bg-transparent outline-none px-2 py-1 rounded border border-slate-200 dark:border-white/10 tabular-nums"
+                                    />
+                                    {isManager && (
+                                      <button
+                                        onClick={() => removeBairro(idx, bIdx)}
+                                        className="p-1 text-slate-400 hover:text-red-500 transition-colors"
+                                      >
+                                        <X className="w-3.5 h-3.5" />
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              ))}
+
+                              {/* Form Novo Bairro */}
+                              {isManager && (
+                                <div className="flex items-center gap-2 bg-blue-500/5 p-2 rounded-lg border border-dashed border-blue-200 dark:border-blue-800">
+                                  <span className="text-blue-500 font-bold text-xs pl-1">+</span>
+                                  <input
+                                    type="text"
+                                    value={newBairroInput[idx]?.bairro || ""}
+                                    onChange={(e) =>
+                                      setNewBairroInput((prev) => ({
+                                        ...prev,
+                                        [idx]: { ...(prev[idx] || { minimo: 0, frete: 0 }), bairro: e.target.value },
+                                      }))
+                                    }
+                                    onKeyDown={(e) => e.key === "Enter" && addBairro(idx)}
+                                    placeholder="Novo bairro (ex: Eloy Chaves)..."
+                                    className="flex-1 text-xs px-2 py-1 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800 text-slate-800 dark:text-white outline-none"
+                                  />
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <span className="text-slate-400 font-medium">Ped. Mín:</span>
+                                    <input
+                                      type="number"
+                                      value={newBairroInput[idx]?.minimo ?? ""}
+                                      onChange={(e) =>
+                                        setNewBairroInput((prev) => ({
+                                          ...prev,
+                                          [idx]: {
+                                            ...(prev[idx] || { bairro: "" }),
+                                            minimo: parseFloat(e.target.value) || 0,
+                                            frete: prev[idx]?.frete || 0,
+                                          },
+                                        }))
+                                      }
+                                      onKeyDown={(e) => e.key === "Enter" && addBairro(idx)}
+                                      placeholder="0"
+                                      className="w-20 text-xs text-right px-2 py-1 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none tabular-nums"
+                                    />
+                                    <span className="text-slate-400 font-medium">Frete:</span>
+                                    <input
+                                      type="number"
+                                      value={newBairroInput[idx]?.frete ?? ""}
+                                      onChange={(e) =>
+                                        setNewBairroInput((prev) => ({
+                                          ...prev,
+                                          [idx]: {
+                                            ...(prev[idx] || { bairro: "" }),
+                                            frete: parseFloat(e.target.value) || 0,
+                                            minimo: prev[idx]?.minimo || 0,
+                                          },
+                                        }))
+                                      }
+                                      onKeyDown={(e) => e.key === "Enter" && addBairro(idx)}
+                                      placeholder="0"
+                                      className="w-20 text-xs text-right px-2 py-1 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none tabular-nums"
+                                    />
+                                    <button
+                                      onClick={() => addBairro(idx)}
+                                      className="px-2.5 py-1 bg-blue-600 text-white font-bold text-xs rounded-lg hover:bg-blue-700 transition-colors"
+                                    >
+                                      Adicionar
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
               {isManager && (
                 <tr className="bg-slate-50 dark:bg-slate-900/50">
                   <td className="px-4 py-2">
