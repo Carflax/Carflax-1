@@ -108,8 +108,13 @@ function parseOrcamentos(raw: CrmOrcamento[]): Orcamento[] {
     const total = parseFloat(r.VALOR_TOTAL_ORCAMENTO) || 0;
     
     const products = (r.PRODUTOS || []).map(mapCrmItem);
-    const totalVenda = products.reduce((acc, p) => acc + (parseFloat(String(p.QUANTIDADE)) || 0) * (parseFloat(String(p.PRECO_UNITARIO)) || 0), 0);
-    const totalCusto = products.reduce((acc, p) => acc + (parseFloat(String(p.QUANTIDADE)) || 0) * (parseFloat(String(p.CUSTO_UNITARIO)) || 0), 0);
+    const validProducts = products.filter((p) => {
+      const cod = String(p.COD_PRODUTO || "").trim();
+      const custoUnit = parseFloat(String(p.CUSTO_UNITARIO)) || 0;
+      return !(cod.startsWith("999") && custoUnit <= 0.10);
+    });
+    const totalVenda = validProducts.reduce((acc, p) => acc + (parseFloat(String(p.QUANTIDADE)) || 0) * (parseFloat(String(p.PRECO_UNITARIO)) || 0), 0);
+    const totalCusto = validProducts.reduce((acc, p) => acc + (parseFloat(String(p.QUANTIDADE)) || 0) * (parseFloat(String(p.CUSTO_UNITARIO)) || 0), 0);
     const avgMarkup = totalCusto > 0
       ? ((totalVenda / totalCusto) - 1) * 100
       : (r.MARKUP_DOC != null ? Number(r.MARKUP_DOC) : 0);
@@ -1679,7 +1684,9 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
                     {itens.map((it, i) => {
                       const qtd = parseFloat(String(it.QUANTIDADE)) || 0;
                       const valuni = parseFloat(String(it.PRECO_UNITARIO)) || 0;
-                      const mkp = parseFloat(String(it.MARKUP_PERCENTUAL)) || 0;
+                      const mkpRaw = it.MARKUP_PERCENTUAL;
+                      const mkpNull = mkpRaw === null || mkpRaw === undefined;
+                      const mkp = mkpNull ? 0 : (parseFloat(String(mkpRaw)) || 0);
                       const total = qtd * valuni;
                       const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
                       return (
@@ -1689,8 +1696,8 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
                           <td className="px-4 py-3 text-right text-foreground font-black">{qtd.toFixed(2)}</td>
                           <td className="px-4 py-3 text-center text-muted-foreground font-bold">{it.UN || "UN"}</td>
                           <td className="px-4 py-3 text-right text-foreground font-bold">{fmt(valuni)}</td>
-                          <td className={cn("px-4 py-3 text-right font-bold", mkp >= 30 ? "text-emerald-500" : "text-amber-500")}>
-                            {mkp.toFixed(1)}%
+                          <td className={cn("px-4 py-3 text-right font-bold", mkpNull ? "text-muted-foreground" : mkp >= 30 ? "text-emerald-500" : "text-amber-500")}>
+                            {mkpNull ? "N/A" : `${mkp.toFixed(1)}%`}
                           </td>
                           <td className="px-4 py-3 text-right font-black text-emerald-600 dark:text-emerald-400">{fmt(total)}</td>
                         </tr>

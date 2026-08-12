@@ -397,7 +397,10 @@ export function mapCrmItem(p: Partial<CrmItem> & {
   const custoTotal = parseFloat(String(p.FDO_TOTCUS || (Number(p.CUSTO_UNITARIO || 0) * qtd) || 0));
   const custoUnitar = p.CUSTO_UNITARIO || (qtd > 0 ? custoTotal / qtd : 0);
   
-  const mkp = p.MARKUP_PERCENTUAL || (Number(custoUnitar) > 0 ? ((unitar / Number(custoUnitar)) - 1) * 100 : 0);
+  const mkpBackend = p.MARKUP_PERCENTUAL;
+  const mkp = mkpBackend === null || mkpBackend === undefined
+    ? (Number(custoUnitar) > 0 ? ((unitar / Number(custoUnitar)) - 1) * 100 : null)
+    : (Number(mkpBackend) || 0);
 
   return {
     COD_PRODUTO: String(p.COD_PRODUTO || p.FDO_CODITE || ""),

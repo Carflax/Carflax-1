@@ -94,7 +94,8 @@ const parseNum = (v: unknown): number => {
 
 // Markup % do item: usa MARKUP_PERCENTUAL se vier; senão calcula por (preço/custo - 1).
 const markupPct = (item: OrcamentoItem): number | null => {
-  const mkp = parseFloat(String(item.MARKUP_PERCENTUAL ?? 0));
+  if (item.MARKUP_PERCENTUAL === null || item.MARKUP_PERCENTUAL === undefined) return null;
+  const mkp = parseFloat(String(item.MARKUP_PERCENTUAL));
   if (mkp) return mkp;
   const preco = parseNum(item.PRECO_UNITARIO);
   const custo = parseNum(item.CUSTO_UNITARIO);

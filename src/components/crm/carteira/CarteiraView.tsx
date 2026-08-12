@@ -54,6 +54,7 @@ interface RankingEntry {
   nome_vendedor: string;
   total_clientes: number;
   clientes_com_ia: number;
+  total_interacoes: number;
   pct: number;
 }
 
@@ -86,30 +87,33 @@ function RankingIAModal({
           console.error("[RankingIA] Erro ao buscar conhecimento no Supabase:", errSupabase);
         }
 
-        // Monta conjunto de cliente_ids com IA preenchida
-        const comIA = new Set(
-          (conhecimento || [])
-            .filter((r) => {
-              const d = r.dados_extraidos;
-              const h = r.historico;
-              const res = r.resumo;
-              if (d && typeof d === "object" && !Array.isArray(d) && Object.keys(d as object).length > 0) return true;
-              if (Array.isArray(h) && h.length > 0) return true;
-              if (res && String(res).trim().length > 0) return true;
-              return false;
-            })
-            .map((r) => String(r.cliente_id).trim())
-        );
+        // Mapeia cliente_id -> { temIA: boolean, interacoes: number }
+        const conhecimentoMap = new Map<string, { temIA: boolean; interacoes: number }>();
+        for (const r of (conhecimento || [])) {
+          const cid = String(r.cliente_id).trim();
+          const d = r.dados_extraidos;
+          const h = r.historico;
+          const res = r.resumo;
+          const numMsgs = Array.isArray(h) ? h.length : 0;
+          const temIA =
+            (d && typeof d === "object" && !Array.isArray(d) && Object.keys(d as object).length > 0) ||
+            numMsgs > 0 ||
+            Boolean(res && String(res).trim());
+          const interacoes = numMsgs > 0 ? numMsgs : (temIA ? 1 : 0);
+          conhecimentoMap.set(cid, { temIA, interacoes });
+        }
 
         // Agrupa por vendedor
-        const map = new Map<string, { nome: string; total: number; comIA: number }>();
+        const map = new Map<string, { nome: string; total: number; comIA: number; interacoes: number }>();
         for (const c of listaClientes) {
           const key = c.cod_vendedor || "0";
           const nome = c.nome_vendedor || `Vendedor ${key}`;
-          const entry = map.get(key) ?? { nome, total: 0, comIA: 0 };
+          const entry = map.get(key) ?? { nome, total: 0, comIA: 0, interacoes: 0 };
           entry.total += 1;
-          if (comIA.has(String(c.cliente_id).trim())) {
+          const info = conhecimentoMap.get(String(c.cliente_id).trim());
+          if (info && info.temIA) {
             entry.comIA += 1;
+            entry.interacoes += info.interacoes;
           }
           map.set(key, entry);
         }
@@ -120,9 +124,10 @@ function RankingIAModal({
             nome_vendedor: v.nome,
             total_clientes: v.total,
             clientes_com_ia: v.comIA,
+            total_interacoes: v.interacoes,
             pct: v.total > 0 ? Math.round((v.comIA / v.total) * 100) : 0,
           }))
-          .sort((a, b) => b.clientes_com_ia - a.clientes_com_ia || b.pct - a.pct)
+          .sort((a, b) => b.total_interacoes - a.total_interacoes || b.clientes_com_ia - a.clientes_com_ia)
           .filter((e) => e.total_clientes > 0);
 
         setRanking(result);
@@ -151,8 +156,8 @@ function RankingIAModal({
               <Trophy className="w-5 h-5 text-yellow-400" />
             </div>
             <div>
-              <p className="text-sm font-black text-foreground uppercase tracking-wide">Ranking de Preenchimento IA</p>
-              <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-widest">Clientes com dados preenchidos via IA</p>
+              <p className="text-sm font-black text-foreground uppercase tracking-wide">Ranking de Interações IA</p>
+              <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-widest">Interações e dados da carteira alimentados via IA</p>
             </div>
           </div>
           <button
@@ -172,7 +177,7 @@ function RankingIAModal({
             </div>
           ) : ranking.length === 0 ? (
             <div className="py-12 text-center text-muted-foreground text-sm font-semibold">
-              Nenhum dado encontrado.
+              Nenhum dado de interação encontrado.
             </div>
           ) : (
             ranking.map((entry, idx) => {
@@ -200,15 +205,17 @@ function RankingIAModal({
                   {/* Nome */}
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold text-foreground truncate">{entry.nome_vendedor}</p>
-                    <p className="text-[10px] text-muted-foreground font-semibold">Cód. {entry.cod_vendedor}</p>
+                    <p className="text-[10px] text-muted-foreground font-semibold">
+                      Cód. {entry.cod_vendedor} · {entry.clientes_com_ia} de {entry.total_clientes} clientes
+                    </p>
                   </div>
 
                   {/* Contagens */}
                   <div className="text-right shrink-0">
                     <div className="flex items-center gap-1.5 justify-end">
-                      <Sparkles className="w-3.5 h-3.5 text-yellow-400" />
-                      <span className="text-sm font-black text-foreground">{entry.clientes_com_ia}</span>
-                      <span className="text-[10px] text-muted-foreground font-semibold">/ {entry.total_clientes}</span>
+                      <MessageCircle className="w-3.5 h-3.5 text-yellow-400" />
+                      <span className="text-sm font-black text-foreground">{entry.total_interacoes}</span>
+                      <span className="text-[10px] text-muted-foreground font-semibold">interações</span>
                     </div>
                     {/* Barra de progresso */}
                     <div className="mt-1 h-1.5 w-24 rounded-full bg-muted/60 overflow-hidden">
@@ -219,7 +226,7 @@ function RankingIAModal({
                         style={{ width: `${entry.pct}%` }}
                       />
                     </div>
-                    <p className="text-[10px] text-muted-foreground font-bold mt-0.5">{entry.pct}% preenchido</p>
+                    <p className="text-[10px] text-muted-foreground font-bold mt-0.5">{entry.pct}% da carteira</p>
                   </div>
                 </div>
               );
@@ -230,7 +237,7 @@ function RankingIAModal({
         {/* Footer */}
         <div className="px-6 py-3 border-t border-border/60 bg-muted/20">
           <p className="text-[10px] text-muted-foreground font-semibold text-center">
-            Baseado em conversas com o assistente de carteira (IA Gemini)
+            Métricas baseadas em mensagens trocadas com a IA e dados extraídos
           </p>
         </div>
       </div>
@@ -238,7 +245,6 @@ function RankingIAModal({
     document.body
   );
 }
-
 interface UserProfile {
   id?: string;
   name?: string;
