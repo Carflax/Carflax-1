@@ -1739,10 +1739,6 @@ function ExtensaoTab({ userProfile }: { userProfile?: UserProfile | null }) {
   const [fretes, setFretes] = useState<FreteRow[]>([]);
   const [newFrete, setNewFrete] = useState<FreteRow>({ cidade: "", minimo: 0, frete: 0 });
 
-  useEffect(() => {
-    loadData();
-  }, []);
-
   async function loadData() {
     setLoading(true);
     const { data } = await supabase
@@ -1756,11 +1752,17 @@ function ExtensaoTab({ userProfile }: { userProfile?: UserProfile | null }) {
           const parsed = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
           if (row.key === "extensao_entregas") setEntregas(normalizarEntregas(parsed));
           if (row.key === "extensao_fretes") setFretes(normalizarFretes(parsed));
-        } catch (_) {}
+        } catch {
+          // Ignorar erros de formato JSON inválido
+        }
       }
     }
     setLoading(false);
   }
+
+  useEffect(() => {
+    loadData();
+  }, []);
 
   const isInitialMount = useRef(true);
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1793,7 +1795,7 @@ function ExtensaoTab({ userProfile }: { userProfile?: UserProfile | null }) {
     return () => {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
     };
-  }, [entregas, fretes, loading]);
+  }, [entregas, fretes, loading, isManager]);
 
   function addCityToDay(dia: string) {
     const city = newCity[dia]?.trim();
@@ -2103,7 +2105,6 @@ function ExtensaoTab({ userProfile }: { userProfile?: UserProfile | null }) {
 export function SettingsSection({ externalTab, userProfile }: SettingsSectionProps) {
   const tabMap: Record<string, string> = {
     "Meu Perfil": "profile",
-    "Config. Orçamentos": "orcamentos",
     "Notificações": "notifications",
     "Segurança": "security",
     "Aparência": "appearance",

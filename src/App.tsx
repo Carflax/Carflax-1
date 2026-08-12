@@ -1241,7 +1241,6 @@ function DashboardContent({
   const isSettingsView = [
     "Configurações",
     "Meu Perfil",
-    "Config. Orçamentos",
     "Notificações",
     "Segurança",
     "Aparência",

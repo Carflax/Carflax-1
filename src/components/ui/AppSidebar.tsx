@@ -142,7 +142,6 @@ const settingsItems: MenuItem[] = [
     isDropdown: true,
     subItems: [
       { label: "Meu Perfil", icon: User },
-      { label: "Config. Orçamentos", icon: FileBadge },
       { label: "Notificações", icon: Bell },
       { label: "Segurança", icon: ShieldCheck },
       { label: "Aparência", icon: Palette },
