@@ -59,7 +59,7 @@ interface MovGerRecord {
 }
 
 export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
-  const canLancar = userProfile?.permissions?.includes("Lan├ºar Entrega") || userProfile?.role === "admin";
+  const canLancar = userProfile?.permissions?.includes("Lançar Entrega") || userProfile?.role === "admin";
   const [deliveries, setDeliveries] = useState<Delivery[]>([]);
   const [motoristas, setMotoristas] = useState<{ COD: string; NOME: string }[]>([]);
   const [selectedMotorista, setSelectedMotorista] = useState<string>("");
@@ -76,7 +76,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
   const hoje = new Date().toISOString().split('T')[0];
 
   const fetchData = useCallback(async (isSilent = false) => {
-    // Ignorar chamadas enquanto o usu├írio est├í reordenando
+    // Ignorar chamadas enquanto o usuário está reordenando
     if (isSilent && isReordering.current) return;
     try {
       if (!isSilent) setLoading(true);
@@ -85,7 +85,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
         setMotoristas(motoristasRes.motoristas);
       }
       
-      // 1. Buscar entregas diretamente (Hoje se pendente, ou Hist├│rico se conclu├¡do)
+      // 1. Buscar entregas diretamente (Hoje se pendente, ou Histórico se concluído)
       const query = supabase.from("entregas").select("*");
       
       if (activeTab === "pending") {
@@ -127,7 +127,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
         
         setDeliveries(mapped);
 
-        // Auto-finaliza├º├úo: Se todas as entregas de um rom_code est├úo prontas, marcar rom_status como conclu├¡do
+        // Auto-finalização: Se todas as entregas de um rom_code estão prontas, marcar rom_status como concluído
         if (activeTab === "pending") {
           const uniqueRomCodes = Array.from(new Set(mapped.map(m => m.romCode)));
           for (const code of uniqueRomCodes) {
@@ -144,7 +144,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
       }
 
 
-      // Buscar fotos dos usu├írios/motoristas
+      // Buscar fotos dos usuários/motoristas
       const { data: users } = await supabase.from("usuarios").select("operator_code, avatar");
       if (users) {
         const avatarMap: Record<string, string> = {};
@@ -162,7 +162,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
 
   useEffect(() => {
     fetchData();
-    // Sincroniza├º├úo em Tempo Real de Entregas e Status de Romaneio
+    // Sincronização em Tempo Real de Entregas e Status de Romaneio
     const channel = supabase
       .channel('admin_full_sync')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'entregas' }, () => fetchData(true))
@@ -170,8 +170,8 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
     return () => { supabase.removeChannel(channel); };
   }, [fetchData]);
 
-  // Carrega os ve├¡culos para vincular ao romaneio: usa os j├í cadastrados e
-  // descobre da API do Link Monitoramento os que ainda n├úo existem, registrando-os.
+  // Carrega os veículos para vincular ao romaneio: usa os já cadastrados e
+  // descobre da API do Link Monitoramento os que ainda não existem, registrando-os.
   useEffect(() => {
     (async () => {
       try {
@@ -191,11 +191,11 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
           }
           lista.sort((a, b) => a.placa.localeCompare(b.placa));
         } catch {
-          /* API do Link indispon├¡vel ÔÇö usa s├│ os j├í cadastrados */
+          /* API do Link indisponível — usa só os já cadastrados */
         }
         setVeiculos(lista);
       } catch (err) {
-        console.error("Erro ao carregar ve├¡culos:", err);
+        console.error("Erro ao carregar veículos:", err);
       }
     })();
   }, []);
@@ -203,7 +203,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
   const persistOrder = useCallback(async (newOrder: Delivery[]) => {
     isReordering.current = true;
     try {
-      // Salva a posi├º├úo de cada entrega como 0, 1, 2, 3...
+      // Salva a posição de cada entrega como 0, 1, 2, 3...
       for (let i = 0; i < newOrder.length; i++) {
         await supabase
           .from("entregas")
@@ -222,16 +222,16 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
     // Substitui os items do grupo in-place, preservando a ordem dos outros grupos
     setDeliveries(prev => {
       const result = [...prev];
-      // Acha os ├¡ndices das entregas deste romCode no array global
+      // Acha os índices das entregas deste romCode no array global
       const indices: number[] = [];
       result.forEach((d, i) => { if (d.romCode === romCode) indices.push(i); });
-      // Reescreve cada posi├º├úo com o item na nova ordem
+      // Reescreve cada posição com o item na nova ordem
       indices.forEach((pos, i) => { result[pos] = newOrder[i]; });
       return result;
     });
     pendingOrder.current = newOrder;
 
-    // Cancela persist├¬ncia anterior e agenda nova (debounce de 600ms)
+    // Cancela persistência anterior e agenda nova (debounce de 600ms)
     if (reorderDebounce.current) clearTimeout(reorderDebounce.current);
     reorderDebounce.current = setTimeout(() => {
       if (pendingOrder.current) {
@@ -243,22 +243,27 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
 
   const handleLancar = async () => {
     try {
-      // Limpar a NF: pegar s├│ os n├║meros e completar com zeros ├á esquerda at├® 12 d├¡gitos
-      const cleanNum = nfInput.replace(/\D/g, ''); 
-      const nfFormatada = cleanNum.padStart(12, '0');
+      const nfNumero = parseInt(nfInput.replace(/\D/g, ''), 10);
+      if (!nfNumero || isNaN(nfNumero)) {
+        alert("Número de NF inválido.");
+        return;
+      }
 
       const sql = `
-        SELECT 
-          GER_NUMDOC as NF,
-          GER_NOMCON as CLIENTE,
-          GER_ENDCON as ENDERECO,
-          GER_BAICON as BAIRRO,
-          GER_CIDCON as CIDADE,
-          GER_VLRCON as VALOR,
-          GER_MENEX2 as OBS,
-          GER_CODVEN as VENDEDOR_COD
-        FROM MOVGER
-        WHERE GER_NUMDOC = '${nfFormatada}' AND GER_ESPDOC = 'NF'
+        SELECT
+          M.GER_NUMDOC as NF,
+          M.GER_NOMCON as CLIENTE,
+          COALESCE(NULLIF(TRIM(E.ETC_ENDENT), ''), TRIM(M.GER_ENDCON)) as ENDERECO,
+          COALESCE(NULLIF(TRIM(E.ETC_BAIENT), ''), TRIM(M.GER_BAICON)) as BAIRRO,
+          COALESCE(NULLIF(TRIM(C.CID_NOMCID), ''), TRIM(M.GER_CIDCON)) as CIDADE,
+          M.GER_VLRCON as VALOR,
+          M.GER_MENEX2 as OBS,
+          M.GER_CODVEN as VENDEDOR_COD
+        FROM MOVGER M
+        LEFT JOIN ENTCLI E ON E.ETC_CODCLI = M.GER_CODCLI AND E.ETC_ENDFAT = 'N'
+          AND E.ETC_SEQIND = (SELECT MAX(E2.ETC_SEQIND) FROM ENTCLI E2 WHERE E2.ETC_CODCLI = M.GER_CODCLI AND E2.ETC_ENDFAT = 'N')
+        LEFT JOIN CADCID C ON C.CID_CODCID = COALESCE(NULLIF(E.ETC_CIDENT, ''), M.GER_CIDCON)
+        WHERE CAST(SUBSTRING_INDEX(M.GER_NUMDOC, '-', 1) AS UNSIGNED) = ${nfNumero} AND M.GER_ESPDOC = 'NF'
         LIMIT 1
       `;
       
@@ -278,7 +283,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
           .insert([{
             nf: e.NF,
             client: e.CLIENTE,
-            address: `${e.ENDERECO}, ${e.BAIRRO} - ${e.CIDADE}`,
+            address: `${(e.ENDERECO || '').trim()}, ${(e.BAIRRO || '').trim()} - ${(e.CIDADE || '').trim()}`,
             value: cleanValue,
             status: "pending",
             instructions: e.OBS || "",
@@ -296,17 +301,17 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
         fetchData(true);
         setNfInput("");
       } else {
-        alert("NF n├úo encontrada no banco de dados.");
+        alert("NF não encontrada no banco de dados.");
       }
     } catch (error) {
-      console.error("Erro ao lan├ºar NF:", error);
+      console.error("Erro ao lançar NF:", error);
       alert("Erro ao conectar com o servidor.");
     }
   };
 
   const handleDeleteDelivery = async (nf: string, romCodeToDel?: string) => {
     if (!romCodeToDel) {
-      alert("N├úo foi poss├¡vel excluir: C├│digo do romaneio ausente.");
+      alert("Não foi possível excluir: Código do romaneio ausente.");
       return;
     }
     if (!confirm(`Deseja remover a NF ${nf} do romaneio?`)) return;
@@ -329,7 +334,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
     }
   };
 
-  // Vincula/edita o carro de um romaneio j├í criado (atualiza todas as NFs do rom_code).
+  // Vincula/edita o carro de um romaneio já criado (atualiza todas as NFs do rom_code).
   const handleVincularVeiculo = async (romCode: string | undefined, veiculoId: string) => {
     if (!romCode) return;
     try {
@@ -340,7 +345,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
       if (error) throw error;
       setDeliveries(prev => prev.map(d => (d.romCode === romCode ? { ...d, veiculoId: veiculoId || null } : d)));
     } catch (err) {
-      console.error("Erro ao vincular ve├¡culo ao romaneio:", err);
+      console.error("Erro ao vincular veículo ao romaneio:", err);
       alert("Erro ao vincular o carro ao romaneio.");
     }
   };
@@ -353,7 +358,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
       <div className="flex flex-col gap-3 shrink-0">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-xl font-black text-foreground uppercase tracking-tight leading-none">Romaneios Di├írios</h2>
+            <h2 className="text-xl font-black text-foreground uppercase tracking-tight leading-none">Romaneios Diários</h2>
             <p className="text-muted-foreground text-[9px] font-bold uppercase tracking-[0.2em] mt-1.5 flex items-center gap-2">
               <span className="w-1 h-1 rounded-full bg-blue-500 animate-pulse" />
               Monitoramento de Entregas em Tempo Real
@@ -379,7 +384,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
               )}
             >
               <CheckCircle2 className="w-3.5 h-3.5" />
-              Conclu├¡dos
+              Concluídos
             </button>
           </div>
         </div>
@@ -393,7 +398,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
               type="text"
               value={nfInput}
               onChange={(e) => setNfInput(e.target.value)}
-              placeholder="Digite o n├║mero da NF para lan├ºar..."
+              placeholder="Digite o número da NF para lançar..."
               className="flex-1 bg-transparent border-none text-[11px] font-bold text-foreground placeholder:text-muted-foreground/30 outline-none"
             />
           </div>
@@ -425,7 +430,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
             >
               <option value="" className="bg-card">Selecionar Carro</option>
               {veiculos.map(v => (
-                <option key={v.id} value={v.id} className="bg-card">{v.placa}{v.modelo ? ` ┬À ${v.modelo}` : ""}</option>
+                <option key={v.id} value={v.id} className="bg-card">{v.placa}{v.modelo ? ` · ${v.modelo}` : ""}</option>
               ))}
             </select>
           </div>
@@ -436,7 +441,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
               disabled={!nfInput}
               className="h-9 px-6 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-lg text-[10px] font-black uppercase tracking-widest transition-all shadow-md shadow-blue-600/10 flex items-center gap-2 active:scale-95"
             >
-              Lan├ºar Entrega
+              Lançar Entrega
               <ChevronRight className="w-3.5 h-3.5" />
             </button>
           )}
@@ -515,7 +520,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tight">
-                            C├ôD: {motoristaCod}
+                            CÓD: {motoristaCod}
                           </span>
                         </div>
                       </div>
@@ -557,9 +562,9 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
                         <tr className="border-b border-border">
                           <th className="py-2.5 px-4 text-[9px] font-black text-muted-foreground uppercase tracking-widest">Status</th>
                           <th className="py-2.5 px-4 text-[9px] font-black text-muted-foreground uppercase tracking-widest">NF</th>
-                          <th className="py-2.5 px-4 text-[9px] font-black text-muted-foreground uppercase tracking-widest">Cliente / Endere├ºo</th>
+                          <th className="py-2.5 px-4 text-[9px] font-black text-muted-foreground uppercase tracking-widest">Cliente / Endereço</th>
                           <th className="py-2.5 px-4 text-[9px] font-black text-muted-foreground uppercase tracking-widest text-right">Valor</th>
-                          <th className="py-2.5 px-4 text-[9px] font-black text-muted-foreground uppercase tracking-widest text-center">A├º├Áes</th>
+                          <th className="py-2.5 px-4 text-[9px] font-black text-muted-foreground uppercase tracking-widest text-center">Ações</th>
                         </tr>
                       </thead>
                       <Reorder.Group 
@@ -567,7 +572,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
                         axis="y" 
                         values={items} 
                         onReorder={(newOrder) => {
-                          // S├│ permitimos reordenar se estivermos na aba de Pendentes
+                          // Só permitimos reordenar se estivermos na aba de Pendentes
                           if (activeTab === "pending") handleReorder(romCode!, newOrder);
                         }}
                         className="divide-y divide-border/50"
@@ -600,7 +605,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
                                   delivery.status === "completed" ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"
                                 )}>
                                   {delivery.status === "completed"
-                                    ? (delivery.time ? `ENTREGUE ┬À ${delivery.time.slice(0, 5)}` : "ENTREGUE")
+                                    ? (delivery.time ? `ENTREGUE · ${delivery.time.slice(0, 5)}` : "ENTREGUE")
                                     : "AGUARD."}
                                 </span>
                               </div>
@@ -683,10 +688,10 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
                   <Navigation className="w-6 h-6 text-muted-foreground" />
                 </div>
                 <h3 className="text-[14px] font-black text-foreground uppercase">
-                  Nenhum Romaneio {activeTab === "completed" ? "Conclu├¡do" : "em Aberto"}
+                  Nenhum Romaneio {activeTab === "completed" ? "Concluído" : "em Aberto"}
                 </h3>
                 <p className="text-[11px] font-bold text-muted-foreground max-w-[200px] mt-1 uppercase">
-                  {activeTab === "completed" ? "Os romaneios finalizados aparecer├úo aqui." : "Lance uma NF acima para iniciar."}
+                  {activeTab === "completed" ? "Os romaneios finalizados aparecerão aqui." : "Lance uma NF acima para iniciar."}
                 </p>
               </div>
             )
@@ -708,7 +713,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
               className="absolute -top-12 right-0 p-2 text-white hover:text-red-400 transition-colors flex items-center gap-2 font-black uppercase text-[10px] tracking-widest"
               onClick={() => setViewingImage(null)}
             >
-              Fechar Visualiza├º├úo <X className="w-5 h-5" />
+              Fechar Visualização <X className="w-5 h-5" />
             </button>
             <img 
               src={viewingImage} 
@@ -788,10 +793,10 @@ function ItemsModal({ nf, onClose }: { nf: string | null, onClose: () => void })
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="py-2.5 px-4 text-[9px] font-black text-muted-foreground uppercase tracking-widest">C├│d.</th>
+                  <th className="py-2.5 px-4 text-[9px] font-black text-muted-foreground uppercase tracking-widest">Cód.</th>
                   <th className="py-2.5 px-4 text-[9px] font-black text-muted-foreground uppercase tracking-widest">Produto</th>
                   <th className="py-2.5 px-4 text-[9px] font-black text-muted-foreground uppercase tracking-widest text-center">Qtd.</th>
-                  <th className="py-2.5 px-4 text-[9px] font-black text-muted-foreground uppercase tracking-widest text-right">Pre├ºo</th>
+                  <th className="py-2.5 px-4 text-[9px] font-black text-muted-foreground uppercase tracking-widest text-right">Preço</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/50">
