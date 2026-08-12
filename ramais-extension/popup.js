@@ -84,10 +84,10 @@ function normalizarFretes(value) {
 let toastTimer;
 function toast(msg) {
   const el = document.getElementById("toast");
-  el.textContent = msg;
+  el.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="3" style="width:16px;height:16px"><polyline points="20 6 9 17 4 12"/></svg>' + escapeHtml(msg);
   el.classList.add("show");
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove("show"), 1400);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 1800);
 }
 
 // ===================== TABS =====================
@@ -131,9 +131,19 @@ function renderRamais(items) {
     const row = document.createElement("div");
     row.className = "row";
     row.title = "Clique para copiar o ramal " + r.ramal;
-    row.innerHTML = '<span class="ramal"></span><span class="nome"></span>';
-    row.querySelector(".ramal").textContent = r.ramal;
-    row.querySelector(".nome").textContent = r.name;
+    
+    const initial = r.name ? r.name.charAt(0).toUpperCase() : "?";
+
+    row.innerHTML = `
+      <div class="row-left">
+        <div class="avatar">${initial}</div>
+        <span class="nome">${escapeHtml(r.name)}</span>
+      </div>
+      <div class="ramal-badge">
+        <span class="ramal">${escapeHtml(r.ramal)}</span>
+        <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
+      </div>
+    `;
     row.addEventListener("click", () => {
       navigator.clipboard.writeText(r.ramal).then(() => toast("Ramal " + r.ramal + " copiado"));
     });
@@ -226,36 +236,31 @@ async function carregarConfiguracoes() {
 
 function renderEntregas() {
   const grid = document.getElementById("entregas-grid");
-  const hojeBar = document.getElementById("hoje-bar");
 
   const diasOrdem = ["SEG", "TER", "QUA", "QUI", "SEX"];
   const dow = new Date().getDay(); // 0=dom, 1=seg...
   const hojeKey = dow >= 1 && dow <= 5 ? diasOrdem[dow - 1] : null;
-
-  if (hojeKey) {
-    const cidades = ENTREGAS[hojeKey];
-    hojeBar.innerHTML =
-      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px;height:14px;vertical-align:-2px;margin-right:4px"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>' +
-      "Hoje (" + DIAS_LABELS[hojeKey] + "): " + cidades.join(", ");
-    hojeBar.className = "hoje-indicator";
-  }
 
   const maxRows = Math.max(...diasOrdem.map((d) => ENTREGAS[d].length));
 
   let html = "";
   for (const dia of diasOrdem) {
     const isHoje = dia === hojeKey;
-    html += '<div class="dia-col">';
-    html += '<div class="dia-header"' + (isHoje ? ' style="background:#16a34a"' : '') + '>' + DIAS_LABELS[dia].substring(0, 3).toUpperCase() + '</div>';
+    html += '<div class="dia-col' + (isHoje ? ' is-hoje' : '') + '">';
+    html += '<div class="dia-header' + (isHoje ? ' header-hoje' : '') + '">';
+    html += '<span>' + DIAS_LABELS[dia].substring(0, 3).toUpperCase() + '</span>';
+    if (isHoje) html += '<span class="hoje-tag">Hoje</span>';
+    html += '</div>';
+    html += '<div class="dia-cities-wrapper">';
     const cidades = ENTREGAS[dia];
     for (let i = 0; i < maxRows; i++) {
       if (i < cidades.length) {
-        html += '<div class="dia-city' + (isHoje ? ' destaque' : '') + '">' + escapeHtml(cidades[i]) + '</div>';
+        html += '<div class="dia-city' + (isHoje ? ' destaque' : '') + '" title="' + escapeHtml(cidades[i]) + '">' + escapeHtml(cidades[i]) + '</div>';
       } else {
-        html += '<div class="dia-city"></div>';
+        html += '<div class="dia-city empty-cell"></div>';
       }
     }
-    html += '</div>';
+    html += '</div></div>';
   }
   grid.innerHTML = html;
 }
@@ -269,12 +274,16 @@ const qfEl = document.getElementById("qf");
 function renderFretes(lista) {
   const container = document.getElementById("fretes-container");
   if (!lista.length) {
-    container.innerHTML = '<div class="empty">Nenhuma cidade encontrada.</div>';
+    container.innerHTML = '<div class="empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:32px;height:32px;margin:0 auto 8px;opacity:0.5;display:block"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>Nenhuma cidade encontrada.</div>';
     return;
   }
-  let html = '<table class="fretes-table"><thead><tr><th>Cidade</th><th>Pedido Min.</th><th>Frete</th></tr></thead><tbody>';
+  let html = '<table class="fretes-table"><thead><tr><th>CIDADE</th><th style="text-align:right">PEDIDO MÍN.</th><th style="text-align:right">FRETE</th></tr></thead><tbody>';
   for (const f of lista) {
-    html += "<tr><td>" + escapeHtml(f.cidade) + "</td><td>" + moeda(f.minimo) + "</td><td>" + moeda(f.frete) + "</td></tr>";
+    html += "<tr>" +
+      '<td><div class="cidade-cell"><div class="city-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-10a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg></div>' + escapeHtml(f.cidade) + "</div></td>" +
+      '<td style="text-align:right"><span class="badge-minimo">' + moeda(f.minimo) + "</span></td>" +
+      '<td style="text-align:right"><span class="badge-frete">' + moeda(f.frete) + "</span></td>" +
+      "</tr>";
   }
   html += "</tbody></table>";
   container.innerHTML = html;

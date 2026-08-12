@@ -2,203 +2,260 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
       --azul: #1e63c8;
-      --azul-escuro: #172554;
+      --azul-escuro: #0f172a;
       --bg: #ffffff;
-      --linha: #e6e9ef;
-      --texto: #14181f;
-      --muted: #6b7280;
-      --hover: #f2f6fc;
-      --verde: #16a34a;
+      --linha: #e2e8f0;
+      --texto: #0f172a;
+      --muted: #64748b;
+      --hover: #f8fafc;
+      --verde: #10b981;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
-      width: 520px;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      width: 580px;
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
       background: var(--bg);
       color: var(--texto);
       overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
     }
     header {
-      background: #ffffff;
-      padding: 12px 16px 10px;
-      display: flex;
-      justify-content: center;
-      border-bottom: 1px solid var(--linha);
-    }
-    header img.brand { height: 46px; width: auto; display: block; }
-
-    /* === TABS === */
-    .tabs {
-      display: flex;
-      border-bottom: 2px solid var(--linha);
-      background: #fff;
-    }
-    .tabs button {
-      flex: 1;
-      padding: 11px 12px;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: .06em;
-      text-transform: uppercase;
-      color: var(--muted);
-      background: transparent;
-      border: none;
-      border-bottom: 2px solid transparent;
-      margin-bottom: -2px;
-      cursor: pointer;
-      transition: color .15s, border-color .15s;
+      background: linear-gradient(135deg, #091322 0%, #112240 50%, #1e3a8a 100%);
+      padding: 16px 20px;
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 6px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
     }
-    .tabs button:hover { color: var(--azul); }
+    header img.brand { height: 40px; width: auto; display: block; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.3)); }
+
+    /* === TABS === */
+    .tabs-container {
+      padding: 10px 16px;
+      background: #f8fafc;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .tabs {
+      display: flex;
+      background: #e2e8f0;
+      padding: 4px;
+      border-radius: 12px;
+      gap: 4px;
+    }
+    .tabs button {
+      flex: 1;
+      padding: 10px 14px;
+      font-size: 12.5px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+      color: #64748b;
+      background: transparent;
+      border: none;
+      border-radius: 9px;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .tabs button:hover { color: #0f172a; }
     .tabs button.active {
-      color: var(--azul);
-      border-bottom-color: var(--azul);
+      color: #1e63c8;
+      background: #ffffff;
+      box-shadow: 0 2px 8px rgba(30, 99, 200, 0.15), 0 1px 2px rgba(0, 0, 0, 0.05);
+      font-weight: 800;
     }
-    .tabs button svg { width: 16px; height: 16px; }
+    .tabs button svg { width: 16px; height: 16px; stroke-width: 2.2; }
 
     .tab-content { display: none; }
     .tab-content.active { display: block; }
 
+    /* === SEARCH & INPUTS === */
+    .search, .fretes-search {
+      padding: 12px 16px;
+      background: #ffffff;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .search-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+    .search-wrapper svg.search-icon {
+      position: absolute;
+      left: 14px;
+      width: 18px;
+      height: 18px;
+      color: #94a3b8;
+      pointer-events: none;
+    }
+    .search input, .fretes-search input {
+      width: 100%;
+      padding: 11px 14px 11px 42px;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 12px;
+      font-size: 14px;
+      font-weight: 600;
+      background: #f8fafc;
+      color: #0f172a;
+      outline: none;
+      transition: all 0.2s ease;
+      font-family: inherit;
+    }
+    .search input::placeholder, .fretes-search input::placeholder {
+      color: #94a3b8;
+      font-weight: 500;
+    }
+    .search input:focus, .fretes-search input:focus {
+      border-color: #1e63c8;
+      background: #ffffff;
+      box-shadow: 0 0 0 4px rgba(30, 99, 200, 0.12);
+    }
+
     /* === RAMAIS === */
     .subbar {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 8px 16px; background: #fff; border-bottom: 1px solid var(--linha);
+      padding: 10px 16px; background: #f8fafc; border-bottom: 1px solid #f1f5f9;
     }
     .subbar .titulo {
-      font-size: 12px; font-weight: 800; letter-spacing: .14em;
-      text-transform: uppercase; color: var(--azul-escuro);
+      font-size: 12px; font-weight: 800; letter-spacing: 0.1em;
+      text-transform: uppercase; color: #334155; display: flex; align-items: center; gap: 6px;
     }
-    .subbar .count { font-size: 11px; font-weight: 700; color: var(--muted); }
-    .search { padding: 10px 14px; border-bottom: 1px solid var(--linha); }
-    .search input {
-      width: 100%; padding: 9px 12px; border: 1px solid var(--linha); border-radius: 8px;
-      font-size: 13.5px; background: #fff; color: var(--texto); outline: none;
+    .subbar .count {
+      font-size: 11.5px; font-weight: 700; color: #1e63c8;
+      background: #eff6ff; border: 1px solid #bfdbfe; padding: 3px 9px; border-radius: 999px;
     }
-    .search input:focus { border-color: var(--azul); }
-    #list { max-height: 400px; overflow-y: auto; background: #fff; }
+    #list { max-height: 420px; overflow-y: auto; background: #ffffff; padding: 6px 12px; }
     .row {
-      display: flex; align-items: center; gap: 14px; padding: 8px 16px;
-      border-bottom: 1px solid var(--linha); cursor: pointer;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 14px; margin-bottom: 6px; border-radius: 12px;
+      border: 1px solid #f1f5f9; background: #ffffff; cursor: pointer;
+      transition: all 0.18s ease;
     }
-    .row:hover { background: var(--hover); }
-    .row .ramal {
-      font-variant-numeric: tabular-nums; font-weight: 800; color: var(--azul);
-      min-width: 48px; font-size: 14px;
+    .row:hover {
+      background: #f8fafc; border-color: #cbd5e1; transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
     }
-    .row .nome { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .01em; }
-    .empty, .err { padding: 24px 12px; text-align: center; color: var(--muted); font-size: 13px; }
+    .row-left { display: flex; align-items: center; gap: 12px; }
+    .avatar {
+      width: 34px; height: 34px; border-radius: 10px;
+      background: linear-gradient(135deg, #1e63c8 0%, #1d4ed8 100%);
+      color: #ffffff; font-weight: 800; font-size: 14px;
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 2px 6px rgba(30, 99, 200, 0.3); flex-shrink: 0;
+    }
+    .row .nome { font-size: 14px; font-weight: 700; color: #0f172a; letter-spacing: 0.01em; }
+    .ramal-badge {
+      display: flex; align-items: center; gap: 8px;
+      background: #eff6ff; border: 1px solid #dbeafe; padding: 5px 12px;
+      border-radius: 10px; transition: all 0.2s ease;
+    }
+    .row:hover .ramal-badge { background: #1e63c8; border-color: #1e63c8; }
+    .ramal-badge .ramal {
+      font-variant-numeric: tabular-nums; font-weight: 800; color: #1d4ed8;
+      font-size: 14.5px; letter-spacing: 0.02em;
+    }
+    .row:hover .ramal-badge .ramal { color: #ffffff; }
+    .ramal-badge svg.copy-icon { width: 14px; height: 14px; color: #3b82f6; transition: color 0.2s; }
+    .row:hover .ramal-badge svg.copy-icon { color: #ffffff; }
+    .empty, .err { padding: 32px 16px; text-align: center; color: var(--muted); font-size: 14px; font-weight: 600; }
     .err { color: #dc2626; }
 
     /* === ENTREGAS === */
     .entregas-grid {
-      display: grid;
-      grid-template-columns: repeat(5, 1fr);
-      gap: 0;
-      border: 1px solid var(--linha);
-      margin: 10px 14px;
-      border-radius: 8px;
-      overflow: hidden;
+      display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; padding: 14px 16px 12px;
     }
-    .dia-col { border-right: 1px solid var(--linha); }
-    .dia-col:last-child { border-right: none; }
+    .dia-col {
+      background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px;
+      overflow: hidden; display: flex; flex-direction: column; transition: all 0.2s ease;
+    }
+    .dia-col.is-hoje {
+      border-color: #10b981; background: #ffffff; box-shadow: 0 4px 14px rgba(16, 185, 129, 0.15);
+    }
     .dia-header {
-      padding: 8px 6px;
-      font-size: 11px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: .08em;
-      text-align: center;
-      background: var(--azul);
-      color: #fff;
+      padding: 9px 6px; font-size: 12px; font-weight: 800; letter-spacing: 0.08em;
+      text-transform: uppercase; text-align: center;
+      background: linear-gradient(135deg, #1e63c8 0%, #1e40af 100%); color: #ffffff;
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
     }
+    .dia-header.header-hoje { background: linear-gradient(135deg, #10b981 0%, #047857 100%); }
+    .hoje-tag {
+      font-size: 9px; font-weight: 800; background: rgba(255, 255, 255, 0.25);
+      padding: 1px 6px; border-radius: 999px; letter-spacing: 0.04em;
+    }
+    .dia-cities-wrapper { padding: 6px 4px; display: flex; flex-direction: column; gap: 4px; }
     .dia-city {
-      padding: 7px 6px;
-      font-size: 11.5px;
-      font-weight: 600;
-      text-align: center;
-      border-bottom: 1px solid var(--linha);
-      color: var(--texto);
-      white-space: nowrap;
-      text-overflow: ellipsis;
-      overflow: hidden;
+      padding: 6px 6px; font-size: 12px; font-weight: 600; text-align: center;
+      border-radius: 8px; color: #334155; background: #ffffff; border: 1px solid #f1f5f9;
+      white-space: nowrap; text-overflow: ellipsis; overflow: hidden; transition: all 0.15s ease;
     }
-    .dia-city:last-child { border-bottom: none; }
-    .dia-city.destaque {
-      color: var(--azul);
-      font-weight: 800;
-      background-color: #f0f7ff;
-    }
-    .hoje-indicator {
-      padding: 9px 14px;
-      text-align: center;
-      font-size: 12px;
-      font-weight: 700;
-      color: var(--verde);
-      background: #f0fdf4;
-      border-bottom: 1px solid #bbf7d0;
-    }
-    .hoje-indicator svg { vertical-align: -2px; margin-right: 5px; width: 15px; height: 15px; }
+    .dia-city.destaque { color: #047857; font-weight: 800; background: #ecfdf5; border-color: #a7f3d0; }
+    .dia-city.empty-cell { background: transparent; border: none; height: 27px; }
 
     /* === FRETES === */
-    .fretes-search { padding: 10px 14px; border-bottom: 1px solid var(--linha); }
-    .fretes-search input {
-      width: 100%; padding: 9px 12px; border: 1px solid var(--linha); border-radius: 8px;
-      font-size: 13.5px; background: #fff; color: var(--texto); outline: none;
-    }
-    .fretes-search input:focus { border-color: var(--azul); }
-    .fretes-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-    }
+    #fretes-container { max-height: 420px; overflow-y: auto; padding: 0 16px 12px; }
+    .fretes-table { width: 100%; border-collapse: separate; border-spacing: 0 6px; font-size: 13.5px; }
     .fretes-table thead th {
-      padding: 9px 14px;
-      font-size: 11px;
-      font-weight: 800;
-      text-transform: uppercase;
-      letter-spacing: .08em;
-      color: #fff;
-      background: var(--azul-escuro);
-      text-align: left;
-      position: sticky;
-      top: 0;
+      padding: 10px 14px; font-size: 11.5px; font-weight: 800; text-transform: uppercase;
+      letter-spacing: 0.08em; color: #475569; background: #f8fafc; border-bottom: 2px solid #e2e8f0;
+      text-align: left; position: sticky; top: 0; z-index: 5;
     }
-    .fretes-table thead th:not(:first-child) { text-align: right; }
-    .fretes-table tbody td {
-      padding: 8px 14px;
-      border-bottom: 1px solid var(--linha);
-      font-weight: 600;
+    .fretes-table tbody tr {
+      background: #ffffff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      transition: all 0.18s ease;
     }
+    .fretes-table tbody tr:hover { background: #f8fafc; transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.06); }
+    .fretes-table tbody td { padding: 11px 14px; border-top: 1px solid #f1f5f9; border-bottom: 1px solid #f1f5f9; }
     .fretes-table tbody td:first-child {
-      font-weight: 700;
-      color: var(--azul-escuro);
+      border-left: 1px solid #f1f5f9; border-top-left-radius: 12px; border-bottom-left-radius: 12px;
+      font-weight: 700; color: #0f172a; font-size: 14px;
     }
-    .fretes-table tbody td:not(:first-child) {
-      text-align: right;
-      font-variant-numeric: tabular-nums;
-      color: var(--texto);
+    .fretes-table tbody td:last-child {
+      border-right: 1px solid #f1f5f9; border-top-right-radius: 12px; border-bottom-right-radius: 12px;
     }
-    .fretes-table tbody tr:hover { background: var(--hover); }
-    #fretes-container { max-height: 400px; overflow-y: auto; }
+    .cidade-cell { display: flex; align-items: center; gap: 10px; }
+    .city-icon {
+      width: 28px; height: 28px; border-radius: 8px; background: #eff6ff; color: #1e63c8;
+      display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+    }
+    .city-icon svg { width: 15px; height: 15px; }
+    .badge-minimo {
+      display: inline-block; padding: 4px 10px; background: #f1f5f9; border: 1px solid #e2e8f0;
+      border-radius: 8px; font-size: 13.5px; font-weight: 700; color: #334155; font-variant-numeric: tabular-nums;
+    }
+    .badge-frete {
+      display: inline-block; padding: 4px 10px; background: #ecfdf5; border: 1px solid #a7f3d0;
+      border-radius: 8px; font-size: 13.5px; font-weight: 800; color: #047857; font-variant-numeric: tabular-nums;
+    }
 
-    /* === TOAST / FOOTER === */
+    /* === TOAST / FOOTER / SCROLLBAR === */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
     #toast {
-      position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%);
-      background: var(--azul-escuro); color: #fff; font-size: 11.5px; font-weight: 700;
-      padding: 7px 14px; border-radius: 999px; opacity: 0; transition: opacity .2s;
-      pointer-events: none; z-index: 10; box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%) translateY(20px);
+      background: #0f172a; color: #ffffff; font-size: 12.5px; font-weight: 700; padding: 10px 18px;
+      border-radius: 999px; opacity: 0; visibility: hidden; transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+      pointer-events: none; z-index: 100; box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.4);
+      display: flex; align-items: center; gap: 8px; border: 1px solid rgba(255, 255, 255, 0.1);
     }
-    #toast.show { opacity: 1; }
+    #toast.show { opacity: 1; visibility: visible; transform: translateX(-50%) translateY(0); }
     footer {
-      padding: 8px 14px; font-size: 10.5px; font-weight: 500; color: var(--muted);
-      text-align: center; border-top: 1px solid var(--linha); background: #fff;
+      padding: 10px 16px; font-size: 11.5px; font-weight: 600; color: #64748b; text-align: center;
+      border-top: 1px solid #f1f5f9; background: #f8fafc; display: flex; align-items: center; justify-content: center; gap: 6px;
     }
+    footer svg { width: 14px; height: 14px; color: #1e63c8; }
   </style>
 </head>
 <body>
@@ -206,48 +263,67 @@
     <img class="brand" src="logo.png" alt="Carflax" />
   </header>
 
-  <div class="tabs">
-    <button class="active" data-tab="ramais">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
-      Ramais
-    </button>
-    <button data-tab="entregas">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
-      Entregas
-    </button>
-    <button data-tab="fretes">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-      Fretes
-    </button>
+  <div class="tabs-container">
+    <div class="tabs">
+      <button class="active" data-tab="ramais">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+        Ramais
+      </button>
+      <button data-tab="entregas">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+        Entregas
+      </button>
+      <button data-tab="fretes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+        Fretes
+      </button>
+    </div>
   </div>
 
   <!-- TAB: RAMAIS -->
   <div class="tab-content active" id="tab-ramais">
     <div class="subbar">
-      <span class="titulo">Ramais</span>
+      <span class="titulo">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:15px;height:15px;color:#1e63c8"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Lista de Ramais
+      </span>
       <span class="count" id="count"></span>
     </div>
     <div class="search">
-      <input id="q" type="text" placeholder="Buscar por nome ou ramal..." autocomplete="off" />
+      <div class="search-wrapper">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="q" type="text" placeholder="Buscar por nome ou ramal..." autocomplete="off" />
+      </div>
     </div>
-    <div id="list"><div class="empty">Carregando...</div></div>
-    <footer>Clique num ramal para copiar</footer>
+    <div id="list"><div class="empty">Carregando ramais...</div></div>
+    <footer>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      Clique em qualquer ramal para copiar instantaneamente
+    </footer>
   </div>
 
   <!-- TAB: ENTREGAS -->
   <div class="tab-content" id="tab-entregas">
-    <div id="hoje-bar"></div>
     <div class="entregas-grid" id="entregas-grid"></div>
-    <footer>Cidades atendidas por dia da semana</footer>
+    <footer>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      Escala semanal de entregas por município
+    </footer>
   </div>
 
   <!-- TAB: FRETES -->
   <div class="tab-content" id="tab-fretes">
     <div class="fretes-search">
-      <input id="qf" type="text" placeholder="Buscar cidade..." autocomplete="off" />
+      <div class="search-wrapper">
+        <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        <input id="qf" type="text" placeholder="Filtrar cidade..." autocomplete="off" />
+      </div>
     </div>
     <div id="fretes-container"></div>
-    <footer>Valores de frete e pedido minimo por cidade</footer>
+    <footer>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+      Valores de frete e pedido mínimo por cidade
+    </footer>
   </div>
 
   <div id="toast"></div>
