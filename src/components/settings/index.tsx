@@ -1814,7 +1814,7 @@ function ExtensaoTab() {
 
   return (
     <div className="space-y-5 pb-10">
-      <div className="flex flex-col gap-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-slate-900/70 md:flex-row md:items-center md:justify-between md:p-6">
+      <div className="hidden">
         <div>
           <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
             <Puzzle className="w-5 h-5 text-blue-600" />
@@ -1863,6 +1863,30 @@ function ExtensaoTab() {
           <DollarSign className="w-4 h-4" />
           Fretes
         </button>
+      </div>
+
+      <div className="flex flex-col gap-3 border-b border-slate-200 pb-5 dark:border-white/10 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
+          Gerencie os dados exibidos no popup da extensao.
+        </p>
+        <div className="flex items-center gap-2">
+          <a
+            href="/ramais-extension.zip"
+            download="ramais-extension.zip"
+            className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+          >
+            <Download className="h-4 w-4" />
+            Baixar extensao
+          </a>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-black text-white shadow-lg shadow-blue-600/20 transition-all hover:bg-blue-700 active:scale-95 disabled:opacity-50"
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+            {saving ? "Salvando..." : saved ? "Salvo!" : "Salvar"}
+          </button>
+        </div>
       </div>
 
       {subTab === "entregas" && (
