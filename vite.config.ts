@@ -8,6 +8,10 @@ export default defineConfig({
   root: __dirname,
   plugins: [react()],
   resolve: {
+    // Garante que todos os módulos (inclusive os carregados por alias/HMR) usem
+    // a mesma instância de React. Sem isso, o dev server pode criar dispatchers
+    // distintos e disparar "Invalid hook call" em componentes com hooks.
+    dedupe: ['react', 'react-dom'],
     alias: {
       '@': path.resolve(__dirname, './src'),
     },

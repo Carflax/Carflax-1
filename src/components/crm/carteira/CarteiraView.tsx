@@ -22,6 +22,7 @@ import {
   MessageCircle,
   ClipboardList,
   Loader2,
+  Sparkles,
 } from "lucide-react";
 import { cn, formatTeamName } from "@/lib/utils";
 import { ClienteKnowledgeChat } from "./ClienteKnowledgeChat";
@@ -120,6 +121,12 @@ interface Carteira {
   margemPct: number;
   pedidos: number;
   ticketMedio: number;
+}
+
+interface RadarOpportunity {
+  cliente: CarteiraCliente;
+  recenciaDias: number;
+  score: number;
 }
 
 type VendSortKey = "nome" | "numClientes" | "valorTotal" | "margemTotal" | "pedidos";
@@ -318,6 +325,8 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
   // clientes sem dono, e o supervisor puxa de lá separando PJ (CNPJ) de PF (CPF).
   const [filtroPessoa, setFiltroPessoa] = useState<"todos" | "pj" | "pf">("todos");
   const [chatCliente, setChatCliente] = useState<CarteiraCliente | null>(null);
+  const [radarAberto, setRadarAberto] = useState(false);
+  const [radarDispensado, setRadarDispensado] = useState(false);
   const [editNasc, setEditNasc] = useState<Record<string, string>>({});
   const [editWpp, setEditWpp] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -566,6 +575,45 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
     () => carteirasVisiveis.find((v) => v.cod === selecionado) || null,
     [carteirasVisiveis, selecionado]
   );
+
+  // MVP do Radar Comercial: prioriza clientes que já compram bem, mas estão há
+  // tempo suficiente sem comprar. Quando houver dados de mix/estoque/rota no
+  // backend, estes sinais entram aqui para substituir a estimativa local.
+  const radarOportunidade = useMemo<RadarOpportunity | null>(() => {
+    if (!carteiraSel || isCarteiraPool(carteiraSel.cod)) return null;
+    const candidatos = carteiraSel.clientes
+      .map((cliente) => {
+        const recenciaDias = getRecenciaDias(cliente.ultima_compra);
+        const conversao = taxaConversao(cliente);
+        const score =
+          Math.min(recenciaDias, 120) * 1.2 +
+          Math.min(cliente.valor_mes || 0, 15000) / 180 +
+          Math.max(0, conversao) * 18;
+        return { cliente, recenciaDias, score };
+      })
+      .filter(({ cliente, recenciaDias }) =>
+        Number.isFinite(recenciaDias) && recenciaDias >= 14 && recenciaDias <= 120 && (cliente.valor_mes || 0) > 0,
+      )
+      .sort((a, b) => b.score - a.score);
+    return candidatos[0] || null;
+  }, [carteiraSel]);
+
+  useEffect(() => {
+    if (!radarOportunidade) return;
+    const key = `carflax-radar-dismissed-${new Date().toISOString().slice(0, 10)}-${radarOportunidade.cliente.cliente_id}`;
+    setRadarDispensado(localStorage.getItem(key) === "1");
+    const timeout = window.setTimeout(() => setRadarAberto(true), 700);
+    return () => window.clearTimeout(timeout);
+  }, [radarOportunidade?.cliente.cliente_id]);
+
+  const dispensarRadar = useCallback(() => {
+    if (radarOportunidade) {
+      const key = `carflax-radar-dismissed-${new Date().toISOString().slice(0, 10)}-${radarOportunidade.cliente.cliente_id}`;
+      localStorage.setItem(key, "1");
+    }
+    setRadarDispensado(true);
+    setRadarAberto(false);
+  }, [radarOportunidade]);
 
   useEffect(() => {
     if (!loading && !isAdmin && carteirasVisiveis.length === 1 && !selecionado) {
@@ -1279,8 +1327,48 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
             cliente={chatCliente}
             userName={userProfile?.name}
             userAvatar={userProfile?.avatar || getAvatar(chatCliente.cod_vendedor)}
+            initialPrompt={
+              radarOportunidade?.cliente.cliente_id === chatCliente.cliente_id
+                ? `Analise a melhor oportunidade de recompra para ${chatCliente.nome_cliente}. Considere que a última compra foi há ${radarOportunidade.recenciaDias} dias e monte uma abordagem comercial objetiva.`
+                : undefined
+            }
             onClose={() => setChatCliente(null)}
           />
+        )}
+
+        {radarOportunidade && radarAberto && !radarDispensado && !chatCliente && (
+          <div className="fixed right-5 bottom-5 z-[150] w-[min(420px,calc(100vw-2.5rem))] overflow-hidden rounded-2xl border border-violet-500/25 bg-card shadow-2xl animate-in slide-in-from-bottom-5 fade-in duration-300">
+            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-violet-500 via-primary to-cyan-400" />
+            <div className="p-5 pt-6">
+              <div className="flex items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-violet-500/25 bg-violet-500/10 text-violet-500">
+                  <Sparkles className="h-5 w-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-black uppercase tracking-[0.16em] text-violet-500">Radar Carflax · oportunidade</p>
+                  <h3 className="mt-1 truncate text-sm font-black text-foreground">{radarOportunidade.cliente.nome_cliente}</h3>
+                </div>
+                <button onClick={dispensarRadar} title="Dispensar por hoje" className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <p className="mt-3 text-xs font-medium leading-relaxed text-muted-foreground">
+                Comprou <strong className="font-black text-foreground">{fmtBRL(radarOportunidade.cliente.valor_mes)}</strong> neste mês e está há <strong className="font-black text-foreground">{radarOportunidade.recenciaDias} dias</strong> sem comprar. Vale analisar a próxima necessidade antes de uma nova cotação.
+              </p>
+              <div className="mt-4 flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setRadarAberto(false);
+                    setChatCliente(radarOportunidade.cliente);
+                  }}
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2.5 text-[10px] font-black uppercase tracking-widest text-primary-foreground transition-opacity hover:opacity-90"
+                >
+                  <MessageCircle className="h-4 w-4" /> Ver sugestão
+                </button>
+                <button onClick={dispensarRadar} className="rounded-xl border border-border px-3 py-2.5 text-[10px] font-black uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors">Hoje não</button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     );

@@ -28,6 +28,7 @@ interface Props {
   cliente: CarteiraCliente;
   userName?: string;
   userAvatar?: string;
+  initialPrompt?: string;
   onClose: () => void;
 }
 
@@ -57,7 +58,7 @@ function Avatar({ src, fallback, size = "sm" }: { src?: string; fallback: string
   );
 }
 
-export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }: Props) {
+export function ClienteKnowledgeChat({ cliente, userName, userAvatar, initialPrompt, onClose }: Props) {
   const [messages, setMessages] = useState<ClienteKnowledgeMessage[]>([]);
   const [dadosExtraidos, setDadosExtraidos] = useState<Record<string, unknown>>({});
   const [input, setInput] = useState("");
@@ -119,6 +120,14 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
   useEffect(() => {
     loadHistory();
   }, [loadHistory]);
+
+  // Uma oportunidade do Radar abre o chat já com uma pergunta útil, mas sem
+  // disparar IA automaticamente: o vendedor continua no controle do envio.
+  useEffect(() => {
+    if (!initialLoading && messages.length === 0 && initialPrompt) {
+      setInput(initialPrompt);
+    }
+  }, [initialLoading, initialPrompt, messages.length]);
 
   const LOADING_CITEL = [
     "Buscando dados na Citel...",
@@ -249,8 +258,8 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
     }
   }
 
-  async function handleSend() {
-    const text = input.trim();
+  async function handleSend(textOverride?: string) {
+    const text = (textOverride ?? input).trim();
     if (!text || loading) return;
 
     const userMsg: ClienteKnowledgeMessage = {
@@ -365,13 +374,41 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
     setTimeout(() => inputRef.current?.focus(), 50);
   }
 
-  function formatModelText(text: string): string {
+  function gerarOportunidade() {
+    if (loading) return;
+    void handleSend("Analise o histórico deste cliente e identifique a melhor oportunidade de recompra. Informe o motivo, produtos ou categorias prováveis, urgência e escreva uma mensagem curta e personalizada para WhatsApp.");
+  }
+
+  function legacyFormatModelText(text: string): string {
     return text
       .replace(/\*\*(.+?)\*\*/g, '<strong class="font-bold text-foreground">$1</strong>')
       .replace(/^\s*(\d+)\.\s+/gm, '<br/><span class="text-primary font-black mr-1">$1.</span> ')
       .replace(/^\s*[-•]\s+/gm, '<br/><span class="text-primary mr-1">•</span> ')
       .replace(/\n/g, "<br/>")
       .replace(/^(<br\/>)+/, "");
+  }
+
+  function formatModelText(text: string): string {
+    const sections = ["Motivo da Recompra", "Produtos ou Categorias Prováveis", "Urgência", "Mensagem para WhatsApp"];
+    const lines = text.split("\n").map((line) => line.trim()).filter(Boolean);
+    let html = "";
+    let open = false;
+
+    for (const rawLine of lines) {
+      const title = rawLine.replace(/^\*\*|\*\*:?$/g, "").replace(/:$/, "").trim();
+      if (sections.includes(title)) {
+        if (open) html += "</div></section>";
+        const accent = title === "Urgência" ? "amber" : title === "Mensagem para WhatsApp" ? "emerald" : title === "Produtos ou Categorias Prováveis" ? "blue" : "violet";
+        html += `<section class="rounded-xl border border-${accent}-500/25 bg-${accent}-500/5 p-3.5 mt-3"><p class="text-[9px] font-black uppercase tracking-widest text-${accent}-400 mb-2">${title}</p><div class="space-y-2 text-[12px] leading-relaxed text-foreground/90">`;
+        open = true;
+        continue;
+      }
+      const line = rawLine
+        .replace(/\*\*(.+?)\*\*/g, '<strong class="font-black text-foreground">$1</strong>')
+        .replace(/^(\d+)\.\s+/, '<span class="font-black text-primary mr-2">$1.</span>');
+      html += `<p>${line}</p>`;
+    }
+    return html ? `${html}${open ? "</div></section>" : ""}` : legacyFormatModelText(text);
   }
 
   function formatTime(ts: string) {
@@ -464,6 +501,13 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, onClose }:
                   <p className="text-xs text-muted-foreground leading-relaxed pt-1 max-w-[400px]">
                     Registre informações estratégicas sobre este cliente: decisores de compras, preferências, hábitos e concorrentes.
                   </p>
+                  <button
+                    onClick={gerarOportunidade}
+                    disabled={loading}
+                    className="mt-5 inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-3 text-[10px] font-black uppercase tracking-widest text-primary-foreground shadow-sm transition-all hover:opacity-90 active:scale-95 disabled:opacity-50"
+                  >
+                    <Zap className="h-4 w-4" /> Gerar oportunidade
+                  </button>
                 </div>
               </div>
             ) : (
