@@ -295,7 +295,7 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
 
     // Itens padrão (que todos vêem) — configurações pessoais + módulos essenciais
     const alwaysAllowed = [
-      "Meu Perfil", "Aparência", "Assinatura", "Notificações", "Segurança",
+      "Meu Perfil", "Aparência", "Assinatura", "Notificações", "Segurança", "Extensão",
       "Dashboard", "Geral", "Produtos",
       "Calendário", "Agenda", "Férias",
       "Esteira", "Minha Esteira", "Sugestões"

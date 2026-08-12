@@ -32,10 +32,8 @@ import {
   MapPin,
   Building2,
   Signature,
-  Puzzle,
   Truck,
   DollarSign,
-  Save,
   X,
   type LucideIcon,
 } from "lucide-react";
@@ -1710,11 +1708,18 @@ function normalizarFretes(value: unknown): FreteRow[] {
     .filter((item) => Boolean(item.cidade));
 }
 
-function ExtensaoTab() {
+function ExtensaoTab({ userProfile }: { userProfile?: UserProfile | null }) {
   const [subTab, setSubTab] = useState<"entregas" | "fretes">("entregas");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  const isManager = Boolean(
+    userProfile?.is_admin ||
+    userProfile?.role?.toUpperCase() === 'ADMIN' ||
+    userProfile?.role?.toUpperCase().includes('GERENTE') ||
+    userProfile?.is_leader
+  );
 
   const [entregas, setEntregas] = useState<Record<string, string[]>>({
     SEG: [],
@@ -1757,19 +1762,38 @@ function ExtensaoTab() {
     setLoading(false);
   }
 
-  async function handleSave() {
+  const isInitialMount = useRef(true);
+  const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Auto-salvar automático sempre que entregas ou fretes mudarem
+  useEffect(() => {
+    if (loading || !isManager) return;
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+
     setSaving(true);
     setSaved(false);
-    const { error } = await supabase.from("crm_config").upsert([
-      { key: "extensao_entregas", value: JSON.stringify(entregas) },
-      { key: "extensao_fretes", value: JSON.stringify(fretes) },
-    ]);
-    setSaving(false);
-    if (!error) {
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    }
-  }
+
+    saveTimeoutRef.current = setTimeout(async () => {
+      const { error } = await supabase.from("crm_config").upsert([
+        { key: "extensao_entregas", value: JSON.stringify(entregas) },
+        { key: "extensao_fretes", value: JSON.stringify(fretes) },
+      ]);
+      setSaving(false);
+      if (!error) {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2500);
+      }
+    }, 400);
+
+    return () => {
+      if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
+    };
+  }, [entregas, fretes, loading]);
 
   function addCityToDay(dia: string) {
     const city = newCity[dia]?.trim();
@@ -1814,31 +1838,7 @@ function ExtensaoTab() {
 
   return (
     <div className="space-y-5 pb-10">
-      <div className="hidden">
-        <div>
-          <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
-            <Puzzle className="w-5 h-5 text-blue-600" />
-            Extensão do Navegador
-          </h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-            Configure os dados exibidos na extensão Chrome/Edge. As alterações atualizam automaticamente para todos.
-          </p>
-        </div>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="flex min-w-32 items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-blue-600/20 transition-all hover:bg-blue-700 active:scale-95 disabled:opacity-50"
-        >
-          {saving ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : saved ? (
-            <Check className="w-4 h-4" />
-          ) : (
-            <Save className="w-4 h-4" />
-          )}
-          {saving ? "Salvando..." : saved ? "Salvo!" : "Salvar"}
-        </button>
-      </div>
+
 
       <div className="inline-flex w-full gap-1 rounded-xl border border-slate-200 bg-slate-100 p-1.5 dark:border-white/10 dark:bg-slate-900 sm:w-auto">
         <button
@@ -1867,25 +1867,39 @@ function ExtensaoTab() {
 
       <div className="flex flex-col gap-3 border-b border-slate-200 pb-5 dark:border-white/10 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
-          Gerencie os dados exibidos no popup da extensao.
+          Gerencie os dados exibidos no popup da extensão. Qualquer alteração é salva automaticamente.
         </p>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <a
             href="/ramais-extension.zip"
             download="ramais-extension.zip"
-            className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-bold text-slate-700 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
+            className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm font-bold text-slate-700 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 dark:border-white/10 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700"
           >
             <Download className="h-4 w-4" />
-            Baixar extensao
+            Baixar extensão
           </a>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-black text-white shadow-lg shadow-blue-600/20 transition-all hover:bg-blue-700 active:scale-95 disabled:opacity-50"
-          >
-            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : saved ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
-            {saving ? "Salvando..." : saved ? "Salvo!" : "Salvar"}
-          </button>
+
+          {!isManager ? (
+            <span className="flex items-center gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-3.5 py-2 rounded-xl border border-slate-200 dark:border-white/10">
+              <Lock className="w-3.5 h-3.5 text-slate-400" />
+              Modo Leitura (Apenas gerentes alteram)
+            </span>
+          ) : saving ? (
+            <span className="flex items-center gap-2 text-xs font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-500/10 px-3.5 py-2 rounded-xl border border-amber-200 dark:border-amber-500/20">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              Salvando...
+            </span>
+          ) : saved ? (
+            <span className="flex items-center gap-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 px-3.5 py-2 rounded-xl border border-emerald-200 dark:border-emerald-500/20">
+              <Check className="w-3.5 h-3.5" />
+              Salvo automaticamente!
+            </span>
+          ) : (
+            <span className="flex items-center gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-800/80 px-3.5 py-2 rounded-xl border border-slate-200/80 dark:border-white/10">
+              <Check className="w-3.5 h-3.5 text-emerald-500" />
+              Salvo automaticamente
+            </span>
+          )}
         </div>
       </div>
 
@@ -1913,35 +1927,39 @@ function ExtensaoTab() {
                     <span className="min-w-0 truncate text-xs font-bold text-slate-700 dark:text-slate-200 uppercase">
                       {city}
                     </span>
-                    <button
-                      onClick={() => removeCityFromDay(dia, idx)}
-                      aria-label={`Remover ${city}`}
-                      className="shrink-0 text-slate-300 transition-colors hover:text-red-500 opacity-0 group-hover:opacity-100 focus:opacity-100"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
+                    {isManager && (
+                      <button
+                        onClick={() => removeCityFromDay(dia, idx)}
+                        aria-label={`Remover ${city}`}
+                        className="shrink-0 text-slate-300 transition-colors hover:text-red-500 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 ))}
                 </div>
-                <div className="mt-auto flex gap-2 border-t border-slate-100 pt-3 dark:border-white/5">
-                  <input
-                    type="text"
-                    value={newCity[dia] || ""}
-                    onChange={(e) =>
-                      setNewCity((prev) => ({ ...prev, [dia]: e.target.value }))
-                    }
-                    onKeyDown={(e) => e.key === "Enter" && addCityToDay(dia)}
-                    placeholder="Cidade..."
-                    className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none placeholder:text-slate-400 focus:border-blue-500 dark:border-white/10 dark:bg-slate-900 dark:text-white"
-                  />
-                  <button
-                    onClick={() => addCityToDay(dia)}
-                    aria-label={`Adicionar cidade em ${DIAS_LABELS[dia]}`}
-                    className="rounded-lg bg-blue-600 px-2.5 py-2 text-white transition-colors hover:bg-blue-700"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                {isManager && (
+                  <div className="mt-auto flex gap-2 border-t border-slate-100 pt-3 dark:border-white/5">
+                    <input
+                      type="text"
+                      value={newCity[dia] || ""}
+                      onChange={(e) =>
+                        setNewCity((prev) => ({ ...prev, [dia]: e.target.value }))
+                      }
+                      onKeyDown={(e) => e.key === "Enter" && addCityToDay(dia)}
+                      placeholder="Cidade..."
+                      className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none placeholder:text-slate-400 focus:border-blue-500 dark:border-white/10 dark:bg-slate-900 dark:text-white"
+                    />
+                    <button
+                      onClick={() => addCityToDay(dia)}
+                      aria-label={`Adicionar cidade em ${DIAS_LABELS[dia]}`}
+                      className="rounded-lg bg-blue-600 px-2.5 py-2 text-white transition-colors hover:bg-blue-700"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           ))}
@@ -1962,7 +1980,7 @@ function ExtensaoTab() {
                 <th className="px-4 py-3 text-right text-xs font-black uppercase tracking-wider">
                   Frete
                 </th>
-                <th className="px-4 py-3 w-10"></th>
+                {isManager && <th className="px-4 py-3 w-10"></th>}
               </tr>
             </thead>
             <tbody>
@@ -1975,92 +1993,105 @@ function ExtensaoTab() {
                     <input
                       type="text"
                       value={f.cidade}
-                      onChange={(e) => updateFrete(idx, "cidade", e.target.value)}
-                      className="w-full text-sm font-bold text-slate-800 dark:text-white bg-transparent outline-none focus:bg-blue-50 dark:focus:bg-slate-700 rounded px-1 -mx-1"
+                      readOnly={!isManager}
+                      onChange={(e) => isManager && updateFrete(idx, "cidade", e.target.value)}
+                      className={`w-full text-sm font-bold text-slate-800 dark:text-white bg-transparent outline-none rounded px-1 -mx-1 ${
+                        isManager ? "focus:bg-blue-50 dark:focus:bg-slate-700" : ""
+                      }`}
                     />
                   </td>
                   <td className="px-4 py-2">
                     <input
                       type="number"
                       value={f.minimo}
+                      readOnly={!isManager}
                       onChange={(e) =>
-                        updateFrete(idx, "minimo", parseFloat(e.target.value) || 0)
+                        isManager && updateFrete(idx, "minimo", parseFloat(e.target.value) || 0)
                       }
-                      className="w-full text-sm font-semibold text-right text-slate-700 dark:text-slate-200 bg-transparent outline-none focus:bg-blue-50 dark:focus:bg-slate-700 rounded px-1 -mx-1 tabular-nums"
+                      className={`w-full text-sm font-semibold text-right text-slate-700 dark:text-slate-200 bg-transparent outline-none rounded px-1 -mx-1 tabular-nums ${
+                        isManager ? "focus:bg-blue-50 dark:focus:bg-slate-700" : ""
+                      }`}
                     />
                   </td>
                   <td className="px-4 py-2">
                     <input
                       type="number"
                       value={f.frete}
+                      readOnly={!isManager}
                       onChange={(e) =>
-                        updateFrete(idx, "frete", parseFloat(e.target.value) || 0)
+                        isManager && updateFrete(idx, "frete", parseFloat(e.target.value) || 0)
                       }
-                      className="w-full text-sm font-semibold text-right text-slate-700 dark:text-slate-200 bg-transparent outline-none focus:bg-blue-50 dark:focus:bg-slate-700 rounded px-1 -mx-1 tabular-nums"
+                      className={`w-full text-sm font-semibold text-right text-slate-700 dark:text-slate-200 bg-transparent outline-none rounded px-1 -mx-1 tabular-nums ${
+                        isManager ? "focus:bg-blue-50 dark:focus:bg-slate-700" : ""
+                      }`}
+                    />
+                  </td>
+                  {isManager && (
+                    <td className="px-2 py-2">
+                      <button
+                        onClick={() => removeFrete(idx)}
+                        className="text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+              {isManager && (
+                <tr className="bg-slate-50 dark:bg-slate-900/50">
+                  <td className="px-4 py-2">
+                    <input
+                      type="text"
+                      value={newFrete.cidade}
+                      onChange={(e) =>
+                        setNewFrete((prev) => ({ ...prev, cidade: e.target.value }))
+                      }
+                      onKeyDown={(e) => e.key === "Enter" && addFrete()}
+                      placeholder="Nova cidade..."
+                      className="w-full text-sm px-1 py-1 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none focus:border-blue-500"
+                    />
+                  </td>
+                  <td className="px-4 py-2">
+                    <input
+                      type="number"
+                      value={newFrete.minimo || ""}
+                      onChange={(e) =>
+                        setNewFrete((prev) => ({
+                          ...prev,
+                          minimo: parseFloat(e.target.value) || 0,
+                        }))
+                      }
+                      onKeyDown={(e) => e.key === "Enter" && addFrete()}
+                      placeholder="0"
+                      className="w-full text-sm text-right px-1 py-1 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none focus:border-blue-500 tabular-nums"
+                    />
+                  </td>
+                  <td className="px-4 py-2">
+                    <input
+                      type="number"
+                      value={newFrete.frete || ""}
+                      onChange={(e) =>
+                        setNewFrete((prev) => ({
+                          ...prev,
+                          frete: parseFloat(e.target.value) || 0,
+                        }))
+                      }
+                      onKeyDown={(e) => e.key === "Enter" && addFrete()}
+                      placeholder="0"
+                      className="w-full text-sm text-right px-1 py-1 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none focus:border-blue-500 tabular-nums"
                     />
                   </td>
                   <td className="px-2 py-2">
                     <button
-                      onClick={() => removeFrete(idx)}
-                      className="text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                      onClick={addFrete}
+                      className="p-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Plus className="w-4 h-4" />
                     </button>
                   </td>
                 </tr>
-              ))}
-              <tr className="bg-slate-50 dark:bg-slate-900/50">
-                <td className="px-4 py-2">
-                  <input
-                    type="text"
-                    value={newFrete.cidade}
-                    onChange={(e) =>
-                      setNewFrete((prev) => ({ ...prev, cidade: e.target.value }))
-                    }
-                    onKeyDown={(e) => e.key === "Enter" && addFrete()}
-                    placeholder="Nova cidade..."
-                    className="w-full text-sm px-1 py-1 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none focus:border-blue-500"
-                  />
-                </td>
-                <td className="px-4 py-2">
-                  <input
-                    type="number"
-                    value={newFrete.minimo || ""}
-                    onChange={(e) =>
-                      setNewFrete((prev) => ({
-                        ...prev,
-                        minimo: parseFloat(e.target.value) || 0,
-                      }))
-                    }
-                    onKeyDown={(e) => e.key === "Enter" && addFrete()}
-                    placeholder="0"
-                    className="w-full text-sm text-right px-1 py-1 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none focus:border-blue-500 tabular-nums"
-                  />
-                </td>
-                <td className="px-4 py-2">
-                  <input
-                    type="number"
-                    value={newFrete.frete || ""}
-                    onChange={(e) =>
-                      setNewFrete((prev) => ({
-                        ...prev,
-                        frete: parseFloat(e.target.value) || 0,
-                      }))
-                    }
-                    onKeyDown={(e) => e.key === "Enter" && addFrete()}
-                    placeholder="0"
-                    className="w-full text-sm text-right px-1 py-1 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none focus:border-blue-500 tabular-nums"
-                  />
-                </td>
-                <td className="px-2 py-2">
-                  <button
-                    onClick={addFrete}
-                    className="p-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    <Plus className="w-4 h-4" />
-                  </button>
-                </td>
-              </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -2101,7 +2132,7 @@ export function SettingsSection({ externalTab, userProfile }: SettingsSectionPro
           {activeTab === "appearance" && <AppearanceTab />}
           {activeTab === "banners" && <BannersTab userProfile={userProfile} />}
           {activeTab === "signature" && <SignatureTab userProfile={userProfile} />}
-          {activeTab === "extensao" && <ExtensaoTab />}
+          {activeTab === "extensao" && <ExtensaoTab userProfile={userProfile} />}
         </div>
       </div>
     </div>
