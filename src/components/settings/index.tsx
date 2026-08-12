@@ -32,6 +32,11 @@ import {
   MapPin,
   Building2,
   Signature,
+  Puzzle,
+  Truck,
+  DollarSign,
+  Save,
+  X,
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useRef } from "react";
@@ -1654,6 +1659,392 @@ function SignatureTab({ userProfile }: { userProfile?: UserProfile | null }) {
   );
 }
 
+// ======================== EXTENSÃO TAB ========================
+
+const DIAS_SEMANA = ["SEG", "TER", "QUA", "QUI", "SEX"] as const;
+const DIAS_LABELS: Record<string, string> = {
+  SEG: "Segunda-feira",
+  TER: "Terça-feira",
+  QUA: "Quarta-feira",
+  QUI: "Quinta-feira",
+  SEX: "Sexta-feira",
+};
+
+interface FreteRow {
+  cidade: string;
+  minimo: number;
+  frete: number;
+}
+
+function corrigirNomeCidade(value: unknown): string {
+  const cidade = String(value ?? "").trim();
+  return cidade
+    .replace(/jundia\?/gi, "Jundia\u00ed")
+    .replace(/v\?rzea/gi, "V\u00e1rzea")
+    .replace(/cabre\?va/gi, "Cabre\u00fava")
+    .replace(/s\?o paulo/gi, "S\u00e3o Paulo");
+}
+
+function normalizarEntregas(value: unknown): Record<string, string[]> {
+  const origem = value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+
+  return Object.fromEntries(
+    DIAS_SEMANA.map((dia) => [
+      dia,
+      Array.isArray(origem[dia]) ? origem[dia].map(corrigirNomeCidade).filter(Boolean) : [],
+    ])
+  );
+}
+
+function normalizarFretes(value: unknown): FreteRow[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Partial<FreteRow> => Boolean(item) && typeof item === "object")
+    .map((item) => ({
+      cidade: corrigirNomeCidade(item.cidade),
+      minimo: Number(item.minimo) || 0,
+      frete: Number(item.frete) || 0,
+    }))
+    .filter((item) => Boolean(item.cidade));
+}
+
+function ExtensaoTab() {
+  const [subTab, setSubTab] = useState<"entregas" | "fretes">("entregas");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  const [entregas, setEntregas] = useState<Record<string, string[]>>({
+    SEG: [],
+    TER: [],
+    QUA: [],
+    QUI: [],
+    SEX: [],
+  });
+  const [newCity, setNewCity] = useState<Record<string, string>>({
+    SEG: "",
+    TER: "",
+    QUA: "",
+    QUI: "",
+    SEX: "",
+  });
+
+  const [fretes, setFretes] = useState<FreteRow[]>([]);
+  const [newFrete, setNewFrete] = useState<FreteRow>({ cidade: "", minimo: 0, frete: 0 });
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  async function loadData() {
+    setLoading(true);
+    const { data } = await supabase
+      .from("crm_config")
+      .select("key, value")
+      .in("key", ["extensao_entregas", "extensao_fretes"]);
+
+    if (data) {
+      for (const row of data) {
+        try {
+          const parsed = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+          if (row.key === "extensao_entregas") setEntregas(normalizarEntregas(parsed));
+          if (row.key === "extensao_fretes") setFretes(normalizarFretes(parsed));
+        } catch (_) {}
+      }
+    }
+    setLoading(false);
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    setSaved(false);
+    const { error } = await supabase.from("crm_config").upsert([
+      { key: "extensao_entregas", value: JSON.stringify(entregas) },
+      { key: "extensao_fretes", value: JSON.stringify(fretes) },
+    ]);
+    setSaving(false);
+    if (!error) {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    }
+  }
+
+  function addCityToDay(dia: string) {
+    const city = newCity[dia]?.trim();
+    if (!city) return;
+    setEntregas((prev) => ({
+      ...prev,
+      [dia]: [...(prev[dia] || []), city],
+    }));
+    setNewCity((prev) => ({ ...prev, [dia]: "" }));
+  }
+
+  function removeCityFromDay(dia: string, idx: number) {
+    setEntregas((prev) => ({
+      ...prev,
+      [dia]: prev[dia].filter((_, i) => i !== idx),
+    }));
+  }
+
+  function addFrete() {
+    if (!newFrete.cidade.trim()) return;
+    setFretes((prev) => [...prev, { ...newFrete, cidade: newFrete.cidade.trim() }]);
+    setNewFrete({ cidade: "", minimo: 0, frete: 0 });
+  }
+
+  function removeFrete(idx: number) {
+    setFretes((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  function updateFrete(idx: number, field: keyof FreteRow, value: string | number) {
+    setFretes((prev) =>
+      prev.map((f, i) => (i === idx ? { ...f, [field]: value } : f))
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5 pb-10">
+      <div className="flex flex-col gap-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-white/10 dark:bg-slate-900/70 md:flex-row md:items-center md:justify-between md:p-6">
+        <div>
+          <h2 className="text-xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+            <Puzzle className="w-5 h-5 text-blue-600" />
+            Extensão do Navegador
+          </h2>
+          <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+            Configure os dados exibidos na extensão Chrome/Edge. As alterações atualizam automaticamente para todos.
+          </p>
+        </div>
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="flex min-w-32 items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-blue-600/20 transition-all hover:bg-blue-700 active:scale-95 disabled:opacity-50"
+        >
+          {saving ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : saved ? (
+            <Check className="w-4 h-4" />
+          ) : (
+            <Save className="w-4 h-4" />
+          )}
+          {saving ? "Salvando..." : saved ? "Salvo!" : "Salvar"}
+        </button>
+      </div>
+
+      <div className="inline-flex w-full gap-1 rounded-xl border border-slate-200 bg-slate-100 p-1.5 dark:border-white/10 dark:bg-slate-900 sm:w-auto">
+        <button
+          onClick={() => setSubTab("entregas")}
+          className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-bold transition-all sm:flex-none ${
+            subTab === "entregas"
+              ? "bg-blue-600 text-white shadow-sm"
+              : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-slate-700"
+          }`}
+        >
+          <Truck className="w-4 h-4" />
+          Dias de Entrega
+        </button>
+        <button
+          onClick={() => setSubTab("fretes")}
+          className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-5 py-2.5 text-sm font-bold transition-all sm:flex-none ${
+            subTab === "fretes"
+              ? "bg-blue-600 text-white shadow-sm"
+              : "bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-white/10 hover:bg-slate-50 dark:hover:bg-slate-700"
+          }`}
+        >
+          <DollarSign className="w-4 h-4" />
+          Fretes
+        </button>
+      </div>
+
+      {subTab === "entregas" && (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          {DIAS_SEMANA.map((dia) => (
+            <div
+              key={dia}
+              className="flex min-h-72 flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md dark:border-white/10 dark:bg-slate-800"
+            >
+              <div className="border-b border-blue-500/30 bg-gradient-to-r from-blue-600 to-blue-500 px-4 py-3 text-white">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-black uppercase tracking-wider">{DIAS_LABELS[dia]}</span>
+                  <span className="rounded-md bg-white/15 px-2 py-0.5 text-[10px] font-bold">{(entregas[dia] || []).length}</span>
+                </div>
+                <p className="mt-1 text-[10px] font-medium text-blue-100">cidades atendidas</p>
+              </div>
+              <div className="flex flex-1 flex-col p-3">
+                <div className="space-y-1.5">
+                {(entregas[dia] || []).map((city, idx) => (
+                  <div
+                    key={idx}
+                    className="group flex items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 dark:border-white/5 dark:bg-slate-700/50"
+                  >
+                    <span className="min-w-0 truncate text-xs font-bold text-slate-700 dark:text-slate-200 uppercase">
+                      {city}
+                    </span>
+                    <button
+                      onClick={() => removeCityFromDay(dia, idx)}
+                      aria-label={`Remover ${city}`}
+                      className="shrink-0 text-slate-300 transition-colors hover:text-red-500 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                </div>
+                <div className="mt-auto flex gap-2 border-t border-slate-100 pt-3 dark:border-white/5">
+                  <input
+                    type="text"
+                    value={newCity[dia] || ""}
+                    onChange={(e) =>
+                      setNewCity((prev) => ({ ...prev, [dia]: e.target.value }))
+                    }
+                    onKeyDown={(e) => e.key === "Enter" && addCityToDay(dia)}
+                    placeholder="Cidade..."
+                    className="min-w-0 flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none placeholder:text-slate-400 focus:border-blue-500 dark:border-white/10 dark:bg-slate-900 dark:text-white"
+                  />
+                  <button
+                    onClick={() => addCityToDay(dia)}
+                    aria-label={`Adicionar cidade em ${DIAS_LABELS[dia]}`}
+                    className="rounded-lg bg-blue-600 px-2.5 py-2 text-white transition-colors hover:bg-blue-700"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {subTab === "fretes" && (
+        <div className="bg-white dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-white/10 shadow-sm overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-slate-900 dark:bg-slate-900 text-white">
+                <th className="px-4 py-3 text-left text-xs font-black uppercase tracking-wider">
+                  Cidade
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-black uppercase tracking-wider">
+                  Pedido Min.
+                </th>
+                <th className="px-4 py-3 text-right text-xs font-black uppercase tracking-wider">
+                  Frete
+                </th>
+                <th className="px-4 py-3 w-10"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {fretes.map((f, idx) => (
+                <tr
+                  key={idx}
+                  className="border-b border-slate-100 dark:border-white/5 hover:bg-slate-50 dark:hover:bg-slate-700/30 group"
+                >
+                  <td className="px-4 py-2">
+                    <input
+                      type="text"
+                      value={f.cidade}
+                      onChange={(e) => updateFrete(idx, "cidade", e.target.value)}
+                      className="w-full text-sm font-bold text-slate-800 dark:text-white bg-transparent outline-none focus:bg-blue-50 dark:focus:bg-slate-700 rounded px-1 -mx-1"
+                    />
+                  </td>
+                  <td className="px-4 py-2">
+                    <input
+                      type="number"
+                      value={f.minimo}
+                      onChange={(e) =>
+                        updateFrete(idx, "minimo", parseFloat(e.target.value) || 0)
+                      }
+                      className="w-full text-sm font-semibold text-right text-slate-700 dark:text-slate-200 bg-transparent outline-none focus:bg-blue-50 dark:focus:bg-slate-700 rounded px-1 -mx-1 tabular-nums"
+                    />
+                  </td>
+                  <td className="px-4 py-2">
+                    <input
+                      type="number"
+                      value={f.frete}
+                      onChange={(e) =>
+                        updateFrete(idx, "frete", parseFloat(e.target.value) || 0)
+                      }
+                      className="w-full text-sm font-semibold text-right text-slate-700 dark:text-slate-200 bg-transparent outline-none focus:bg-blue-50 dark:focus:bg-slate-700 rounded px-1 -mx-1 tabular-nums"
+                    />
+                  </td>
+                  <td className="px-2 py-2">
+                    <button
+                      onClick={() => removeFrete(idx)}
+                      className="text-slate-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              <tr className="bg-slate-50 dark:bg-slate-900/50">
+                <td className="px-4 py-2">
+                  <input
+                    type="text"
+                    value={newFrete.cidade}
+                    onChange={(e) =>
+                      setNewFrete((prev) => ({ ...prev, cidade: e.target.value }))
+                    }
+                    onKeyDown={(e) => e.key === "Enter" && addFrete()}
+                    placeholder="Nova cidade..."
+                    className="w-full text-sm px-1 py-1 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none focus:border-blue-500"
+                  />
+                </td>
+                <td className="px-4 py-2">
+                  <input
+                    type="number"
+                    value={newFrete.minimo || ""}
+                    onChange={(e) =>
+                      setNewFrete((prev) => ({
+                        ...prev,
+                        minimo: parseFloat(e.target.value) || 0,
+                      }))
+                    }
+                    onKeyDown={(e) => e.key === "Enter" && addFrete()}
+                    placeholder="0"
+                    className="w-full text-sm text-right px-1 py-1 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none focus:border-blue-500 tabular-nums"
+                  />
+                </td>
+                <td className="px-4 py-2">
+                  <input
+                    type="number"
+                    value={newFrete.frete || ""}
+                    onChange={(e) =>
+                      setNewFrete((prev) => ({
+                        ...prev,
+                        frete: parseFloat(e.target.value) || 0,
+                      }))
+                    }
+                    onKeyDown={(e) => e.key === "Enter" && addFrete()}
+                    placeholder="0"
+                    className="w-full text-sm text-right px-1 py-1 rounded border border-slate-200 dark:border-white/10 bg-white dark:bg-slate-800 text-slate-700 dark:text-white outline-none focus:border-blue-500 tabular-nums"
+                  />
+                </td>
+                <td className="px-2 py-2">
+                  <button
+                    onClick={addFrete}
+                    className="p-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SettingsSection({ externalTab, userProfile }: SettingsSectionProps) {
   const tabMap: Record<string, string> = {
     "Meu Perfil": "profile",
@@ -1663,6 +2054,7 @@ export function SettingsSection({ externalTab, userProfile }: SettingsSectionPro
     "Aparência": "appearance",
     "Banners": "banners",
     "Assinatura": "signature",
+    "Extensão": "extensao",
     "Configurações": "profile",
   };
 
@@ -1685,6 +2077,7 @@ export function SettingsSection({ externalTab, userProfile }: SettingsSectionPro
           {activeTab === "appearance" && <AppearanceTab />}
           {activeTab === "banners" && <BannersTab userProfile={userProfile} />}
           {activeTab === "signature" && <SignatureTab userProfile={userProfile} />}
+          {activeTab === "extensao" && <ExtensaoTab />}
         </div>
       </div>
     </div>

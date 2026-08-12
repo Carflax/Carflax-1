@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Carflax Hub",
+  "version": "2.1.0",
+  "description": "Ramais, entregas e fretes da Carflax na barra do navegador.",
+  "action": {
+    "default_title": "Carflax Hub",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": ["storage"],
+  "host_permissions": ["https://zwfvrmqffxcqurxpfewi.supabase.co/*"]
+}

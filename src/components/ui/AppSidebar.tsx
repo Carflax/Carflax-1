@@ -38,6 +38,7 @@ import {
   PackageCheck,
   ClipboardCheck,
   MessageCircle,
+  Puzzle,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -147,6 +148,7 @@ const settingsItems: MenuItem[] = [
       { label: "Aparência", icon: Palette },
       { label: "Assinatura", icon: Signature },
       { label: "Banners", icon: Image },
+      { label: "Extensão", icon: Puzzle },
     ]
   },
 ];

@@ -1247,6 +1247,7 @@ function DashboardContent({
     "Aparência",
     "Assinatura",
     "Banners",
+    "Extensão",
   ].includes(activeItem);
   const isCrmView = [
     "Orçamentos",
