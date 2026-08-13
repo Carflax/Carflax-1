@@ -80,6 +80,7 @@ export interface UserProfile {
 interface DashboardContentProps {
   userProfile: UserProfile | null;
   vendedorMetrics: VendedorResumo | null;
+  storeData: VendedorResumo | null;
   perdidoMap: Map<string, number>;
   geralLoading: boolean;
   onLogout: () => void;
@@ -88,6 +89,7 @@ interface DashboardContentProps {
 function DashboardContent({
   userProfile,
   vendedorMetrics,
+  storeData,
   perdidoMap,
   geralLoading,
   onLogout,
@@ -1454,6 +1456,7 @@ function DashboardContent({
                 <SalesMetricsCard
                   userProfile={userProfile || undefined}
                   data={vendedorMetrics || undefined}
+                  storeData={storeData || undefined}
                   loading={geralLoading}
                   perdidoMap={perdidoMap}
                 />
@@ -1626,6 +1629,7 @@ function App() {
   const [vendedorMetrics, setVendedorMetrics] = useState<VendedorResumo | null>(
     null,
   );
+  const [storeData, setStoreData] = useState<VendedorResumo | null>(null);
   const [perdidoMap, setPerdidoMap] = useState<Map<string, number>>(new Map());
 
   const fetchVendedorMetrics = useCallback(async (profile: UserProfile) => {
@@ -1646,12 +1650,20 @@ function App() {
         profile.operator_code || profile.operatorCode || "049";
 
       // Calcula perdidoMap antes de setar qualquer estado, para evitar flash de 100%
-      const [response, newPerdidoMap] = await Promise.all([
+      // Para vendedor comum, busca também o total da loja em paralelo (sem filtro de cod)
+      const [response, newPerdidoMap, storeResponse] = await Promise.all([
         apiDashboardGeral(isManager ? undefined : codVendedor, dataStr),
         buildPerdidoMap(primeiroDia, dataStr).catch(() => new Map<string, number>()),
+        isManager ? Promise.resolve(null) : apiDashboardGeral(undefined, dataStr).catch(() => null),
       ]);
 
-      // Seta ambos os estados juntos para renderizar uma única vez com dados completos
+      // Extrai linha MEDIA (total da loja) e salva
+      const sourceForMedia = isManager ? response : storeResponse;
+      if (sourceForMedia && sourceForMedia.length > 0) {
+        const mediaRow = sourceForMedia.find((r: VendedorResumo) => r.COD_VENDEDOR === "MEDIA");
+        if (mediaRow) setStoreData(mediaRow);
+      }
+
       if (isManager) {
         if (response && response.length > 0) {
           const mediaRow = response.find(r => r.COD_VENDEDOR === "MEDIA");
@@ -1969,6 +1981,7 @@ function App() {
           <DashboardContent
             userProfile={profile}
             vendedorMetrics={vendedorMetrics}
+            storeData={storeData}
             perdidoMap={perdidoMap}
             geralLoading={geralLoading}
             onLogout={() => supabase.auth.signOut()}

@@ -524,7 +524,7 @@ function VendedorMiniCard({ row, perdidoMap, refDate, isActive, onSelect }: {
   );
 }
 
-export function SalesMetricsCard({ isCompact, userProfile, data: externalData, loading: externalLoading, perdidoMap: perdidoMapProp = new Map() }: { isCompact?: boolean, userProfile?: UserProfileLite, data?: VendedorResumo, loading?: boolean, perdidoMap?: Map<string, number> }) {
+export function SalesMetricsCard({ isCompact, userProfile, data: externalData, storeData, loading: externalLoading, perdidoMap: perdidoMapProp = new Map() }: { isCompact?: boolean, userProfile?: UserProfileLite, data?: VendedorResumo, storeData?: VendedorResumo, loading?: boolean, perdidoMap?: Map<string, number> }) {
   // Diretor tem visão própria (Total geral); não deve semear o painel com a linha
   // individual vinda do App — senão pisca a linha do diretor antes do efeito ajustar.
   const isDirectorInit = (userProfile?.role?.toUpperCase() || "").includes("DIRETOR");
@@ -1161,6 +1161,12 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, l
   const atingimento = metaNum > 0 ? (Number(total) / metaNum) * 100 : 0;
   const diffMeta = metaNum - Number(total);
 
+  // Progresso da loja
+  const storeTotal = storeData ? (typeof storeData.TOTAL === 'string' ? parseFloat(storeData.TOTAL) : (storeData.TOTAL || 0)) : 0;
+  const storeMeta = Number(storeData?.META || 0);
+  const storeAtingimento = storeMeta > 0 ? (storeTotal / storeMeta) * 100 : 0;
+  const showStoreBar = !!(storeData && storeMeta > 0 && storeAtingimento !== atingimento);
+
   const roleUpper = userProfile?.role?.toUpperCase() || "";
   const canChangeSeller = roleUpper.includes("DIRETOR") || 
                           roleUpper.includes("GERENTE") || 
@@ -1477,6 +1483,30 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, l
               </div>
             ))}
           </div>
+
+          {/* 5. PROGRESSO DA LOJA */}
+          {showStoreBar && (
+            <div className="mt-2 pt-2 border-t border-border/50">
+              <div className="flex items-center justify-between text-[11px] font-bold mb-1.5">
+                <span className="text-blue-600 dark:text-blue-400">Meta da Loja</span>
+                <span className={cn(
+                  "font-black",
+                  storeAtingimento >= 100 ? "text-emerald-600 dark:text-emerald-400" : "text-foreground"
+                )}>
+                  {storeAtingimento.toFixed(1)}%
+                </span>
+              </div>
+              <div className="h-2 w-full bg-secondary dark:bg-slate-800 rounded-full overflow-hidden border border-border">
+                <div
+                  className={cn(
+                    "h-full rounded-full bar-fluid",
+                    storeAtingimento >= 100 ? "bar-fluid-emerald" : "bar-fluid-blue"
+                  )}
+                  style={{ width: `${Math.min(storeAtingimento, 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

@@ -161,6 +161,43 @@
   50% { transform: scale(1.18); }
 }
 
+/* Efeito fluido da barra de progresso da loja */
+@keyframes fluidShimmer {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+.bar-fluid {
+  background-size: 200% 100%;
+  animation: fluidShimmer 2.5s linear infinite;
+}
+
+.bar-fluid-blue {
+  background-image: linear-gradient(
+    90deg,
+    #1d4ed8 0%,
+    #2563eb 25%,
+    #60a5fa 45%,
+    #93c5fd 50%,
+    #60a5fa 55%,
+    #2563eb 75%,
+    #1d4ed8 100%
+  );
+}
+
+.bar-fluid-emerald {
+  background-image: linear-gradient(
+    90deg,
+    #059669 0%,
+    #10b981 25%,
+    #34d399 45%,
+    #6ee7b7 50%,
+    #34d399 55%,
+    #10b981 75%,
+    #059669 100%
+  );
+}
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
