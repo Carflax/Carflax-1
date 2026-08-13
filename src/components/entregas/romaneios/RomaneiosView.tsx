@@ -12,7 +12,8 @@ import {
   X,
   GripVertical,
   Camera,
-  Truck
+  Truck,
+  Building2
 } from "lucide-react";
 import { Reorder } from "framer-motion";
 import { cn } from "@/lib/utils";
@@ -56,6 +57,7 @@ interface MovGerRecord {
   VALOR: string | number;
   OBS: string;
   VENDEDOR_COD: string;
+  EMPRESA?: string;
 }
 
 export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
@@ -65,6 +67,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
   const [selectedMotorista, setSelectedMotorista] = useState<string>("");
   const [veiculos, setVeiculos] = useState<VeiculoOpc[]>([]);
   const [selectedVeiculo, setSelectedVeiculo] = useState<string>("");
+  const [selectedEmpresa, setSelectedEmpresa] = useState<string>("");
   const [nfInput, setNfInput] = useState("");
   const [driverAvatars, setDriverAvatars] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -253,17 +256,35 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
         SELECT
           M.GER_NUMDOC as NF,
           M.GER_NOMCON as CLIENTE,
-          COALESCE(NULLIF(TRIM(E.ETC_ENDENT), ''), TRIM(M.GER_ENDCON)) as ENDERECO,
-          COALESCE(NULLIF(TRIM(E.ETC_BAIENT), ''), TRIM(M.GER_BAICON)) as BAIRRO,
-          COALESCE(NULLIF(TRIM(C.CID_NOMCID), ''), TRIM(M.GER_CIDCON)) as CIDADE,
+          COALESCE(
+            NULLIF(TRIM(EXTRACTVALUE(X.NFE_ARQXML, '//entrega/xLgr')), ''),
+            NULLIF(TRIM(M.GER_ENDCON), ''),
+            NULLIF(TRIM(E.ETC_ENDENT), '')
+          ) as ENDERECO,
+          COALESCE(
+            NULLIF(TRIM(EXTRACTVALUE(X.NFE_ARQXML, '//entrega/xBairro')), ''),
+            NULLIF(TRIM(M.GER_BAICON), ''),
+            NULLIF(TRIM(E.ETC_BAIENT), '')
+          ) as BAIRRO,
+          COALESCE(
+            NULLIF(TRIM(EXTRACTVALUE(X.NFE_ARQXML, '//entrega/xMun')), ''),
+            NULLIF(TRIM(C.CID_NOMCID), ''),
+            NULLIF(TRIM(M.GER_CIDCON), '')
+          ) as CIDADE,
           M.GER_VLRCON as VALOR,
           M.GER_MENEX2 as OBS,
-          M.GER_CODVEN as VENDEDOR_COD
+          M.GER_CODVEN as VENDEDOR_COD,
+          M.GER_CODEMP as EMPRESA
         FROM MOVGER M
+        LEFT JOIN CADFIS F ON F.FIS_NUMDOC = M.GER_NUMDOC AND F.FIS_ESPDOC = M.GER_ESPDOC AND F.FIS_CODEMP = M.GER_CODEMP AND F.FIS_SERIE_ = M.GER_SERIE_
+        LEFT JOIN XMLNFE X ON X.NFE_ACESSO = F.FIS_ACESSO
         LEFT JOIN ENTCLI E ON E.ETC_CODCLI = M.GER_CODCLI AND E.ETC_ENDFAT = 'N'
           AND E.ETC_SEQIND = (SELECT MAX(E2.ETC_SEQIND) FROM ENTCLI E2 WHERE E2.ETC_CODCLI = M.GER_CODCLI AND E2.ETC_ENDFAT = 'N')
-        LEFT JOIN CADCID C ON C.CID_CODCID = COALESCE(NULLIF(E.ETC_CIDENT, ''), M.GER_CIDCON)
-        WHERE CAST(SUBSTRING_INDEX(M.GER_NUMDOC, '-', 1) AS UNSIGNED) = ${nfNumero} AND M.GER_ESPDOC = 'NF'
+        LEFT JOIN CADCID C ON C.CID_CODCID = M.GER_CIDCON
+        WHERE CAST(SUBSTRING_INDEX(M.GER_NUMDOC, '-', 1) AS UNSIGNED) = ${nfNumero}
+          AND M.GER_ESPDOC = 'NF'
+          ${selectedEmpresa ? `AND M.GER_CODEMP = '${selectedEmpresa}'` : ''}
+        ORDER BY M.GER_DTENTR DESC, M.GER_NUMDOC DESC
         LIMIT 1
       `;
       
@@ -401,6 +422,22 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
               placeholder="Digite o número da NF para lançar..."
               className="flex-1 bg-transparent border-none text-[11px] font-bold text-foreground placeholder:text-muted-foreground/30 outline-none"
             />
+          </div>
+
+          <div className="w-px h-6 bg-border" />
+
+          <div className="flex-1 flex items-center gap-2 px-2">
+            <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
+            <select
+              value={selectedEmpresa}
+              onChange={(e) => setSelectedEmpresa(e.target.value)}
+              className="flex-1 bg-transparent border-none text-[11px] font-black text-muted-foreground outline-none cursor-pointer appearance-none uppercase tracking-tight"
+            >
+              <option value="" className="bg-card">Empresa: Todas</option>
+              <option value="001" className="bg-card">001 · Carflax</option>
+              <option value="002" className="bg-card">002 · Zelex</option>
+              <option value="003" className="bg-card">003 · JCM</option>
+            </select>
           </div>
 
           <div className="w-px h-6 bg-border" />
