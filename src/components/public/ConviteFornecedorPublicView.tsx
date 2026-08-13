@@ -268,7 +268,7 @@ export function ConviteFornecedorPublicView() {
         premio_descricao: premioDescricao.trim() || null,
         premio_valor: null,
         observacoes: obsPartes,
-        status: "follow_up",
+        status: "inscricao_recebida",
         updated_at: new Date().toISOString(),
       };
 

@@ -11,7 +11,7 @@ import {
 } from "./types";
 import { gerarConviteFornecedor } from "./convite-pdf";
 
-const STATUS_ORDER: FornecedorStatus[] = ["nao_contatado", "media_kit_enviado", "follow_up", "confirmado", "recusado"];
+const STATUS_ORDER: FornecedorStatus[] = ["nao_contatado", "media_kit_enviado", "follow_up", "inscricao_recebida", "confirmado", "recusado"];
 
 // Helper function to parse rich observacoes string saved from public 6-step landing page
 function parseObservacoes(obsRaw?: string | null) {
@@ -116,7 +116,7 @@ export function FornecedoresTab({ evento, fornecedores, onChange }: {
 
   // Metrics
   const confirmados = fornecedores.filter(f => f.status === "confirmado");
-  const pendentesInscricao = fornecedores.filter(f => f.status === "follow_up" || f.status === "media_kit_enviado");
+  const pendentesInscricao = fornecedores.filter(f => f.status === "inscricao_recebida");
   const recusados = fornecedores.filter(f => f.status === "recusado");
 
   const verbaConfirmada = confirmados.reduce((a, f) => a + Number(f.cota_valor || 0), 0);
@@ -131,7 +131,7 @@ export function FornecedoresTab({ evento, fornecedores, onChange }: {
   // Filtered List
   const fornecedoresFiltrados = useMemo(() => {
     return fornecedores.filter((f) => {
-      if (filtroStatus === "pendentes" && f.status !== "follow_up" && f.status !== "media_kit_enviado") return false;
+      if (filtroStatus === "pendentes" && f.status !== "inscricao_recebida") return false;
       if (filtroStatus === "confirmados" && f.status !== "confirmado") return false;
       if (filtroStatus === "recusados" && f.status !== "recusado") return false;
 

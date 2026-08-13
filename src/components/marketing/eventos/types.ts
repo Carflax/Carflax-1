@@ -1,7 +1,7 @@
 import { supabase } from "@/lib/supabase";
 
 export type EventoStatus = "planejamento" | "confirmado" | "realizado" | "cancelado";
-export type FornecedorStatus = "nao_contatado" | "media_kit_enviado" | "follow_up" | "confirmado" | "recusado";
+export type FornecedorStatus = "nao_contatado" | "media_kit_enviado" | "follow_up" | "inscricao_recebida" | "confirmado" | "recusado";
 export type ConvidadoStatus = "pendente" | "confirmado" | "recusado";
 export type Segmento = "hidraulico" | "eletrico";
 export type Carteira = "B2B" | "B2C" | "Perdido";
@@ -70,6 +70,7 @@ export const FORNECEDOR_STATUS_LABEL: Record<FornecedorStatus, string> = {
   nao_contatado: "Não contatado",
   media_kit_enviado: "Media kit enviado",
   follow_up: "Em follow-up",
+  inscricao_recebida: "Inscrição Recebida",
   confirmado: "Confirmado",
   recusado: "Recusado",
 };
@@ -80,6 +81,7 @@ export const FORNECEDOR_STATUS_COLOR: Record<FornecedorStatus, string> = {
   nao_contatado: "bg-secondary text-muted-foreground border-border",
   media_kit_enviado: "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-900/50",
   follow_up: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-900/50",
+  inscricao_recebida: "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-900/30 dark:text-violet-300 dark:border-violet-900/50",
   confirmado: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-900/50",
   recusado: "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-900/50",
 };
