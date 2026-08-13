@@ -32,15 +32,22 @@ interface UP {
   role?: string;
   is_admin?: boolean;
   is_leader?: boolean;
+  notification_prefs?: Record<string, Record<string, boolean>>;
 }
 
 /** Lê o toggle das Notificações (padrão: desligado). */
-function alertEnabled(): boolean {
+function alertEnabled(up?: UP | null): boolean {
   try {
     const raw = localStorage.getItem("carflax_notif_prefs");
-    if (!raw) return false;
-    const s = JSON.parse(raw);
-    return !!s?.alertas?.stalePedidos;
+    if (raw) {
+      const s = JSON.parse(raw);
+      if (s?.alertas && s.alertas.stalePedidos !== undefined) return !!s.alertas.stalePedidos;
+    }
+    if (up?.notification_prefs) {
+      const prefs = up.notification_prefs;
+      if (prefs?.alertas && prefs.alertas.stalePedidos !== undefined) return !!prefs.alertas.stalePedidos;
+    }
+    return false;
   } catch {
     return false;
   }
@@ -68,15 +75,15 @@ export function usePedidosParadosAlert(
   userProfile?: UP | null,
 ) {
   const showRef = useRef(showNotification);
-  showRef.current = showNotification;
+  useEffect(() => { showRef.current = showNotification; }, [showNotification]);
 
   useEffect(() => {
     let cancelled = false;
 
-    if (alertEnabled()) requestBrowserPermission();
+    if (alertEnabled(userProfile)) requestBrowserPermission();
 
     async function check() {
-      if (cancelled || !alertEnabled()) return;
+      if (cancelled || !alertEnabled(userProfile)) return;
       try {
         const [erpRes, locksRes] = await Promise.all([
           fetch(`${API_SERVER}/api/pedidos-separacao`).then((r) => r.json()),

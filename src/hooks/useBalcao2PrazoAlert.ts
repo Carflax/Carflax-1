@@ -40,15 +40,21 @@ interface UP {
   operator_code?: string;
   operatorCode?: string;
   role?: string;
+  notification_prefs?: Record<string, Record<string, boolean>>;
 }
 
 /** Master toggle do alerta de prazo B2 (padrão: ligado). */
-function masterEnabled(): boolean {
+function masterEnabled(up?: UP | null): boolean {
   try {
     const raw = localStorage.getItem("carflax_notif_prefs");
-    if (!raw) return true;
-    const s = JSON.parse(raw);
-    if (s?.alertas && s.alertas.balcao2Prazo !== undefined) return !!s.alertas.balcao2Prazo;
+    if (raw) {
+      const s = JSON.parse(raw);
+      if (s?.alertas && s.alertas.balcao2Prazo !== undefined) return !!s.alertas.balcao2Prazo;
+    }
+    if (up?.notification_prefs) {
+      const prefs = up.notification_prefs;
+      if (prefs?.alertas && prefs.alertas.balcao2Prazo !== undefined) return !!prefs.alertas.balcao2Prazo;
+    }
     return true;
   } catch {
     return true;
@@ -175,15 +181,15 @@ function requestBrowserPermission() {
 
 export function useBalcao2PrazoAlert(showNotification: ShowNotification, userProfile?: UP | null) {
   const showRef = useRef(showNotification);
-  showRef.current = showNotification;
+  useEffect(() => { showRef.current = showNotification; }, [showNotification]);
 
   useEffect(() => {
     let cancelled = false;
 
-    if (masterEnabled()) requestBrowserPermission();
+    if (masterEnabled(userProfile)) requestBrowserPermission();
 
     async function check() {
-      if (cancelled || !masterEnabled()) return;
+      if (cancelled || !masterEnabled(userProfile)) return;
       try {
         const erpRes = await fetch(`${API_SERVER}/api/pedidos-separacao`).then((r) => r.json());
         if (cancelled || !erpRes?.success || !Array.isArray(erpRes.data)) return;

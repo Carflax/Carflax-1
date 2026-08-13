@@ -35,6 +35,7 @@ interface UP {
   department?: string;
   is_admin?: boolean;
   is_leader?: boolean;
+  notification_prefs?: Record<string, Record<string, boolean>>;
 }
 
 interface VendaGrande {
@@ -60,12 +61,17 @@ function isPublicoCompras(up?: UP | null): boolean {
   );
 }
 
-function masterEnabled(): boolean {
+function masterEnabled(up?: UP | null): boolean {
   try {
     const raw = localStorage.getItem("carflax_notif_prefs");
-    if (!raw) return true;
-    const s = JSON.parse(raw);
-    if (s?.alertas && s.alertas.vendaGrande !== undefined) return !!s.alertas.vendaGrande;
+    if (raw) {
+      const s = JSON.parse(raw);
+      if (s?.alertas && s.alertas.vendaGrande !== undefined) return !!s.alertas.vendaGrande;
+    }
+    if (up?.notification_prefs) {
+      const prefs = up.notification_prefs;
+      if (prefs?.alertas && prefs.alertas.vendaGrande !== undefined) return !!prefs.alertas.vendaGrande;
+    }
     return true;
   } catch {
     return true;
@@ -106,27 +112,31 @@ function requestBrowserPermission() {
 
 export function useVendaGrandeAlert(showNotification: ShowNotification, userProfile?: UP | null) {
   const showRef = useRef(showNotification);
-  showRef.current = showNotification;
+  useEffect(() => { showRef.current = showNotification; }, [showNotification]);
 
   useEffect(() => {
     let cancelled = false;
     const timers = new Set<ReturnType<typeof setTimeout>>();
-    if (!isPublicoCompras(userProfile)) return;
-    if (masterEnabled()) requestBrowserPermission();
+    if (!isPublicoCompras(userProfile) || !masterEnabled(userProfile)) return;
+    requestBrowserPermission();
 
     async function check() {
-      if (cancelled || !masterEnabled() || !isPublicoCompras(userProfile)) return;
+      if (cancelled || !masterEnabled(userProfile) || !isPublicoCompras(userProfile)) return;
       try {
         const url = `${API_SERVER}/api/compras/vendas-grandes?dias=${JANELA_DIAS}&fator=${FATOR}&piso=${PISO}`;
         const res = await fetch(url).then((r) => r.json());
         if (cancelled || !res?.success || !Array.isArray(res.data)) return;
 
         const avisados = loadAvisados();
+        const dismissedRaw = localStorage.getItem("carflax-dismissed-notifs-v2");
+        const dismissedTags: string[] = dismissedRaw ? (JSON.parse(dismissedRaw)?.ids || []) : [];
+
         // Junta apenas os novos e limita quantos saem por ciclo; o restante
         // fica para a próxima verificação, evitando uma enxurrada de uma vez.
         const novos = (res.data as VendaGrande[]).filter((v) => {
           const id = `${String(v.documento).trim()}-${String(v.cod_item).trim()}`;
-          return !avisados[id];
+          const tag = `venda-grande-${id}`;
+          return !avisados[id] && !dismissedTags.includes(tag);
         }).slice(0, MAX_POR_CICLO);
 
         novos.forEach((v, idx) => {
@@ -135,7 +145,7 @@ export function useVendaGrandeAlert(showNotification: ShowNotification, userProf
           marcarAvisado(id);
 
           const dispatch = () => {
-            if (cancelled || !masterEnabled() || !isPublicoCompras(userProfile)) return;
+            if (cancelled || !masterEnabled(userProfile) || !isPublicoCompras(userProfile)) return;
             const pedido = String(v.documento || "").replace(/^0+/, "") || v.documento;
             const estoqueTxt = v.estoque_atual == null
               ? ""
@@ -145,7 +155,7 @@ export function useVendaGrandeAlert(showNotification: ShowNotification, userProf
             const message = `${v.qtd} un de ${v.item} (Pedido ${pedido}) — ${v.ratio}× a média do item.${estoqueTxt} Avaliar recompra.`;
             const tag = `venda-grande-${id}`;
 
-            showRef.current("error", "🛒 VENDA GRANDE — COMPRAS", message, true, tag);
+            showRef.current("error", "🛒 VENDA GRANDE — COMPRAS", message, false, tag);
             try {
               if (typeof Notification !== "undefined" && Notification.permission === "granted") {
                 new Notification("🛒 Venda grande (Compras)", { body: message, tag });
