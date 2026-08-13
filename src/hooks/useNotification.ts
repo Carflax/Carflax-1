@@ -2,6 +2,11 @@ import { createContext, useContext } from "react";
 
 export type NotificationType = "success" | "error" | "info";
 
+export interface NotificationAction {
+  label: string;
+  onClick: () => void | Promise<void>;
+}
+
 export interface Notification {
   id: string;
   type: NotificationType;
@@ -11,10 +16,11 @@ export interface Notification {
   tag?: string;
   duration?: number;
   avatarUrl?: string;
+  action?: NotificationAction;
 }
 
 interface NotificationContextType {
-  showNotification: (type: NotificationType, title: string, message: string, persistent?: boolean, tag?: string, duration?: number, avatarUrl?: string) => void;
+  showNotification: (type: NotificationType, title: string, message: string, persistent?: boolean, tag?: string, duration?: number, avatarUrl?: string, action?: NotificationAction) => void;
 }
 
 export const NotificationContext = createContext<NotificationContextType | undefined>(undefined);

@@ -261,6 +261,84 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
     };
   }, [userProfile?.id, showNotification]);
 
+  // ── Notificações do HUB (venda casada, etc.) — persistentes com ação ──
+  useEffect(() => {
+    const userId = userProfile?.id;
+    if (!userId) return;
+
+    // Carrega notificações não lidas ao abrir
+    const loadUnread = async () => {
+      const { data: rows } = await supabase
+        .from("hub_notificacoes")
+        .select("*")
+        .eq("user_id", userId)
+        .eq("lida", false)
+        .order("created_at", { ascending: false });
+
+      if (rows) {
+        for (const n of rows) {
+          showHubNotification(n);
+        }
+      }
+    };
+
+    const showHubNotification = (n: { id: string; titulo: string; descricao: string; tipo: string; metadata: Record<string, unknown> }) => {
+      if (n.tipo === "venda_casada") {
+        const pedidos = (n.metadata?.pedidos as Array<{ pedido: string; numPedido: number; empresa: string; futura: boolean }>) || [];
+        const pedidosFuturos = pedidos.filter((p) => p.futura);
+
+        const action = pedidosFuturos.length > 0
+          ? {
+              label: "Alterar para Entrega Imediata",
+              onClick: async () => {
+                try {
+                  for (const p of pedidosFuturos) {
+                    await fetch("/api-marketing/pedidos/entrega-imediata", {
+                      method: "POST",
+                      headers: { "Content-Type": "application/json" },
+                      body: JSON.stringify({ pedido: p.pedido, empresa: p.empresa }),
+                    });
+                  }
+                  await supabase.from("hub_notificacoes").update({ lida: true }).eq("id", n.id);
+                  showNotification("success", "Entrega Atualizada", `${pedidosFuturos.length} pedido(s) alterado(s) para entrega imediata.`);
+                } catch {
+                  showNotification("error", "Erro", "Não foi possível alterar a entrega. Tente novamente.");
+                }
+              },
+            }
+          : undefined;
+
+        showNotification(
+          "info",
+          n.titulo,
+          n.descricao,
+          true,
+          `hub-notif-${n.id}`,
+          undefined,
+          undefined,
+          action,
+        );
+      }
+    };
+
+    loadUnread();
+
+    const channel = supabase
+      .channel(`sidebar-hub-notificacoes-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "hub_notificacoes", filter: `user_id=eq.${userId}` },
+        ({ new: n }: { new: { id: string; titulo: string; descricao: string; tipo: string; metadata: Record<string, unknown> } }) => {
+          showHubNotification(n);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userProfile?.id, showNotification]);
+
   const userAvatar = userProfile?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userProfile?.name || 'User'}`;
 
   const toggleMenu = (label: string) => {

@@ -2,18 +2,18 @@ import { useState, useCallback, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CheckCircle2, AlertCircle, Info, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { NotificationContext, type Notification, type NotificationType } from "@/hooks/useNotification";
+import { NotificationContext, type Notification, type NotificationType, type NotificationAction } from "@/hooks/useNotification";
 
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  const showNotification = useCallback((type: NotificationType, title: string, message: string, persistent?: boolean, tag?: string, duration?: number, avatarUrl?: string) => {
+  const showNotification = useCallback((type: NotificationType, title: string, message: string, persistent?: boolean, tag?: string, duration?: number, avatarUrl?: string, action?: NotificationAction) => {
     const id = Math.random().toString(36).substring(2, 9);
     const notifDuration = duration || 5000;
 
     setNotifications((prev) => {
       if (tag && prev.some((n) => n.tag === tag)) return prev;
-      return [...prev, { id, type, title, message, persistent, tag, duration: notifDuration, avatarUrl }];
+      return [...prev, { id, type, title, message, persistent, tag, duration: notifDuration, avatarUrl, action }];
     });
 
     // Auto-remove after duration ONLY if not persistent
@@ -97,6 +97,22 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
                 <div className="flex-1 min-w-0 pt-1">
                   <h4 className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-widest leading-none mb-2">{n.title}</h4>
                   <p className="text-xs font-bold text-slate-500 dark:text-slate-400 leading-relaxed pr-6 whitespace-pre-wrap">{n.message}</p>
+                  {n.action && (
+                    <button
+                      onClick={async () => {
+                        await n.action!.onClick();
+                        removeNotification(n.id, n.tag);
+                      }}
+                      className={cn(
+                        "mt-3 px-4 py-2 text-[11px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95",
+                        n.type === "info" && "bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/20",
+                        n.type === "success" && "bg-emerald-600 hover:bg-emerald-700 text-white shadow-lg shadow-emerald-600/20",
+                        n.type === "error" && "bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-600/20",
+                      )}
+                    >
+                      {n.action.label}
+                    </button>
+                  )}
                 </div>
 
                 <button 

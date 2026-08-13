@@ -51,9 +51,9 @@ async function checkAndPostGoalAchievements() {
 
     let postsCreated = 0;
     const winners = metrics.filter(m => {
-      const total = Number(m.TOTAL || 0);
+      const faturado = Number(m.FATURADO || 0);
       const meta = Number(m.META || 0);
-      return meta > 0 && total >= meta;
+      return meta > 0 && faturado >= meta;
     });
 
     for (const winner of winners) {
