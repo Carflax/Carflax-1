@@ -170,15 +170,37 @@ function isSupervisor(role?: string) {
   return role.toLowerCase().includes("supervisor");
 }
 
+// Gerência ampla: enxerga a loja inteira. `isGerente` casa com QUALQUER cargo que
+// contenha "gerente", então sem essa distinção um gerente setorial (balcão, estoque)
+// via o faturamento da loja toda. Mesmo corte que o alerta de follow-up já fazia.
+function isGerenteGeral(role?: string) {
+  if (!role) return false;
+  const r = role.toUpperCase();
+  return (
+    r === "ADMIN" ||
+    r.includes("DIRETOR") ||
+    r.includes("MARKETING") ||
+    r.includes("GERENTE GERAL") ||
+    r.includes("GERENTE COMERCIAL") ||
+    r.includes("GERENTE DE VENDAS")
+  );
+}
+
+// Quem enxerga um time e não a loja: supervisor ou gerência setorial. O time vem do
+// `responsavel_id` dos usuários; sem subordinados cadastrados, sobra o próprio código.
+function temEscopoDeTime(role?: string) {
+  return isSupervisor(role) || (isGerente(role) && !isGerenteGeral(role));
+}
+
 // Vendedor vê só os próprios orçamentos; supervisor vê o time; gerente/diretor vê tudo.
 function filtrarPorPermissao(
   orcamentos: Orcamento[],
   userProfile: UserProfile | null | undefined,
   subordinateCodes: Set<string> | null,
 ): Orcamento[] {
-  if (!userProfile || isGerente(userProfile.role)) return orcamentos;
+  if (!userProfile || isGerenteGeral(userProfile.role)) return orcamentos;
 
-  if (isSupervisor(userProfile.role)) {
+  if (temEscopoDeTime(userProfile.role)) {
     const codes = subordinateCodes ?? new Set<string>();
     return orcamentos.filter((o) =>
       codes.has(String(o.sellerCode || "").trim().replace(/^0+/, ""))
@@ -513,7 +535,7 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
   const [loadingDemandas, setLoadingDemandas] = useState(false);
 
   useEffect(() => {
-    if (!userProfile || !isSupervisor(userProfile.role) || !userProfile.id) {
+    if (!userProfile || !temEscopoDeTime(userProfile.role) || !userProfile.id) {
       setSubordinateCodes(null);
       return;
     }
@@ -539,7 +561,9 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
   const [teamOptions, setTeamOptions] = useState<{ label: string; value: string; codes: Set<string> }[]>([]);
 
   useEffect(() => {
-    if (!userProfile || !isGerente(userProfile.role)) return;
+    // Times só fazem sentido para quem enxerga a loja toda; gerência setorial já vem
+    // recortada pelo próprio time.
+    if (!userProfile || !isGerenteGeral(userProfile.role)) return;
     let cancelled = false;
     (async () => {
       const { data: usuarios } = await supabase
@@ -832,15 +856,22 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
       fim: toLocalDateStr(endDate),
     };
 
-    // Vendedor não-gerente: sempre filtra pelo próprio código
-    if (userProfile && isSupervisor(userProfile.role)) {
+    // Escopo de time (supervisor ou gerência setorial): faturamento só do time. Sem
+    // isso o card do Resumo Geral mostrava o faturado da loja inteira para quem só
+    // pode ver o próprio time — a lista de orçamentos vinha filtrada, o resumo não.
+    if (userProfile && temEscopoDeTime(userProfile.role)) {
       if (filterSeller !== "Todos os Vendedores") {
         const code = sellerCodeRef.current.get(filterSeller);
         if (code) params.vendedor = code;
       } else if (subordinateCodes && subordinateCodes.size > 0) {
         params.vendedor = Array.from(subordinateCodes).join(",");
+      } else {
+        // Time ainda não carregado ou sem subordinados: cai no próprio código em vez
+        // de consultar sem filtro nenhum (que traria a loja toda).
+        const myCode = String(userProfile.operator_code || userProfile.operatorCode || "").trim();
+        params.vendedor = myCode || "__sem_vendedor__";
       }
-    } else if (userProfile && !isGerente(userProfile.role)) {
+    } else if (userProfile && !isGerenteGeral(userProfile.role)) {
       const myCode = String(userProfile.operator_code || userProfile.operatorCode || "").trim();
       if (myCode) params.vendedor = myCode;
     } else if (filterSeller !== "Todos os Vendedores") {
@@ -1247,7 +1278,7 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
   const uniqueSellers = useMemo(() => {
     const sellers = Array.from(new Set(orçamentosData.map((item) => item.seller))).sort();
     
-    if (userProfile && isGerente(userProfile.role)) {
+    if (userProfile && isGerenteGeral(userProfile.role)) {
       const options: (string | { label: string; value: string; isHeader?: boolean })[] = [
         { label: "Todos os Vendedores", value: "Todos os Vendedores" }
       ];
@@ -1446,9 +1477,6 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
     // Pedido vendido esperando faturamento (FATGOR sem NF) — nada a ver com o
     // `pipeline` acima, que é orçamento ainda não decidido.
     const emAbertoPedidos = faturamento ? Number(faturamento.EM_ABERTO) || 0 : 0;
-    // Quanto do faturado nunca passou por orçamento (pedido criado direto no balcão).
-    const vendaSemOrcamento = faturamento ? Number(faturamento.TOTAL_SEM_ORCAMENTO) || 0 : 0;
-    const qtdSemOrcamento = faturamento ? Number(faturamento.QTD_SEM_ORCAMENTO) || 0 : 0;
 
     // Taxa de conversão real = vendas / (vendas + perdidos)
     const decididos = vendasValor + perdidosValor;
@@ -1469,7 +1497,7 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
         return acc;
       }, {});
 
-    return { statusCounts, statusValues, vendas, vendasValor, perdidos, perdidosValor, pipeline, totalOrcamentosValor, emAbertoPedidos, vendaSemOrcamento, qtdSemOrcamento, convValor, total, reasonCounts, reasonValues };
+    return { statusCounts, statusValues, vendas, vendasValor, perdidos, perdidosValor, pipeline, totalOrcamentosValor, emAbertoPedidos, convValor, total, reasonCounts, reasonValues };
   }, [filteredAndSortedItems, filterStatus, faturamento]);
 
   const requestSort = (key: string) => {
@@ -1767,13 +1795,6 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
                     { label: "Valor em Aberto", value: fmtCurrency(insights.pipeline), color: "text-blue-500 dark:text-blue-400" },
                     { label: "Valor Perdido", value: fmtCurrency(insights.perdidosValor), color: "text-rose-500 dark:text-rose-400" },
                     { label: "Valor de Venda", value: fmtCurrency(insights.vendasValor), color: "text-emerald-600 dark:text-emerald-400" },
-                    // Parcela do faturado que entrou como pedido direto, sem passar por
-                    // orçamento — por isso não aparece na lista nem na taxa de conversão.
-                    {
-                      label: `Venda sem Orçamento${insights.qtdSemOrcamento > 0 ? ` (${insights.qtdSemOrcamento})` : ""}`,
-                      value: fmtCurrency(insights.vendaSemOrcamento),
-                      color: "text-slate-500 dark:text-slate-400",
-                    },
                     // As duas linhas abaixo espelham EM ABERTO e TOTAL do card do vendedor
                     // no Dashboard Geral — mesma fonte, para os números baterem entre as telas.
                     { label: "Pedidos em Aberto", value: fmtCurrency(insights.emAbertoPedidos), color: "text-amber-500 dark:text-amber-400" },

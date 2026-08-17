@@ -455,9 +455,6 @@ export interface FaturamentoResumo {
    * estado atual — vem 0 quando o período filtrado não alcança hoje.
    */
   EM_ABERTO: number;
-  /** Parte do faturado que veio de pedido criado direto, sem orçamento (balcão). */
-  TOTAL_SEM_ORCAMENTO: number;
-  QTD_SEM_ORCAMENTO: number;
 }
 
 export const apiCrmFaturamento = (params: { vendedor?: string, inicio?: string, fim?: string }) =>
