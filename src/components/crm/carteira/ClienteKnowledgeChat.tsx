@@ -12,15 +12,18 @@ import {
   MapPin,
   FileText,
   CheckCheck,
+  Upload,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import {
   chatClienteKnowledge,
   summarizeConversation,
   needsErpData,
+  transcribeAudio,
   SUMMARY_THRESHOLD,
   type ClienteKnowledgeMessage,
 } from "@/lib/gemini-service";
+import { blobParaWavBase64 } from "@/lib/audio-wav";
 import type { CarteiraCliente } from "@/lib/api";
 import { apiMixCliente, apiHistoricoCliente, apiProdutosCliente } from "@/lib/api";
 
@@ -71,9 +74,16 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, initialPro
   const [lembrete, setLembrete] = useState<Lembrete | null>(null);
   const [lembreteConfirmado, setLembreteConfirmado] = useState(false);
   const [resumo, setResumo] = useState<string | null>(null);
+  const [escutando, setEscutando] = useState(false);
+  const [erroAudio, setErroAudio] = useState<string | null>(null);
   const dadosErpRef = useRef<Record<string, unknown>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
+
+  // Teto de duração: 1 min de WAV 16 kHz mono ≈ 1,9 MB, e o envio é inline no
+  // corpo da request. 10 min já passa do que vale mandar de uma vez.
+  const MAX_MINUTOS_AUDIO = 10;
 
   const dadosCadcli = useMemo<Record<string, unknown>>(
     () => ({
@@ -140,20 +150,25 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, initialPro
     "Interpretando os dados...",
     "Montando a resposta...",
   ];
+  const LOADING_AUDIO = [
+    "Escutando o áudio...",
+    "Entendendo o que foi dito...",
+    "Separando as informações...",
+  ];
 
   useEffect(() => {
-    if (!loading) { setLoadingTextIdx(0); return; }
+    if (!loading && !escutando) { setLoadingTextIdx(0); return; }
     const interval = setInterval(() => {
       setLoadingTextIdx((prev) => prev + 1);
     }, 2200);
     return () => clearInterval(interval);
-  }, [loading, loadingStep]);
+  }, [loading, loadingStep, escutando]);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, loading]);
+  }, [messages, loading, escutando]);
 
   const saveToSupabase = useCallback(
     async (
@@ -372,6 +387,48 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, initialPro
     setLoading(false);
     setLoadingStep(null);
     setTimeout(() => inputRef.current?.focus(), 50);
+  }
+
+  /**
+   * Upload de áudio → transcrição → mensagem no chat, sem passar pelo campo de
+   * digitação. O vendedor sobe o áudio da visita e a IA responde dizendo o que
+   * entendeu e o que registrou; a transcrição entra como a mensagem dele, então
+   * ele consegue conferir se a IA ouviu certo olhando o próprio balão.
+   *
+   * Função comum (não useCallback) de propósito: precisa enxergar o handleSend
+   * do render atual, com as mensagens atuais.
+   */
+  async function enviarAudio(file: File) {
+    if (loading || escutando) return;
+    setEscutando(true);
+    setErroAudio(null);
+    try {
+      // Normaliza qualquer formato que o navegador saiba decodificar (ogg do
+      // WhatsApp, m4a do iPhone, mp3, webm) para WAV — o Gemini não aceita
+      // webm nem m4a, e o áudio do vendedor pode vir de qualquer lugar.
+      const { base64, duracaoSegundos } = await blobParaWavBase64(file);
+
+      if (duracaoSegundos > MAX_MINUTOS_AUDIO * 60) {
+        setErroAudio(
+          `Áudio de ${Math.round(duracaoSegundos / 60)} min — o limite é ${MAX_MINUTOS_AUDIO} min. Divida em partes.`,
+        );
+        return;
+      }
+
+      const texto = (await transcribeAudio(base64, "audio/wav")).trim();
+
+      if (!texto || texto.includes("[Sem áudio detectado]")) {
+        setErroAudio("Não consegui entender o áudio. Confira se há fala no arquivo.");
+        return;
+      }
+
+      setEscutando(false);
+      await handleSend(texto);
+    } catch {
+      setErroAudio("Falha ao ler o áudio. Formatos aceitos: mp3, ogg, m4a, wav, opus.");
+    } finally {
+      setEscutando(false);
+    }
   }
 
   function gerarOportunidade() {
@@ -604,7 +661,7 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, initialPro
                 </div>
               </div>
             )}
-            {loading && (
+            {(loading || escutando) && (
               <div className="flex gap-3">
                 <div className="w-9 h-9 rounded-2xl flex-shrink-0 flex items-center justify-center bg-primary/15 text-primary ring-2 ring-primary/25 shadow-xs">
                   <MessageSquareText className="w-4.5 h-4.5 text-primary" />
@@ -613,7 +670,9 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, initialPro
                   <div className="flex items-center gap-2.5">
                     <Loader2 className="w-4 h-4 text-primary animate-spin" />
                     <span className="text-xs font-bold text-muted-foreground transition-opacity duration-300">
-                      {loadingStep === "citel"
+                      {escutando
+                        ? LOADING_AUDIO[loadingTextIdx % LOADING_AUDIO.length]
+                        : loadingStep === "citel"
                         ? LOADING_CITEL[loadingTextIdx % LOADING_CITEL.length]
                         : LOADING_IA[loadingTextIdx % LOADING_IA.length]}
                     </span>
@@ -625,6 +684,19 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, initialPro
 
           {/* Form Input Area */}
           <div className="px-5 py-4 border-t border-border/50 bg-gradient-to-b from-transparent to-muted/30">
+            {erroAudio && (
+              <div className="flex items-center justify-between gap-2 mb-2.5 px-3 py-2 rounded-xl bg-rose-500/10 border border-rose-500/25">
+                <p className="text-[11px] font-bold text-rose-400">{erroAudio}</p>
+                <button
+                  type="button"
+                  onClick={() => setErroAudio(null)}
+                  className="text-rose-400/70 hover:text-rose-400 shrink-0"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
             <form
               onSubmit={(e) => {
                 e.preventDefault();
@@ -633,6 +705,21 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, initialPro
               className="flex items-center gap-3"
             >
               <Avatar src={userAvatar} fallback={userName || cliente.nome_vendedor || "Vendedor"} size="sm" />
+
+              <input
+                ref={audioInputRef}
+                type="file"
+                accept="audio/*,.ogg,.opus,.m4a"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  // Zera o value para reenviar o MESMO arquivo disparar o onChange
+                  // de novo (útil quando a primeira transcrição falhou).
+                  e.target.value = "";
+                  if (file) void enviarAudio(file);
+                }}
+              />
+
               <div className="flex-1 relative flex items-center bg-card/80 border border-border/70 focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/20 rounded-2xl transition-all shadow-xs">
                 <textarea
                   ref={inputRef}
@@ -648,20 +735,42 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, initialPro
                       handleSend();
                     }
                   }}
-                  placeholder="Digite uma informação… (Shift+Enter para nova linha)"
-                  disabled={loading}
+                  placeholder={
+                    escutando
+                      ? "Escutando o áudio…"
+                      : "Digite ou envie um áudio… (Shift+Enter para nova linha)"
+                  }
+                  disabled={loading || escutando}
                   rows={1}
-                  className="w-full bg-transparent pl-4 pr-12 py-2.5 text-sm placeholder:text-muted-foreground/40 focus:outline-none disabled:opacity-50 transition-all resize-none leading-normal"
+                  className="w-full bg-transparent pl-4 pr-[5.25rem] py-2.5 text-sm placeholder:text-muted-foreground/40 focus:outline-none disabled:opacity-50 transition-all resize-none leading-normal"
                   style={{ minHeight: "44px" }}
                 />
-                <button
-                  type="submit"
-                  disabled={!input.trim() || loading}
-                  className="absolute right-2 w-8.5 h-8.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white flex items-center justify-center shadow-[0_4px_12px_rgba(37,99,235,0.3)] hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:scale-100 disabled:shadow-none shrink-0"
+
+                <div
+                  className="absolute right-2 flex items-center gap-1.5"
                   style={{ top: "50%", transform: "translateY(-50%)" }}
                 >
-                  <Send className="w-4 h-4" />
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => audioInputRef.current?.click()}
+                    disabled={loading || escutando}
+                    title="Enviar áudio para a IA analisar"
+                    className="w-8.5 h-8.5 rounded-xl border border-border/70 bg-card hover:bg-muted text-muted-foreground hover:text-foreground flex items-center justify-center transition-all active:scale-95 disabled:opacity-30 shrink-0"
+                  >
+                    {escutando ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                    ) : (
+                      <Upload className="w-4 h-4" />
+                    )}
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!input.trim() || loading || escutando}
+                    className="w-8.5 h-8.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white flex items-center justify-center shadow-[0_4px_12px_rgba(37,99,235,0.3)] hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:scale-100 disabled:shadow-none shrink-0"
+                  >
+                    <Send className="w-4 h-4" />
+                  </button>
+                </div>
               </div>
             </form>
           </div>

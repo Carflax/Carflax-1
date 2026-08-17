@@ -92,9 +92,12 @@ create table if not exists public.rh_candidatos (
 );
 
 -- Reenviar o mesmo arquivo para a mesma vaga não duplica o candidato.
+-- Índice TOTAL, não parcial: o ON CONFLICT do upsert só consegue inferir um
+-- índice parcial se a query repetir o predicado, o que o client do Supabase não
+-- permite. Currículo colado tem arquivo_path null e NULL não conflita com NULL
+-- no Postgres, então os colados continuam entrando como registros novos.
 create unique index if not exists rh_candidatos_vaga_arquivo_uidx
-  on public.rh_candidatos (vaga_id, arquivo_path)
-  where arquivo_path is not null;
+  on public.rh_candidatos (vaga_id, arquivo_path);
 
 create index if not exists rh_candidatos_vaga_score_idx
   on public.rh_candidatos (vaga_id, score desc nulls last);
