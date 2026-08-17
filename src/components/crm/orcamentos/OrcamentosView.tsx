@@ -1443,6 +1443,13 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
     // Valor total de todos os orçamentos
     const totalOrcamentosValor = filteredAndSortedItems.reduce((s, o) => s + o.totalValue, 0);
 
+    // Pedido vendido esperando faturamento (FATGOR sem NF) — nada a ver com o
+    // `pipeline` acima, que é orçamento ainda não decidido.
+    const emAbertoPedidos = faturamento ? Number(faturamento.EM_ABERTO) || 0 : 0;
+    // Quanto do faturado nunca passou por orçamento (pedido criado direto no balcão).
+    const vendaSemOrcamento = faturamento ? Number(faturamento.TOTAL_SEM_ORCAMENTO) || 0 : 0;
+    const qtdSemOrcamento = faturamento ? Number(faturamento.QTD_SEM_ORCAMENTO) || 0 : 0;
+
     // Taxa de conversão real = vendas / (vendas + perdidos)
     const decididos = vendasValor + perdidosValor;
     const convValor = decididos > 0 ? ((vendasValor / decididos) * 100) : 0;
@@ -1462,7 +1469,7 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
         return acc;
       }, {});
 
-    return { statusCounts, statusValues, vendas, vendasValor, perdidos, perdidosValor, pipeline, totalOrcamentosValor, convValor, total, reasonCounts, reasonValues };
+    return { statusCounts, statusValues, vendas, vendasValor, perdidos, perdidosValor, pipeline, totalOrcamentosValor, emAbertoPedidos, vendaSemOrcamento, qtdSemOrcamento, convValor, total, reasonCounts, reasonValues };
   }, [filteredAndSortedItems, filterStatus, faturamento]);
 
   const requestSort = (key: string) => {
@@ -1760,8 +1767,17 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
                     { label: "Valor em Aberto", value: fmtCurrency(insights.pipeline), color: "text-blue-500 dark:text-blue-400" },
                     { label: "Valor Perdido", value: fmtCurrency(insights.perdidosValor), color: "text-rose-500 dark:text-rose-400" },
                     { label: "Valor de Venda", value: fmtCurrency(insights.vendasValor), color: "text-emerald-600 dark:text-emerald-400" },
-                    // Quanto o período já rendeu somado ao que ainda pode render.
-                    { label: "Faturado + Em Aberto", value: fmtCurrency(insights.vendasValor + insights.pipeline), color: "text-foreground" },
+                    // Parcela do faturado que entrou como pedido direto, sem passar por
+                    // orçamento — por isso não aparece na lista nem na taxa de conversão.
+                    {
+                      label: `Venda sem Orçamento${insights.qtdSemOrcamento > 0 ? ` (${insights.qtdSemOrcamento})` : ""}`,
+                      value: fmtCurrency(insights.vendaSemOrcamento),
+                      color: "text-slate-500 dark:text-slate-400",
+                    },
+                    // As duas linhas abaixo espelham EM ABERTO e TOTAL do card do vendedor
+                    // no Dashboard Geral — mesma fonte, para os números baterem entre as telas.
+                    { label: "Pedidos em Aberto", value: fmtCurrency(insights.emAbertoPedidos), color: "text-amber-500 dark:text-amber-400" },
+                    { label: "Faturado + Em Aberto", value: fmtCurrency(insights.vendasValor + insights.emAbertoPedidos), color: "text-foreground" },
                   ].map((r, i) => (
                     <div key={i} className="flex flex-1 justify-between items-center border-b border-border/50 last:border-0">
                       <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">{r.label}</span>

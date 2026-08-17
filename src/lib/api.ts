@@ -450,6 +450,14 @@ export const apiCrmOrcamentoItens = (documento: string, empresa?: string) =>
 export interface FaturamentoResumo {
   QTD_VENDAS: number;
   TOTAL_VENDIDO: number;
+  /**
+   * Pedidos já vendidos aguardando faturamento (FATGOR sem NF). É um retrato do
+   * estado atual — vem 0 quando o período filtrado não alcança hoje.
+   */
+  EM_ABERTO: number;
+  /** Parte do faturado que veio de pedido criado direto, sem orçamento (balcão). */
+  TOTAL_SEM_ORCAMENTO: number;
+  QTD_SEM_ORCAMENTO: number;
 }
 
 export const apiCrmFaturamento = (params: { vendedor?: string, inicio?: string, fim?: string }) =>
