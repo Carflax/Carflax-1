@@ -1091,3 +1091,137 @@ export const apiCampanhaControl = (tipo: string, action: "start" | "pause" | "st
 
 export const apiCampanhaTest = (tipo: string, phone: string) =>
   post<{ success: boolean; phone?: string; warning?: string | null; error?: string }>(`/api/campanhas/${tipo}/test`, { phone });
+
+// ── RH · Triagem de Currículos ────────────────────────────────────────────────
+
+export interface RhCriterios {
+  peso_distancia: number;
+  peso_experiencia_funcao: number;
+  peso_segmento: number;
+  peso_tempo_experiencia: number;
+  peso_experiencia_recente: number;
+  anos_experiencia_ideal: number;
+  meses_recente: number;
+  faixa_excelente_km: number;
+  faixa_aceitavel_km: number;
+  faixa_baixa_km: number;
+  corte_km: number;
+}
+
+export interface RhVagaResumo {
+  total: number;
+  verde: number;
+  amarelo: number;
+  vermelho: number;
+  eliminado: number;
+}
+
+export interface RhVaga {
+  id: string;
+  titulo: string;
+  descricao?: string | null;
+  local_texto: string;
+  lat: number;
+  lng: number;
+  requisitos_obrigatorios: string[];
+  segmentos: string[];
+  palavras_funcao: string[];
+  criterios: RhCriterios;
+  status: string;
+  criado_por?: string | null;
+  created_at: string;
+  resumo?: RhVagaResumo;
+}
+
+export interface RhCriterioItem {
+  criterio: string;
+  detalhe: string;
+  pontos: number;
+  maximo: number;
+}
+
+export type RhFaixa = "verde" | "amarelo" | "vermelho" | "eliminado";
+
+export interface RhCandidato {
+  id: string;
+  vaga_id: string;
+  nome?: string | null;
+  email?: string | null;
+  telefone?: string | null;
+  cidade?: string | null;
+  uf?: string | null;
+  endereco_texto?: string | null;
+  lat?: number | null;
+  lng?: number | null;
+  distancia_km?: number | null;
+  arquivo_path?: string | null;
+  arquivo_nome?: string | null;
+  fonte: string;
+  score?: number | null;
+  faixa?: RhFaixa | null;
+  recomendacao?: string | null;
+  motivo?: string | null;
+  destaques: string[];
+  criterios?: { itens: RhCriterioItem[]; pesos: RhCriterios } | null;
+  anos_experiencia?: number | null;
+  experiencia_funcao?: boolean | null;
+  segmento_match?: boolean | null;
+  meses_ultimo_emprego?: number | null;
+  requisitos_faltantes: string[];
+  status: "novo" | "entrevista" | "aprovado" | "descartado";
+  erro?: string | null;
+  analisado_em?: string | null;
+  created_at: string;
+}
+
+const rhDelete = async (path: string) => {
+  const baseUrl = API_BASE.startsWith("http") ? API_BASE : window.location.origin + API_BASE;
+  const res = await fetch(`${baseUrl}${path}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`API ${res.status}: ${path}`);
+  return res.json() as Promise<{ success: boolean }>;
+};
+
+export const apiRhVagas = () =>
+  get<{ success: boolean; vagas: RhVaga[] }>("/api/rh/triagem/vagas");
+
+export const apiRhSalvarVaga = (vaga: Partial<RhVaga> & { titulo: string }) =>
+  post<{ success: boolean; vaga: RhVaga }>("/api/rh/triagem/vagas", vaga);
+
+export const apiRhExcluirVaga = (id: string) => rhDelete(`/api/rh/triagem/vagas/${id}`);
+
+export const apiRhCandidatos = (vagaId: string) =>
+  get<{ success: boolean; candidatos: RhCandidato[] }>("/api/rh/triagem/candidatos", {
+    vaga_id: vagaId,
+  });
+
+export const apiRhImportar = (body: {
+  vaga_id: string;
+  arquivos?: { path: string; nome: string }[];
+  textos?: { nome: string; texto: string }[];
+}) =>
+  post<{
+    success: boolean;
+    importados: number;
+    candidatos: RhCandidato[];
+    erros: { arquivo: string; erro: string }[];
+  }>("/api/rh/triagem/importar", body);
+
+export const apiRhAnalisar = (body: { vaga_id: string; ids?: string[]; reanalisar?: boolean }) =>
+  post<{
+    success: boolean;
+    analisados: number;
+    falhas: number;
+    erros?: { id: string; nome: string; erro: string }[];
+    candidatos: RhCandidato[];
+  }>("/api/rh/triagem/analisar", body);
+
+export const apiRhStatusCandidato = (id: string, status: RhCandidato["status"]) =>
+  post<{ success: boolean; candidato: RhCandidato }>("/api/rh/triagem/candidatos/status", {
+    id,
+    status,
+  });
+
+export const apiRhExcluirCandidato = (id: string) => rhDelete(`/api/rh/triagem/candidatos/${id}`);
+
+export const apiRhUrlCurriculo = (id: string) =>
+  get<{ success: boolean; url: string }>(`/api/rh/triagem/curriculo/${id}`);

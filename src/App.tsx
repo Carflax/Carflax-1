@@ -43,6 +43,7 @@ import { OrgChartView } from "@/components/ui/OrgChartModal";
 import { SqlRunnerView } from "@/components/admin/SqlRunnerView";
 import { MarketingView } from "@/components/marketing/MarketingView";
 import { EsteiraView } from "@/components/marketing/EsteiraView";
+import { RhView } from "@/components/rh/RhView";
 import { ESTEIRA_SUBQUADRO_PREFIX, canAccessSection } from "@/lib/menu-config";
 import { useNotification } from "@/hooks/useNotification";
 import { runAnnouncementAutomation } from "@/lib/announcement-automation";
@@ -1398,6 +1399,8 @@ function DashboardContent({
             <FurosView />
           ) : activeItem === "Relatórios Estoque" ? (
             <RelatoriosEstoqueView />
+          ) : ["RH", "Triagem"].includes(activeItem) ? (
+            <RhView activeTab={activeItem} userProfile={userProfile || undefined} />
           ) : activeItem === "Compras" ? (
             <ComprasView />
           ) : activeItem === "Relatórios Compras" ? (

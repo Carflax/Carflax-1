@@ -39,6 +39,8 @@ import {
   ClipboardCheck,
   MessageCircle,
   Puzzle,
+  BriefcaseBusiness,
+  UserSearch,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -97,6 +99,8 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "Relatórios Compras": FileBarChart,
   Entregas: Truck,
   Romaneios: FileText,
+  RH: BriefcaseBusiness,
+  Triagem: UserSearch,
   Scrum: Kanban,
   Board: Kanban,
   "Relatórios Scrum": FileBarChart,

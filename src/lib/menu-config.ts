@@ -96,6 +96,13 @@ export const NAV_SECTIONS: NavSection[] = [
     ],
   },
   {
+    label: "RH",
+    permGroup: "RH",
+    subItems: [
+      { label: "Triagem", value: "Triagem" },
+    ],
+  },
+  {
     label: "Scrum",
     permGroup: "GESTÃO & ADMIN",
     leaderOnly: true,
@@ -125,7 +132,7 @@ function buildPermissionGroups() {
   const map = new Map<string, string[]>();
 
   // Define group order
-  const ORDER = ["COMERCIAL", "MARKETING", "ESTOQUE", "COMPRAS", "LOGÍSTICA", "GESTÃO & ADMIN"];
+  const ORDER = ["COMERCIAL", "MARKETING", "ESTOQUE", "COMPRAS", "LOGÍSTICA", "RH", "GESTÃO & ADMIN"];
   ORDER.forEach(g => map.set(g, []));
 
   NAV_SECTIONS.forEach(section => {
@@ -203,6 +210,11 @@ const VENDAS_SECTIONS = [
 // Módulos de Gestão & Admin liberados automaticamente para líderes
 const LEADER_SECTIONS = ["Scrum", "Relatórios Scrum", "Usuários", "DB Admin"];
 
+// Triagem de currículos: dado pessoal de candidato. Liberado por padrão só para
+// quem conduz o processo seletivo (RH e Diretoria); os demais dependem de
+// permissão manual no cadastro do usuário.
+const RH_SECTIONS = ["RH", "Triagem"];
+
 export function canAccessSection(profile: AccessProfile | null | undefined, item: string): boolean {
   if (!item) return false;
   if (!profile) return false;
@@ -226,6 +238,11 @@ export function canAccessSection(profile: AccessProfile | null | undefined, item
   if ((dept === "VENDAS" || dept === "COMERCIAL") && VENDAS_SECTIONS.includes(item)) return true;
 
   if (dept === "COMPRAS" && (item === "Compras" || item === "Relatórios Compras")) return true;
+
+  // "Recursos H" é como o setor de RH é gravado no cadastro (ver UsersView).
+  const ehRhOuDiretoria =
+    dept?.startsWith("RECURSOS") || dept === "DIRETORIA" || role.includes("DIRETOR");
+  if (ehRhOuDiretoria && RH_SECTIONS.includes(item)) return true;
 
   // Permissões manuais atribuídas no cadastro do usuário
   if (profile.permissions?.includes(item)) return true;
