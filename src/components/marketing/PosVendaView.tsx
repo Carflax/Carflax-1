@@ -351,10 +351,9 @@ export function PosVendaView({ userProfile }: PosVendaViewProps) {
     }
   };
 
-  // Redirecionar para chat no WhatsApp Evolution
   const handleOpenChat = (jid: string) => {
     localStorage.setItem("carflax_pending_chat", jid);
-    window.dispatchEvent(new CustomEvent("carflax-change-tab", { detail: "Whatsapp Evolution" }));
+    window.dispatchEvent(new CustomEvent("carflax-change-tab", { detail: "Whatsapp API" }));
   };
 
   // Auxiliares visuais

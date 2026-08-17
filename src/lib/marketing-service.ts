@@ -9,6 +9,18 @@ function pgSafe(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+const _descartado28_29Start = new Date('2026-07-28T00:00:00Z').getTime();
+const _descartado28_29End = new Date('2026-07-30T00:00:00Z').getTime();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function isDescartado(l: any): boolean {
+  if (l.descartado) return true;
+  const t = new Date(l.created_at).getTime();
+  return t >= _descartado28_29Start && t < _descartado28_29End
+    && (!l.temperatura || l.temperatura === 'Frio' || l.temperatura === 'Perdido')
+    && (!l.status || l.status === 'Cliente Curioso')
+    && !l.valor_venda && !l.valor_orcamento;
+}
+
 export interface MarketingCliente {
   id?: string;
   remote_jid: string;
@@ -814,49 +826,31 @@ export const marketingService = {
       return query;
     };
 
-    // Contagem de leads no período selecionado
-    // Usa ultima_conversa_em (não created_at) para evitar contagem incorreta
-    // ao migrar de API — contatos históricos eram criados com created_at = hoje.
     let leadsQuery = supabase
       .from('marketing_clientes')
-      .select('*', { count: 'exact', head: true })
+      .select('remote_jid, temperatura, status, created_at, valor_venda, valor_orcamento')
       .not('ultima_conversa_em', 'is', null)
       .gte('ultima_conversa_em', start.toISOString())
       .lte('ultima_conversa_em', end.toISOString());
-    
     leadsQuery = applyFilters(leadsQuery);
-    const { count: leadsInPeriod } = await leadsQuery;
+    const { data: leadsInPeriodRaw } = await leadsQuery.limit(5000);
+    const leadsInPeriodFiltered = (leadsInPeriodRaw || []).filter(l => !isDescartado(l));
+    const leadsInPeriod = leadsInPeriodFiltered.length;
 
-    // Contagem de leads no mês inteiro (para o card de leads no mês)
     let leadsMonthQuery = supabase
       .from('marketing_clientes')
-      .select('*', { count: 'exact', head: true })
+      .select('remote_jid, temperatura, status, created_at, valor_venda, valor_orcamento')
       .not('ultima_conversa_em', 'is', null)
       .gte('ultima_conversa_em', firstDayOfMonth)
       .lte('ultima_conversa_em', lastDayOfMonth);
-    
     leadsMonthQuery = applyFilters(leadsMonthQuery);
-    const { count: leadsMonth } = await leadsMonthQuery;
+    const { data: leadsMonthRaw } = await leadsMonthQuery.limit(5000);
+    const leadsMonthFiltered = (leadsMonthRaw || []).filter(l => !isDescartado(l));
+    const leadsMonth = leadsMonthFiltered.length;
 
-    // Contagens por temperatura no período
-    const getTempCount = async (temp: string) => {
-      let q = supabase
-        .from('marketing_clientes')
-        .select('*', { count: 'exact', head: true })
-        .eq('temperatura', temp)
-        .not('ultima_conversa_em', 'is', null)
-        .gte('ultima_conversa_em', start.toISOString())
-        .lte('ultima_conversa_em', end.toISOString());
-      q = applyFilters(q);
-      const { count } = await q;
-      return count || 0;
-    };
-
-    const [frio, morno, quente] = await Promise.all([
-      getTempCount('Frio'),
-      getTempCount('Morno'),
-      getTempCount('Quente')
-    ]);
+    const frio = leadsInPeriodFiltered.filter(l => l.temperatura === 'Frio').length;
+    const morno = leadsInPeriodFiltered.filter(l => l.temperatura === 'Morno').length;
+    const quente = leadsInPeriodFiltered.filter(l => l.temperatura === 'Quente').length;
 
     // Faturamento no período: soma do valor_venda dos leads, atribuído pela data_venda.
     const { data: salesInPeriod } = await supabase
@@ -961,7 +955,7 @@ export const marketingService = {
 
     let query = supabase
       .from('marketing_clientes')
-      .select('created_at')
+      .select('created_at, temperatura, status, valor_venda, valor_orcamento')
       .gte('created_at', start.toISOString())
       .lte('created_at', end.toISOString());
 
@@ -981,7 +975,7 @@ export const marketingService = {
     const { data } = await query;
 
     const hourlyCounts = new Array(24).fill(0);
-    data?.forEach(lead => {
+    data?.filter(l => !isDescartado(l)).forEach(lead => {
       const hour = new Date(lead.created_at).getHours();
       hourlyCounts[hour]++;
     });
@@ -1009,43 +1003,41 @@ export const marketingService = {
       { data: msgsRaw },
       { data: usersRaw },
     ] = await Promise.all([
-      // Leads: contatos que interagiram no período (ultima_conversa_em).
-      // Usar created_at causava contagem incorreta ao migrar de API, pois
-      // contatos históricos eram criados no banco com created_at = hoje.
       supabase
         .from("marketing_clientes")
-        .select("remote_jid, vendedor_id, origem, campanha, temperatura, status, created_at, ultima_conversa_em")
+        .select("remote_jid, vendedor_id, origem, campanha, temperatura, status, created_at, ultima_conversa_em, valor_venda, valor_orcamento")
         .not("ultima_conversa_em", "is", null)
         .gte("ultima_conversa_em", startIso)
-        .lte("ultima_conversa_em", endIso),
+        .lte("ultima_conversa_em", endIso)
+        .limit(5000),
       supabase
         .from("marketing_clientes")
         .select("remote_jid, vendedor_id, valor_orcamento, data_orcamento")
         .not("valor_orcamento", "is", null)
         .gte("data_orcamento", startIso)
-        .lte("data_orcamento", endIso),
-      // Vendas: fonte é o valor_venda preenchido no lead (modal de edição), atribuído
-      // pela data_venda. Cada lead com venda conta como uma venda, já com vendedor/origem/campanha.
+        .lte("data_orcamento", endIso)
+        .limit(5000),
       supabase
         .from("marketing_clientes")
         .select("remote_jid, vendedor_id, origem, campanha, valor_venda, data_venda")
         .gt("valor_venda", 0)
         .not("data_venda", "is", null)
         .gte("data_venda", startIso)
-        .lte("data_venda", endIso),
+        .lte("data_venda", endIso)
+        .limit(5000),
       supabase
         .from("marketing_whatsapp")
         .select("remote_jid, sender, timestamp, vendedor_id")
         .gte("timestamp", startIso)
         .lte("timestamp", endIso)
-        .order("timestamp", { ascending: true }),
+        .order("timestamp", { ascending: true })
+        .limit(50000),
       supabase.from("usuarios").select("id, name, avatar"),
     ]);
 
-    const leads = leadsRaw || [];
-    const quotes = quotesRaw || [];
-    // Cada lead com venda vira uma venda, já com vendedor/origem/campanha e a data da venda.
-    const sales = (salesRaw || []).map((s) => ({
+    const leads = (leadsRaw || []).filter(l => !isDescartado(l));
+    const quotes = (quotesRaw || []).filter(l => !isDescartado(l));
+    const sales = (salesRaw || []).filter(l => !isDescartado(l)).map((s) => ({
       remote_jid: s.remote_jid,
       valor: Number(s.valor_venda) || 0,
       vendedor_id: s.vendedor_id as string | null | undefined,
@@ -1214,21 +1206,25 @@ export const marketingService = {
     const rangeMs = end.getTime() - start.getTime();
     const prevEnd = new Date(start.getTime() - 1);
     const prevStart = new Date(start.getTime() - 1 - rangeMs);
-    const [{ count: prevLeads }, { data: prevSales }] = await Promise.all([
+    const [{ data: prevLeadsRaw }, { data: prevSales }] = await Promise.all([
       supabase
         .from("marketing_clientes")
-        .select("*", { count: "exact", head: true })
+        .select("remote_jid, temperatura, status, created_at, valor_venda, valor_orcamento")
         .gte("created_at", prevStart.toISOString())
-        .lte("created_at", prevEnd.toISOString()),
+        .lte("created_at", prevEnd.toISOString())
+        .limit(5000),
       supabase
         .from("marketing_clientes")
-        .select("valor_venda")
+        .select("remote_jid, valor_venda, data_venda, temperatura, status, created_at, valor_orcamento")
         .gt("valor_venda", 0)
         .not("data_venda", "is", null)
         .gte("data_venda", prevStart.toISOString())
-        .lte("data_venda", prevEnd.toISOString()),
+        .lte("data_venda", prevEnd.toISOString())
+        .limit(5000),
     ]);
-    const prevSalesValue = (prevSales || []).reduce((acc, s) => acc + (Number(s.valor_venda) || 0), 0);
+    const prevLeadsFiltered = (prevLeadsRaw || []).filter(l => !isDescartado(l));
+    const prevSalesFiltered = (prevSales || []).filter(l => !isDescartado(l));
+    const prevSalesValue = prevSalesFiltered.reduce((acc, s) => acc + (Number(s.valor_venda) || 0), 0);
 
     // --- Totais e conversões ---
     const leadsCount = leads.length;
@@ -1254,8 +1250,8 @@ export const marketingService = {
         avgResponseMinutes: respGlobalCount > 0 ? respGlobalSum / respGlobalCount : null,
       },
       previous: {
-        leads: prevLeads || 0,
-        salesCount: (prevSales || []).length,
+        leads: prevLeadsFiltered.length,
+        salesCount: prevSalesFiltered.length,
         salesValue: prevSalesValue,
       },
       bySeller,
@@ -1272,13 +1268,14 @@ export const marketingService = {
     const end = endDate ? new Date(endDate) : new Date(startDate);
     end.setHours(23, 59, 59, 999);
 
-    const [{ data: leadsByCriacao }, { data: vendasNoPeriodo }] = await Promise.all([
+    const [{ data: leadsByCriacao }, { data: vendasNoPeriodo }, { data: usersData }] = await Promise.all([
       supabase
         .from('marketing_clientes')
         .select('*')
-        .gte('created_at', start.toISOString())
-        .lte('created_at', end.toISOString()),
-      // Vendas: valor_venda preenchido no lead, atribuído pela data_venda.
+        .not('ultima_conversa_em', 'is', null)
+        .gte('ultima_conversa_em', start.toISOString())
+        .lte('ultima_conversa_em', end.toISOString())
+        .limit(5000),
       supabase
         .from('marketing_clientes')
         .select('remote_jid, valor_venda, data_venda')
@@ -1286,7 +1283,12 @@ export const marketingService = {
         .not('data_venda', 'is', null)
         .gte('data_venda', start.toISOString())
         .lte('data_venda', end.toISOString())
+        .limit(5000),
+      supabase.from("usuarios").select("id, name"),
     ]);
+
+    const userNamesMap = new Map<string, string>();
+    (usersData || []).forEach(u => userNamesMap.set(u.id, u.name));
 
     const vendasByJid: Record<string, { valor: number; created_at: string }[]> = {};
     (vendasNoPeriodo || []).forEach(v => {
@@ -1311,9 +1313,9 @@ export const marketingService = {
     [...(leadsByCriacao || []), ...leadsFaltantes].forEach(l => {
       if (!leadsMap.has(l.remote_jid)) leadsMap.set(l.remote_jid, l);
     });
-    const leads = Array.from(leadsMap.values()).sort(
-      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-    );
+    const leads = Array.from(leadsMap.values())
+      .filter(l => !isDescartado(l))
+      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
     if (leads.length === 0) return null;
 
@@ -1379,14 +1381,25 @@ export const marketingService = {
       return m > 0 ? `${h}h ${m}min` : `${h}h`;
     };
 
+    const hasRealSale = (lead: typeof leads[0]) => {
+      const vendas = vendasByJid[lead.remote_jid];
+      return vendas && vendas.length > 0;
+    };
+
     const resolveStatus = (lead: typeof leads[0]) => {
-      if (lead.status === 'Convertido') return 'Convertido';
+      if (hasRealSale(lead)) return 'Convertido';
       if (lead.status === 'Arquivado') return lead.motivo_arquivamento || 'Arquivado';
-      if (lead.status && lead.status !== 'Novo Lead') return lead.status;
+      if (lead.status && lead.status !== 'Novo Lead' && lead.status !== 'Convertido') return lead.status;
       const msgs = messagesByJid[lead.remote_jid];
       if (!msgs || msgs.length === 0) return 'Cliente Curioso';
       const hasOurReply = msgs.some(m => m.sender === 'me');
       return hasOurReply ? 'Em Conversa' : 'Cliente Curioso';
+    };
+
+    const resolveTemperatura = (lead: typeof leads[0]) => {
+      if (hasRealSale(lead)) return 'Convertido';
+      const temp = lead.temperatura || '';
+      return temp === 'Convertido' ? 'Frio' : temp;
     };
 
     const resolveName = (lead: typeof leads[0]) => {
@@ -1406,12 +1419,14 @@ export const marketingService = {
         'Nome Cliente': resolveName(lead),
         'WhatsApp/Telefone': formatPhone(lead.remote_jid),
         'Status': resolveStatus(lead),
-        'Temperatura': lead.temperatura || '',
-        'Vendedor': 'Guilherme Santana',
+        'Temperatura': resolveTemperatura(lead),
+        'Vendedor': lead.vendedor_id ? (userNamesMap.get(lead.vendedor_id) || 'Desconhecido') : 'Sem atendente',
         'Última Interação': formatDate(lead.ultima_conversa_em),
         'Qtd Vendas': vendas.length,
         'Valor Venda (R$)': totalVendas,
         'Data Última Venda': formatDate(ultimaVenda),
+        'Valor Orçamento (R$)': Number(lead.valor_orcamento) || 0,
+        'Data Orçamento': formatDate(lead.data_orcamento),
         'Tempo Resposta': formatMinutes(calcResponseMinutes(lead.remote_jid, lead.created_at) ?? avgMinutes)
       };
     });
@@ -1429,12 +1444,13 @@ export const marketingService = {
     const colWidths = [
       { wch: 10 }, { wch: 16 }, { wch: 25 }, { wch: 20 },
       { wch: 16 }, { wch: 12 }, { wch: 20 }, { wch: 16 },
-      { wch: 12 }, { wch: 16 }, { wch: 18 }, { wch: 18 }
+      { wch: 12 }, { wch: 16 }, { wch: 18 }, { wch: 18 },
+      { wch: 16 }, { wch: 18 }
     ];
     ws['!cols'] = colWidths;
     ws['!merges'] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 11 } },
-      { s: { r: 1, c: 0 }, e: { r: 1, c: 11 } }
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 13 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 13 } }
     ];
 
     XLSX.utils.book_append_sheet(wb, ws, 'Leads Tráfego');
