@@ -316,7 +316,7 @@ export function FollowUpReminder({ userProfile, onNavigateToFollowUps }: Props) 
               onClick={handleNavigate}
               className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-[10px] font-black text-white uppercase tracking-wider shadow-md shadow-blue-600/20 hover:shadow-blue-600/30 transition-all active:scale-95"
             >
-              Ver Follow-ups
+              Ver Demandas
               <ChevronRight className="w-3 h-3" />
             </button>
           </div>

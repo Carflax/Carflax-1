@@ -788,6 +788,24 @@ function sortChats(chats: Chat[]): Chat[] {
   );
 }
 
+// Aplica `patch` na conversa e a leva para o topo na hora. Antes a reordenação só
+// acontecia quando o eco da mensagem enviada voltava pelo WebSocket da Evolution —
+// era o ~1s de atraso até a conversa antiga subir. `sortChats` mantém os fixados acima.
+function bumpChatToTop(
+  chats: Chat[],
+  id: string,
+  patch: Partial<Chat>,
+): Chat[] {
+  const idx = chats.findIndex((c) => c.id === id);
+  if (idx === -1) return chats;
+  const updated = { ...chats[idx], ...patch };
+  return sortChats([
+    updated,
+    ...chats.slice(0, idx),
+    ...chats.slice(idx + 1),
+  ]);
+}
+
 function formatAudioTime(seconds: number) {
   if (isNaN(seconds)) return "0:00";
   const m = Math.floor(seconds / 60);
@@ -1067,9 +1085,13 @@ export function WhatsappView({
   const [avgResponseTime, setAvgResponseTime] = useState<number | null>(null);
   const [hasMoreMessages, setHasMoreMessages] = useState(false);
   const [loadingMoreMessages, setLoadingMoreMessages] = useState(false);
-  const [hasMoreChats, setHasMoreChats] = useState(false);
   const [loadingMoreChats, setLoadingMoreChats] = useState(false);
-  const chatOffsetRef = useRef(0);
+  // Paginação separada por modo (ativos x arquivados): a consulta de "carregar mais"
+  // é filtrada no servidor, então cada modo tem seu próprio fim de lista.
+  const hasMoreByModeRef = useRef({ active: false, archived: false });
+  // Quantas conversas de cada modo já estão na tela — serve de offset do range().
+  const loadedCountRef = useRef({ active: 0, archived: 0 });
+  const loadedIdsRef = useRef<Set<string>>(new Set());
   // Lock síncrono do "carregar mais": evita disparos concorrentes do scroll (o estado
   // loadingMoreChats só atualiza no próximo render, tarde demais para o guard).
   const loadingMoreChatsRef = useRef(false);
@@ -1314,16 +1336,16 @@ export function WhatsappView({
         setChats([]);
         setLoading(true);
       }
-      chatOffsetRef.current = 0;
-
       // 1. Busca no Supabase — carrega primeira página
       const dbClientes = await marketingService.getActiveClientes(
         "all",
         CHATS_PAGE,
         0,
       );
-      chatOffsetRef.current = dbClientes.length;
-      setHasMoreChats(dbClientes.length === CHATS_PAGE);
+      // Se a primeira página (ativos + arquivados) veio incompleta, não existe mais
+      // nada no banco — nem ativo nem arquivado. Só aí o "carregar mais" fica travado.
+      const maybeMore = dbClientes.length === CHATS_PAGE;
+      hasMoreByModeRef.current = { active: maybeMore, archived: maybeMore };
 
       const mappedChats: Chat[] = dbClientes.map((item) => {
         const detected =
@@ -1535,70 +1557,72 @@ export function WhatsappView({
   }, [chatSearch, mapClienteToChat]);
 
   const loadMoreChats = useCallback(async () => {
+    const mode = viewModeRef.current;
     // Guard síncrono via ref: bloqueia os múltiplos disparos que o evento de scroll
     // gera antes do estado atualizar (o que causava fetches concorrentes na mesma página).
-    if (loadingMoreChatsRef.current || !hasMoreChats) return;
+    if (loadingMoreChatsRef.current || !hasMoreByModeRef.current[mode]) return;
     loadingMoreChatsRef.current = true;
     setLoadingMoreChats(true);
     try {
-      // Buscamos 'all' (ativos + arquivados) mas só exibimos o modo atual. Se uma página
-      // vier inteira do outro modo, nada aparece e o scroll "trava". Então continuamos
-      // buscando páginas até adicionar ao menos 1 conversa visível ou acabarem os dados.
-      let addedVisible = 0;
-      let keepGoing = true;
-      while (keepGoing && addedVisible === 0) {
-        const more = await marketingService.getActiveClientes(
-          "all",
-          CHATS_PAGE,
-          chatOffsetRef.current,
-        );
-        chatOffsetRef.current += more.length;
-        keepGoing = more.length === CHATS_PAGE;
-        setHasMoreChats(keepGoing);
-        if (more.length === 0) break;
+      // A consulta já é filtrada pelo modo atual no servidor. Antes buscávamos 'all' e
+      // filtrávamos na tela: páginas inteiras do outro modo não mostravam nada e o
+      // spinner ficava girando "sem carregar nada" até varrer a tabela toda.
+      const more = await marketingService.getActiveClientes(
+        mode === "archived",
+        CHATS_PAGE,
+        loadedCountRef.current[mode],
+      );
+      const stillMore = more.length === CHATS_PAGE;
+      hasMoreByModeRef.current = {
+        ...hasMoreByModeRef.current,
+        [mode]: stillMore,
+      };
+      if (more.length === 0) return;
 
-        const mapped = more.map(mapClienteToChat);
-        const isVisible = (c: Chat) =>
-          viewModeRef.current === "archived" ? c.arquivado : !c.arquivado;
-        // Contagem síncrona (fora do updater do setChats, que roda de forma assíncrona).
-        addedVisible += mapped.filter(isVisible).length;
-        setChats((prev) => {
-          const existingIds = new Set(prev.map((c) => c.id));
-          const newChats = mapped.filter((c) => !existingIds.has(c.id));
-          return sortChats([...prev, ...newChats]);
-        });
-
-        // Mesmo preenchimento do ✓/✓✓ feito na carga inicial, para as conversas
-        // que entram por scroll não ficarem sem o ícone até serem abertas.
-        marketingService
-          .getLastMessageMetaByJids(mapped.map((c) => c.id))
-          .then((meta) => {
-            if (meta.size === 0) return;
-            setChats((prev) =>
-              prev.map((c) => {
-                const mm = meta.get(c.id);
-                if (!mm) return c;
-                return {
-                  ...c,
-                  lastMessageSender: mm.sender,
-                  lastMessageType: mm.tipo || c.lastMessageType,
-                  lastMessageStatus:
-                    mm.sender === "me"
-                      ? ((mm.status as "sent" | "delivered" | "read") || "sent")
-                      : undefined,
-                };
-              }),
-            );
-          })
-          .catch(() => null);
+      const mapped = more.map(mapClienteToChat);
+      const added = mapped.filter((c) => !loadedIdsRef.current.has(c.id)).length;
+      setChats((prev) => {
+        const existingIds = new Set(prev.map((c) => c.id));
+        const newChats = mapped.filter((c) => !existingIds.has(c.id));
+        return sortChats([...prev, ...newChats]);
+      });
+      // Página inteira repetida (a lista pode ter sido reordenada por mensagem nova
+      // entre uma página e outra): encerra em vez de repetir o mesmo fetch para sempre.
+      if (added === 0) {
+        hasMoreByModeRef.current = { ...hasMoreByModeRef.current, [mode]: false };
+        return;
       }
+
+      // Mesmo preenchimento do ✓/✓✓ feito na carga inicial, para as conversas
+      // que entram por scroll não ficarem sem o ícone até serem abertas.
+      marketingService
+        .getLastMessageMetaByJids(mapped.map((c) => c.id))
+        .then((meta) => {
+          if (meta.size === 0) return;
+          setChats((prev) =>
+            prev.map((c) => {
+              const mm = meta.get(c.id);
+              if (!mm) return c;
+              return {
+                ...c,
+                lastMessageSender: mm.sender,
+                lastMessageType: mm.tipo || c.lastMessageType,
+                lastMessageStatus:
+                  mm.sender === "me"
+                    ? ((mm.status as "sent" | "delivered" | "read") || "sent")
+                    : undefined,
+              };
+            }),
+          );
+        })
+        .catch(() => null);
     } catch (err) {
       console.error("Erro ao carregar mais chats:", err);
     } finally {
       loadingMoreChatsRef.current = false;
       setLoadingMoreChats(false);
     }
-  }, [hasMoreChats, mapClienteToChat]);
+  }, [mapClienteToChat]);
 
   useEffect(() => {
     const container = chatListRef.current;
@@ -1614,6 +1638,28 @@ export function WhatsappView({
     container.addEventListener("scroll", handleScroll);
     return () => container.removeEventListener("scroll", handleScroll);
   }, [loadMoreChats]);
+
+  // Mantém o offset de cada modo (e os ids já carregados) iguais ao que está na tela.
+  useEffect(() => {
+    loadedCountRef.current = {
+      active: chats.filter((c) => !c.arquivado).length,
+      archived: chats.filter((c) => c.arquivado).length,
+    };
+    loadedIdsRef.current = new Set(chats.map((c) => c.id));
+  }, [chats, viewMode]);
+
+  // A primeira página vem misturada (ativos + arquivados), então o modo atual pode
+  // receber poucas conversas e a lista nem gerar barra de rolagem — sem scroll, o
+  // "carregar mais" nunca dispararia. Aqui completamos a tela automaticamente.
+  useEffect(() => {
+    if (loading || chatSearch.trim()) return;
+    const container = chatListRef.current;
+    if (!container) return;
+    if (!hasMoreByModeRef.current[viewMode]) return;
+    if (container.scrollHeight <= container.clientHeight + 200) {
+      loadMoreChats();
+    }
+  }, [chats, viewMode, loading, chatSearch, loadingMoreChats, loadMoreChats]);
 
   useEffect(() => {
     const handleClickOutside = () => setContextMenu(null);
@@ -2932,21 +2978,17 @@ export function WhatsappView({
       setMessages((prev) => [...prev, newMsg]);
       setReplyingMessage(null);
 
-      // Atualiza o lastMessage no chat da sidebar e atribui o vendedor_id localmente
+      // Atualiza o lastMessage no chat da sidebar, atribui o vendedor_id localmente
+      // e já sobe a conversa para o topo (sem esperar o eco do WebSocket).
       setChats((prev) =>
-        prev.map((c) =>
-          c.id === selectedChat.id
-            ? {
-                ...c,
-                lastMessage: textToSend,
-                lastMessageSender: "me",
-                lastMessageType: "text",
-                lastMessageStatus: "sent",
-                time: "Agora",
-                vendedor_id: vendedorId,
-              }
-            : c,
-        ),
+        bumpChatToTop(prev, selectedChat.id, {
+          lastMessage: textToSend,
+          lastMessageSender: "me",
+          lastMessageType: "text",
+          lastMessageStatus: "sent",
+          time: "Agora",
+          vendedor_id: vendedorId,
+        }),
       );
       setSelectedChat((prev) =>
         prev ? { ...prev, vendedor_id: vendedorId } : null,
@@ -3095,6 +3137,19 @@ export function WhatsappView({
       setMessages((prev) => [...prev, newMsg]);
       setReplyingMessage(null);
 
+      // Sobe a conversa junto com o balão otimista — não depois do upload/envio,
+      // senão a lista só reordenaria quando a mídia terminasse de subir.
+      setChats((prev) =>
+        bumpChatToTop(prev, selectedChat.id, {
+          lastMessage: previaTxt,
+          lastMessageSender: "me",
+          lastMessageType: fileTipo,
+          lastMessageStatus: "sent",
+          time: "Agora",
+          vendedor_id: vendedorId,
+        }),
+      );
+
       try {
         const ext = file.name.split(".").pop() || "bin";
         const filename = `${msgId}.${ext}`;
@@ -3127,22 +3182,6 @@ export function WhatsappView({
           );
         }
 
-        // Atualiza a sidebar e atribui o vendedor_id localmente
-        setChats((prev) =>
-          prev.map((c) =>
-            c.id === selectedChat.id
-              ? {
-                  ...c,
-                  lastMessage: previaTxt,
-                  lastMessageSender: "me",
-                  lastMessageType: fileTipo,
-                  lastMessageStatus: "sent",
-                  time: "Agora",
-                  vendedor_id: vendedorId,
-                }
-              : c,
-          ),
-        );
         setSelectedChat((prev) =>
           prev ? { ...prev, vendedor_id: vendedorId } : null,
         );

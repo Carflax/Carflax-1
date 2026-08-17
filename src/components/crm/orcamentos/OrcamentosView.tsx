@@ -18,7 +18,8 @@ import {
   PhoneIncoming,
   PhoneOff,
   MapPin,
-  Loader2
+  Loader2,
+  Clock
 } from "lucide-react";
 
 import { cn, formatTeamName } from "@/lib/utils";
@@ -169,18 +170,135 @@ function isSupervisor(role?: string) {
   return role.toLowerCase().includes("supervisor");
 }
 
+// Vendedor vê só os próprios orçamentos; supervisor vê o time; gerente/diretor vê tudo.
+function filtrarPorPermissao(
+  orcamentos: Orcamento[],
+  userProfile: UserProfile | null | undefined,
+  subordinateCodes: Set<string> | null,
+): Orcamento[] {
+  if (!userProfile || isGerente(userProfile.role)) return orcamentos;
+
+  if (isSupervisor(userProfile.role)) {
+    const codes = subordinateCodes ?? new Set<string>();
+    return orcamentos.filter((o) =>
+      codes.has(String(o.sellerCode || "").trim().replace(/^0+/, ""))
+    );
+  }
+
+  const myCode = String(userProfile.operator_code || userProfile.operatorCode || "").trim().replace(/^0+/, "");
+  if (myCode) {
+    return orcamentos.filter((o) =>
+      String(o.sellerCode || "").trim().replace(/^0+/, "") === myCode
+    );
+  }
+
+  // Fallback por nome se não tiver código de operador
+  const nomeUser = (userProfile.name || "").toUpperCase();
+  const palavras = nomeUser.split(" ").filter((p: string) => p.length > 2);
+  return orcamentos.filter((o) => {
+    const vend = o.seller.toUpperCase();
+    return palavras.some((p: string) => vend.includes(p));
+  });
+}
+
+// ── Demandas do Dia ────────────────────────────────────────────────────────
+// Filtro de status que junta tudo que cobra ação do vendedor hoje (ou que já
+// venceu e ficou parado): follow-up do ENVIADO, retorno da NEGOCIAÇÃO, as datas
+// de LIB. CRÉDITO / AGUARD. PEDIDO e a entrega prevista de quem já virou VENDA.
+const DEMANDAS_FILTER = "Demandas do Dia";
+// Janela de atraso: demanda vencida há mais que isso já é histórico morto, não
+// pauta do dia — e sem esse corte a consulta cresce indefinidamente.
+const DEMANDA_LOOKBACK_DIAS = 90;
+const DEMANDA_STATUSES = ["ENVIADO", "NEGOCIAÇÃO", "LIB. CRÉDITO", "AGUARD. PEDIDO", "VENDA"];
+
+export interface Demanda {
+  tipo: "FOLLOW-UP" | "RETORNO" | "CRÉDITO" | "PEDIDO" | "ENTREGA";
+  /** Data prometida, em ISO (YYYY-MM-DD). */
+  data: string;
+  /** 0 = vence hoje; N > 0 = venceu há N dias. */
+  atrasoDias: number;
+}
+
+function toLocalIso(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** As datas do CRM chegam como ISO, dd/mm/aaaa ou timestamp — normaliza para ISO. */
+function toIsoDate(raw?: string | null): string | null {
+  if (!raw) return null;
+  const t = String(raw).trim();
+  if (!t) return null;
+  if (/^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10);
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(t)) {
+    const [d, m, y] = t.split("/");
+    return `${y}-${m}-${d}`;
+  }
+  const parsed = new Date(t);
+  return isNaN(parsed.getTime()) ? null : toLocalIso(parsed);
+}
+
+function diffDias(deIso: string, ateIso: string): number {
+  const de = Date.parse(`${deIso}T00:00:00`);
+  const ate = Date.parse(`${ateIso}T00:00:00`);
+  if (isNaN(de) || isNaN(ate)) return 0;
+  return Math.round((ate - de) / 86400000);
+}
+
+/** Devolve a demanda do orçamento se ela vence hoje ou já venceu; senão, null. */
+function getDemanda(item: Orcamento, todayStr: string): Demanda | null {
+  const status = (item.status || "").toUpperCase();
+  let tipo: Demanda["tipo"];
+  let data: string | null;
+
+  switch (status) {
+    case "ENVIADO":
+      tipo = "FOLLOW-UP";
+      data = toIsoDate(item.lembreteData);
+      break;
+    case "NEGOCIAÇÃO":
+      // O retorno da negociação é o fechamento previsto; lembrete é o fallback
+      // de quem marcou a data ainda no passo de Enviado.
+      tipo = "RETORNO";
+      data = toIsoDate(item.fechamentoPrevisto) ?? toIsoDate(item.lembreteData);
+      break;
+    case "LIB. CRÉDITO":
+      tipo = "CRÉDITO";
+      data = toIsoDate(item.lembreteData) ?? toIsoDate(item.fechamentoPrevisto);
+      break;
+    case "AGUARD. PEDIDO":
+      tipo = "PEDIDO";
+      data = toIsoDate(item.lembreteData) ?? toIsoDate(item.fechamentoPrevisto);
+      break;
+    case "VENDA":
+      tipo = "ENTREGA";
+      data = toIsoDate(item.entregaPrevista);
+      break;
+    default:
+      return null;
+  }
+
+  if (!data || data > todayStr) return null;
+  return { tipo, data, atrasoDias: diffDias(data, todayStr) };
+}
+
 
 
 interface RowProps {
   item: Orcamento;
   isAdmin?: boolean;
   showDualColumns?: boolean;
+  /** Modo "Demandas do Dia": destaca o prazo (hoje / atrasado) na coluna de status. */
+  demandaMode?: boolean;
+  /** Hoje em ISO — passado pronto para não recalcular por linha e não quebrar o memo. */
+  todayStr?: string;
   onOpenItems: (o: Orcamento) => void;
   onOpenStatus: (o: Orcamento) => void;
   onOpenChat: (o: Orcamento) => void;
 }
 
-const OrcamentoRow = memo(({ item, isAdmin, showDualColumns, onOpenItems, onOpenStatus, onOpenChat }: RowProps) => {
+const OrcamentoRow = memo(({ item, isAdmin, showDualColumns, demandaMode, todayStr, onOpenItems, onOpenStatus, onOpenChat }: RowProps) => {
+  const demanda = demandaMode && todayStr ? getDemanda(item, todayStr) : null;
+  const atrasada = !!demanda && demanda.atrasoDias > 0;
   const hasDivergence = showDualColumns && item.crmStatusVendedor === "PERDIDO" && (
     item.citelStatus !== "PERDIDO" ||
     (item.citelStatus === "PERDIDO" &&
@@ -191,6 +309,10 @@ const OrcamentoRow = memo(({ item, isAdmin, showDualColumns, onOpenItems, onOpen
       "transition-colors group relative",
       hasDivergence
         ? "bg-amber-500/5 hover:bg-amber-500/10 border-l-2 border-l-amber-500/60"
+        : atrasada
+        ? "bg-rose-500/5 hover:bg-rose-500/10 border-l-2 border-l-rose-500/60"
+        : demanda
+        ? "bg-blue-500/5 hover:bg-blue-500/10 border-l-2 border-l-blue-500/60"
         : "hover:bg-secondary/50"
     )}>
       <td className="px-6 py-4">
@@ -262,7 +384,23 @@ const OrcamentoRow = memo(({ item, isAdmin, showDualColumns, onOpenItems, onOpen
                 <span>{item.saleDate}</span>
               </div>
             )}
-            {(item.status === "ENVIADO" || item.status === "NEGOCIAÇÃO") && item.lembreteData && (() => {
+            {demanda && (
+              <div
+                className={cn(
+                  "flex items-center gap-1 px-2 py-0.5 rounded-full border text-[8px] font-black uppercase tracking-tight",
+                  atrasada
+                    ? "bg-rose-600/10 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 border-rose-600/20"
+                    : "bg-blue-600/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 border-blue-600/20"
+                )}
+                title={`${demanda.tipo} previsto para ${demanda.data.slice(8, 10)}/${demanda.data.slice(5, 7)}/${demanda.data.slice(0, 4)}`}
+              >
+                <Clock className="w-2.5 h-2.5" />
+                <span>
+                  {demanda.tipo} · {atrasada ? `ATRASADO ${demanda.atrasoDias}D` : "HOJE"}
+                </span>
+              </div>
+            )}
+            {!demanda && (item.status === "ENVIADO" || item.status === "NEGOCIAÇÃO") && item.lembreteData && (() => {
               const raw = item.lembreteData!;
               const display = /^\d{2}\/\d{2}\/\d{4}$/.test(raw)
                 ? raw
@@ -369,6 +507,9 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
   // Códigos de vendedor que um supervisor pode enxergar (subordinados + ele mesmo).
   // null = ainda não carregado; Set vazio = supervisor sem vendedores atribuídos.
   const [subordinateCodes, setSubordinateCodes] = useState<Set<string> | null>(null);
+  // Demandas cujo orçamento está fora do período filtrado (ver efeito mais abaixo).
+  const [demandasExtras, setDemandasExtras] = useState<Orcamento[]>([]);
+  const [loadingDemandas, setLoadingDemandas] = useState(false);
 
   useEffect(() => {
     if (!userProfile || !isSupervisor(userProfile.role) || !userProfile.id) {
@@ -583,29 +724,7 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
       sellerCodeRef.current = map;
 
       // Vendedor só vê seus próprios orçamentos; supervisor vê apenas seu time
-      if (userProfile && !isGerente(userProfile.role)) {
-        if (isSupervisor(userProfile.role)) {
-          const codes = subordinateCodes ?? new Set<string>();
-          orcamentos = orcamentos.filter((o) =>
-            codes.has(String(o.sellerCode || "").trim().replace(/^0+/, ""))
-          );
-        } else {
-          const myCode = String(userProfile.operator_code || userProfile.operatorCode || "").trim().replace(/^0+/, "");
-          if (myCode) {
-            orcamentos = orcamentos.filter((o) =>
-              String(o.sellerCode || "").trim().replace(/^0+/, "") === myCode
-            );
-          } else {
-            // Fallback por nome se não tiver código de operador
-            const nomeUser = (userProfile.name || "").toUpperCase();
-            const palavras = nomeUser.split(" ").filter((p: string) => p.length > 2);
-            orcamentos = orcamentos.filter((o) => {
-              const vend = o.seller.toUpperCase();
-              return palavras.some((p: string) => vend.includes(p));
-            });
-          }
-        }
-      }
+      orcamentos = filtrarPorPermissao(orcamentos, userProfile, subordinateCodes);
 
       // Overlay with Supabase CRM status
       const docs = orcamentos.map((o) => o.id.trim());
@@ -738,9 +857,101 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
     apiCrmFaturamento(params).then(setFaturamento).catch(() => {});
   }, [filterSeller, startDate, endDate, userProfile, subordinateCodes, teamOptions]);
 
-  // ── Ouve evento do FollowUpReminder para aplicar o filtro automaticamente ──
+  // ── Demandas do Dia: busca o que vence hoje (e o que venceu) fora do período ──
+  // A lista em tela é recortada pela data DO ORÇAMENTO, então um follow-up marcado
+  // para hoje num orçamento de meses atrás simplesmente não estaria em `orçamentosData`.
+  // Aqui partimos do crm_status (onde moram as datas de retorno) e buscamos no ERP só
+  // os documentos que faltam.
   useEffect(() => {
-    const handler = () => setFilterStatus("Follow-ups");
+    if (filterStatus !== DEMANDAS_FILTER) return;
+    let cancelled = false;
+
+    (async () => {
+      setLoadingDemandas(true);
+      try {
+        const hoje = new Date();
+        const todayStr = toLocalIso(hoje);
+        const piso = new Date(hoje);
+        piso.setDate(piso.getDate() - DEMANDA_LOOKBACK_DIAS);
+        const pisoStr = toLocalIso(piso);
+
+        // Uma data qualquer dentro da janela já qualifica a linha; o tipo/status certo
+        // é decidido depois por getDemanda().
+        const janela = (col: string) => `and(${col}.gte.${pisoStr},${col}.lte.${todayStr})`;
+
+        const { data, error } = await supabase
+          .from("crm_status")
+          .select("documento, status_crm, motivo_perda, lembrete_data, fechamento_previsto, entrega_prevista")
+          .in("status_crm", DEMANDA_STATUSES)
+          .or([janela("lembrete_data"), janela("fechamento_previsto"), janela("entrega_prevista")].join(","))
+          .limit(500);
+
+        if (error) throw new Error(error.message);
+        if (cancelled) return;
+
+        const rows = data || [];
+        const jaNaLista = new Set(orçamentosData.map((o) => o.id.trim()));
+        const faltantes = Array.from(
+          new Set(
+            rows
+              .map((r) => String(r.documento || "").trim())
+              .filter((doc) => doc && !jaNaLista.has(doc))
+          )
+        );
+
+        if (faltantes.length === 0) {
+          setDemandasExtras([]);
+          return;
+        }
+
+        // Lotes para não estourar o tamanho da URL — o endpoint aceita lista.
+        const lotes: string[][] = [];
+        for (let i = 0; i < faltantes.length; i += 80) lotes.push(faltantes.slice(i, i + 80));
+
+        const raw = (
+          await Promise.all(
+            lotes.map((lote) => apiCrmOrcamentos({ documento: lote.join(",") }).catch(() => [] as CrmOrcamento[]))
+          )
+        ).flat();
+        if (cancelled) return;
+
+        const crmByDoc = new Map(rows.map((r) => [String(r.documento || "").trim(), r]));
+        const extras = parseOrcamentos(raw).map((o) => {
+          const crm = crmByDoc.get(o.id.trim());
+          if (!crm) return o;
+          const erpStatus = o.status;
+          const crmStatus = String(crm.status_crm || "").toUpperCase();
+          return {
+            ...o,
+            citelStatus: erpStatus,
+            crmStatusVendedor: crmStatus,
+            crmMotivoVendedor: crm.motivo_perda ?? undefined,
+            // Mesma precedência do merge principal: VENDA/PERDIDO do ERP mandam.
+            status: erpStatus === "VENDA" || erpStatus === "PERDIDO" ? erpStatus : crmStatus,
+            lossReason: o.lossReason ?? crm.motivo_perda ?? undefined,
+            lembreteData: crm.lembrete_data ?? crm.fechamento_previsto ?? undefined,
+            fechamentoPrevisto: crm.fechamento_previsto ?? undefined,
+            entregaPrevista: crm.entrega_prevista ?? undefined,
+          };
+        });
+
+        setDemandasExtras(filtrarPorPermissao(extras, userProfile, subordinateCodes));
+      } catch (err) {
+        console.warn("[CRM] Falha ao carregar demandas do dia:", err);
+        if (!cancelled) setDemandasExtras([]);
+      } finally {
+        if (!cancelled) setLoadingDemandas(false);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [filterStatus, orçamentosData, userProfile, subordinateCodes]);
+
+  // ── Ouve evento do FollowUpReminder para aplicar o filtro automaticamente ──
+  // O alerta de follow-up pendente cai nas Demandas do Dia, que já contém os
+  // follow-ups (ENVIADO com retorno vencido) e o resto da pauta.
+  useEffect(() => {
+    const handler = () => setFilterStatus(DEMANDAS_FILTER);
     window.addEventListener("carflax-filter-followups", handler);
     return () => window.removeEventListener("carflax-filter-followups", handler);
   }, []);
@@ -1063,8 +1274,17 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
   const erpLossReasons = useLossReasons();
   const lossReasons = [LOSS_REASON_ALL, ...erpLossReasons];
 
+  const hojeIso = useMemo(() => toLocalIso(new Date()), []);
+  const isDemandas = filterStatus === DEMANDAS_FILTER;
+
   const filteredAndSortedItems = useMemo(() => {
-    let result = [...orçamentosData];
+    // Em Demandas do Dia a lista da tela é somada às demandas de orçamentos antigos.
+    let result = isDemandas
+      ? (() => {
+          const vistos = new Set(orçamentosData.map((o) => o.id.trim()));
+          return [...orçamentosData, ...demandasExtras.filter((o) => !vistos.has(o.id.trim()))];
+        })()
+      : [...orçamentosData];
 
     if (searchTerm) {
       result = result.filter(
@@ -1076,22 +1296,10 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
     }
 
     if (filterStatus !== "Todos os Status") {
-      if (filterStatus === "Em Aberto") {
+      if (isDemandas) {
+        result = result.filter((item) => getDemanda(item, hojeIso) !== null);
+      } else if (filterStatus === "Em Aberto") {
         result = result.filter((item) => !["VENDA", "PERDIDO"].includes(item.status));
-      } else if (filterStatus === "Follow-ups") {
-        const todayStr = new Date().toISOString().split("T")[0];
-        result = result.filter((item) => {
-          if (item.status !== "ENVIADO") return false;
-          if (!item.lembreteData) return false;
-          const raw = item.lembreteData.trim();
-          let iso: string | null = null;
-          if (/^\d{4}-\d{2}-\d{2}/.test(raw)) iso = raw.slice(0, 10);
-          else if (/^\d{2}\/\d{2}\/\d{4}$/.test(raw)) {
-            const [d, m, y] = raw.split("/");
-            iso = `${y}-${m}-${d}`;
-          }
-          return iso !== null && iso <= todayStr;
-        });
       } else {
         const statusMap: Record<string, string> = {
           Emitido: "EMITIDO",
@@ -1124,7 +1332,9 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
     if (filterReason !== "Todos os Motivos")
       result = result.filter((item) => item.lossReason?.toUpperCase().trim() === filterReason.toUpperCase().trim());
 
-    if (startDate !== null && endDate !== null) {
+    // Demandas do Dia ignora o período: o que importa é a data de retorno, não a
+    // data do orçamento — senão o follow-up de hoje num orçamento de maio sumiria.
+    if (!isDemandas && startDate !== null && endDate !== null) {
       result = result.filter((item) => {
         const [d, m, y] = item.date.split("/").map(Number);
         const itemDate = new Date(y, m - 1, d);
@@ -1132,10 +1342,20 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
       });
     }
 
+    // Pauta do dia: mais atrasado primeiro. Só cede se o gestor clicar em outra coluna
+    // (a ordenação padrão da tela é por documento, que aqui não diz nada).
+    if (isDemandas && sortConfig.key === "id") {
+      return result.sort((a, b) => {
+        const da = getDemanda(a, hojeIso);
+        const db = getDemanda(b, hojeIso);
+        return (da?.data || "9999-12-31").localeCompare(db?.data || "9999-12-31");
+      });
+    }
+
     if (sortConfig.key !== null && sortConfig.direction !== null) {
       result.sort((a, b) => {
-        // Quando filtro = Follow-ups e coluna = Status, ordenar por data de retorno
-        if (sortConfig.key === "status" && filterStatus === "Follow-ups") {
+        // Em Demandas do Dia, clicar na coluna Status ordena pela data de retorno
+        if (sortConfig.key === "status" && isDemandas) {
           const parseDate = (raw?: string) => {
             if (!raw) return 0;
             const t = raw.trim();
@@ -1146,8 +1366,10 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
             }
             return 0;
           };
-          const aTime = parseDate(a.lembreteData);
-          const bTime = parseDate(b.lembreteData);
+          // A data que vale é a da demanda (pode vir de fechamento ou entrega
+          // previstos, não só do lembrete).
+          const aTime = parseDate(getDemanda(a, hojeIso)?.data);
+          const bTime = parseDate(getDemanda(b, hojeIso)?.data);
           return sortConfig.direction === "asc" ? aTime - bTime : bTime - aTime;
         }
 
@@ -1162,7 +1384,20 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
     }
 
     return result;
-  }, [orçamentosData, searchTerm, filterStatus, filterSeller, filterReason, startDate, endDate, sortConfig, teamOptions]);
+  }, [orçamentosData, demandasExtras, isDemandas, hojeIso, searchTerm, filterStatus, filterSeller, filterReason, startDate, endDate, sortConfig, teamOptions]);
+
+  const resumoDemandas = useMemo(() => {
+    if (!isDemandas) return null;
+    let hoje = 0;
+    let atrasadas = 0;
+    for (const item of filteredAndSortedItems) {
+      const d = getDemanda(item, hojeIso);
+      if (!d) continue;
+      if (d.atrasoDias > 0) atrasadas++;
+      else hoje++;
+    }
+    return { hoje, atrasadas };
+  }, [isDemandas, filteredAndSortedItems, hojeIso]);
 
   // ── Insights (calculados dos dados reais) ───────────────────────────────
   const visibleProducts = useMemo(() => {
@@ -1210,13 +1445,6 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
     // Taxa de conversão real = vendas / (vendas + perdidos)
     const decididos = vendasValor + perdidosValor;
     const convValor = decididos > 0 ? ((vendasValor / decididos) * 100) : 0;
-    // Mesma lógica, mas por quantidade de orçamentos decididos.
-    // Usa SEMPRE a contagem da lista (localVendas), nunca QTD_VENDAS do faturamento:
-    // aquele campo é COUNT(DISTINCT DOCUMENTO) da VW_FATURAMENTO, ou seja, notas emitidas
-    // no período (inclui balcão sem orçamento e orçamentos de meses anteriores), o que
-    // infla a taxa e pode passar do total de orçamentos filtrados.
-    const decididosQtd = localVendas + perdidos;
-    const convQtd = decididosQtd > 0 ? ((localVendas / decididosQtd) * 100) : 0;
 
     const reasonCounts = filteredAndSortedItems
       .filter((o) => o.status === "PERDIDO" && o.lossReason)
@@ -1233,7 +1461,7 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
         return acc;
       }, {});
 
-    return { statusCounts, statusValues, vendas, vendasValor, perdidos, perdidosValor, pipeline, totalOrcamentosValor, convValor, convQtd, total, reasonCounts, reasonValues };
+    return { statusCounts, statusValues, vendas, vendasValor, perdidos, perdidosValor, pipeline, totalOrcamentosValor, convValor, total, reasonCounts, reasonValues };
   }, [filteredAndSortedItems, filterStatus, faturamento]);
 
   const requestSort = (key: string) => {
@@ -1340,7 +1568,7 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
             )}
           </div>
 
-          <TinyDropdown value={filterStatus} options={["Todos os Status", "Em Aberto", "Follow-ups", "Emitido", "Enviado", "Negociação", "Lib. Crédito", "Aguard. Pedido", "Venda", "Perdido"]} onChange={setFilterStatus} icon={FileCheck} variant="blue" placeholder="Todos os Status" />
+          <TinyDropdown value={filterStatus} options={["Todos os Status", DEMANDAS_FILTER, "Em Aberto", "Emitido", "Enviado", "Negociação", "Lib. Crédito", "Aguard. Pedido", "Venda", "Perdido"]} onChange={setFilterStatus} icon={FileCheck} variant="blue" placeholder="Todos os Status" />
           
           {(isGerente(userProfile?.role) || isSupervisor(userProfile?.role)) && (
             <TinyDropdown value={filterSeller} options={uniqueSellers} onChange={setFilterSeller} icon={UserIcon} variant="slate" placeholder="Todos os Vendedores" />
@@ -1361,6 +1589,33 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
       </div>
 
 
+
+      {/* Barra da pauta do dia — deixa explícito que aqui o período não vale */}
+      {resumoDemandas && (
+        <div className="flex items-center flex-wrap gap-x-4 gap-y-2 mb-3 px-4 py-2.5 rounded-xl bg-card border border-border shadow-sm shrink-0">
+          <div className="flex items-center gap-2">
+            <Clock className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Pauta do dia</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-blue-600/10 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 border border-blue-600/20">
+              {resumoDemandas.hoje} PARA HOJE
+            </span>
+            <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-rose-600/10 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 border border-rose-600/20">
+              {resumoDemandas.atrasadas} ATRASADA{resumoDemandas.atrasadas === 1 ? "" : "S"}
+            </span>
+          </div>
+          <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight">
+            Filtro de período ignorado · atrasos dos últimos {DEMANDA_LOOKBACK_DIAS} dias
+          </span>
+          {loadingDemandas && (
+            <span className="flex items-center gap-1.5 text-[9px] font-bold text-muted-foreground uppercase tracking-tight">
+              <Loader2 className="w-3 h-3 animate-spin" />
+              Buscando orçamentos antigos...
+            </span>
+          )}
+        </div>
+      )}
 
       {/* INSIGHTS toggle */}
       <button
@@ -1467,11 +1722,10 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
             const circumference = 2 * Math.PI * radius;
             const donuts = [
               { id: "convGradientValor", label: "Por Valor", pct: insights.convValor, from: "#3b82f6", to: "#60a5fa" },
-              { id: "convGradientQtd", label: "Por Qtde.", pct: insights.convQtd, from: "#10b981", to: "#34d399" },
             ];
             return (
               <div className="flex flex-col flex-1 gap-2">
-                {/* Donut charts: conversão por valor e por quantidade */}
+                {/* Donut: taxa de conversão por valor */}
                 <div className="flex items-center justify-center gap-4 py-1">
                   {donuts.map((d) => {
                     const strokeOffset = circumference - (Math.min(d.pct, 200) / 200) * circumference;
@@ -1505,6 +1759,8 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
                     { label: "Valor em Aberto", value: fmtCurrency(insights.pipeline), color: "text-blue-500 dark:text-blue-400" },
                     { label: "Valor Perdido", value: fmtCurrency(insights.perdidosValor), color: "text-rose-500 dark:text-rose-400" },
                     { label: "Valor de Venda", value: fmtCurrency(insights.vendasValor), color: "text-emerald-600 dark:text-emerald-400" },
+                    // Quanto o período já rendeu somado ao que ainda pode render.
+                    { label: "Faturado + Em Aberto", value: fmtCurrency(insights.vendasValor + insights.pipeline), color: "text-foreground" },
                   ].map((r, i) => (
                     <div key={i} className="flex flex-1 justify-between items-center border-b border-border/50 last:border-0">
                       <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-tight">{r.label}</span>
@@ -1582,7 +1838,9 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
                 ) : filteredAndSortedItems.length === 0 ? (
                   <tr>
                     <td colSpan={(isGerente(userProfile?.role) || isSupervisor(userProfile?.role)) && filterStatus === "Perdido" ? 10 : 8} className="px-6 py-12 text-center text-[11px] text-slate-400 font-bold">
-                      Nenhum orçamento encontrado para o período selecionado.
+                      {isDemandas
+                        ? (loadingDemandas ? "Buscando demandas..." : "Nenhuma demanda pendente — nada vencendo hoje nem atrasado.")
+                        : "Nenhum orçamento encontrado para o período selecionado."}
                     </td>
                   </tr>
                 ) : (
@@ -1592,6 +1850,8 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
                       item={item}
                       isAdmin={isGerente(userProfile?.role) || isSupervisor(userProfile?.role)}
                       showDualColumns={(isGerente(userProfile?.role) || isSupervisor(userProfile?.role)) && filterStatus === "Perdido"}
+                      demandaMode={isDemandas}
+                      todayStr={hojeIso}
                       onOpenItems={async (o) => {
                         setSelectedItem(o);
                         setIsItemsModalOpen(true);
