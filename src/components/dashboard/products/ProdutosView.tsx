@@ -5,12 +5,14 @@ import {
   Tag,
   ChevronUp,
   ChevronDown,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Settings2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TinyDropdown } from "@/components/ui/TinyDropdown";
 import { TinyLoader } from "@/components/ui/TinyLoader";
 import { apiDashboardProdutos, type ProductInfo } from "@/lib/api";
+import { FornecedoresModal } from "./FornecedoresModal";
 
 interface Product {
   cod: string;
@@ -22,6 +24,8 @@ interface Product {
   credit: number;
   brand: string;
   location: string;
+  codFornecedor: string;
+  fornecedor: string;
 }
 
 export function ProdutosView() {
@@ -31,6 +35,7 @@ export function ProdutosView() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Product; direction: 'asc' | 'desc' } | null>({ key: 'cod', direction: 'asc' });
+  const [fornecedoresAberto, setFornecedoresAberto] = useState(false);
 
   const requestSort = (key: keyof Product) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -59,7 +64,9 @@ export function ProdutosView() {
               debit: precoVenda,
               credit: precoVenda * 1.0466,
               brand: p.MARCA || "GERAL",
-              location: "---"
+              location: "---",
+              codFornecedor: p.COD_FORNECEDOR || "",
+              fornecedor: p.FORNECEDOR || ""
             };
           }).filter((p) => p.cod !== "99999")
             .sort((a, b) => Number(a.cod) - Number(b.cod));
@@ -142,8 +149,8 @@ export function ProdutosView() {
 
     const XLSX = (await import("xlsx-js-style")).default;
 
-    const HEADERS = ["Código", "Descrição", "Marca", "Estoque", "Média (3m)", "Total Vendido", "Preço de Venda"];
-    const NUM_COLS = 7;
+    const HEADERS = ["Código", "Descrição", "Marca", "Cód. Fornecedor", "Fornecedor", "Estoque", "Média (3m)", "Total Vendido", "Preço de Venda"];
+    const NUM_COLS = 9;
 
     const activeFilters =
       [
@@ -164,6 +171,8 @@ export function ProdutosView() {
         p.cod,
         p.desc,
         p.brand,
+        p.codFornecedor,
+        p.fornecedor,
         Number(p.stock.toFixed(3)),
         Number(p.media.toFixed(2)),
         Number(p.sales.toFixed(3)),
@@ -178,8 +187,12 @@ export function ProdutosView() {
     const borderAll = { top: BORDER, bottom: BORDER, left: BORDER, right: BORDER };
 
     // Cor de destaque por coluna (cabeçalho) + cor suave para as células
-    const COL_HEAD = ["1E293B", "1E293B", "7C3AED", "2563EB", "1D4ED8", "D97706", "059669"];
-    const COL_TINT = ["FFFFFF", "FFFFFF", "F5F3FF", "EFF6FF", "EFF6FF", "FFFBEB", "ECFDF5"];
+    // Índices: 0 Código · 1 Descrição · 2 Marca · 3 Cód.Forn · 4 Fornecedor
+    //          5 Estoque · 6 Média · 7 Total Vendido · 8 Preço
+    const COL_HEAD = ["1E293B", "1E293B", "7C3AED", "0F766E", "0F766E", "2563EB", "1D4ED8", "D97706", "059669"];
+    const COL_TINT = ["FFFFFF", "FFFFFF", "F5F3FF", "F0FDFA", "F0FDFA", "EFF6FF", "EFF6FF", "FFFBEB", "ECFDF5"];
+    const COL_TEXTO_ESQ = [1, 2, 4];
+    const PRIMEIRA_COL_NUMERICA = 5;
 
     const titleCell = ws["A1"];
     if (titleCell) {
@@ -215,23 +228,23 @@ export function ProdutosView() {
       for (let c = 0; c < NUM_COLS; c++) {
         const ref = XLSX.utils.encode_cell({ r, c });
         if (!ws[ref]) continue;
-        const isNum = c >= 3;
+        const isNum = c >= PRIMEIRA_COL_NUMERICA;
         ws[ref].s = {
           font: { sz: 10, color: { rgb: "0F172A" }, bold: c === 0 },
           fill: { fgColor: { rgb: zebra ? "F8FAFC" : COL_TINT[c] } },
           alignment: {
-            horizontal: c === 0 ? "center" : c === 1 || c === 2 ? "left" : "right",
+            horizontal: COL_TEXTO_ESQ.includes(c) ? "left" : isNum ? "right" : "center",
             vertical: "center",
           },
           border: borderAll,
         };
-        if (c === 6) ws[ref].z = '"R$" #,##0.00';
-        else if (c === 4) ws[ref].z = "#,##0.00";
+        if (c === 8) ws[ref].z = '"R$" #,##0.00';
+        else if (c === 6) ws[ref].z = "#,##0.00";
         else if (isNum) ws[ref].z = "#,##0.000";
       }
     }
 
-    ws["!cols"] = [{ wch: 12 }, { wch: 54 }, { wch: 22 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 16 }];
+    ws["!cols"] = [{ wch: 12 }, { wch: 54 }, { wch: 22 }, { wch: 16 }, { wch: 32 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 16 }];
     ws["!rows"] = [{ hpt: 26 }, { hpt: 18 }, { hpt: 6 }, { hpt: 22 }];
     ws["!merges"] = [
       { s: { r: 0, c: 0 }, e: { r: 0, c: NUM_COLS - 1 } },
@@ -306,6 +319,14 @@ export function ProdutosView() {
           >
             <FileSpreadsheet className="w-4 h-4 text-muted-foreground group-hover:text-emerald-500 transition-colors" />
           </button>
+
+          <button
+            onClick={() => setFornecedoresAberto(true)}
+            title="Ver fornecedor de cada produto"
+            className="flex items-center justify-center p-2.5 bg-card border border-border rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-all shadow-sm group shrink-0"
+          >
+            <Settings2 className="w-4 h-4 text-muted-foreground group-hover:text-blue-500 transition-colors" />
+          </button>
         </div>
       </div>
 
@@ -322,6 +343,7 @@ export function ProdutosView() {
                   { id: "cod", label: "CÓDIGO", align: "left" },
                   { id: "desc", label: "DESCRIÇÃO", align: "left" },
                   { id: "brand", label: "MARCA", align: "center" },
+                  { id: "codFornecedor", label: "CÓD. FORN.", align: "center" },
                   { id: "stock", label: "ESTOQUE", align: "right" },
                   { id: "media", label: "MÉDIA 3M", align: "right" },
                   { id: "debit", label: "DÉBITO", align: "right" },
@@ -355,6 +377,7 @@ export function ProdutosView() {
                     <td className="py-4 px-3 sm:px-6"><div className="h-2 w-10 bg-secondary rounded" /></td>
                     <td className="py-4 px-3 sm:px-6"><div className="h-2 w-full max-w-[250px] bg-secondary rounded" /></td>
                     <td className="py-4 px-3 sm:px-6"><div className="h-5 w-16 bg-secondary/50 rounded-lg mx-auto" /></td>
+                    <td className="py-4 px-3 sm:px-6"><div className="h-2 w-14 bg-secondary rounded mx-auto" /></td>
                     <td className="py-4 px-3 sm:px-6 text-right"><div className="h-2 w-12 bg-secondary rounded ml-auto" /></td>
                     <td className="py-4 px-3 sm:px-6 text-right"><div className="h-2 w-12 bg-secondary rounded ml-auto" /></td>
                     <td className="py-4 px-3 sm:px-6 text-right"><div className="h-2 w-16 bg-secondary/50 rounded ml-auto" /></td>
@@ -371,6 +394,16 @@ export function ProdutosView() {
                       <td className="py-3 px-3 sm:px-6 text-center">
                         <span className="text-[9px] font-black px-2 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border border-blue-100 dark:border-blue-900/50 uppercase tracking-tight">
                           {p.brand}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 sm:px-6 text-center">
+                        {/* Nome do fornecedor no hover: o código sozinho não diz nada,
+                            mas alargar a tabela com mais uma coluna de texto sim. */}
+                        <span
+                          title={p.fornecedor || undefined}
+                          className="text-[10px] font-bold text-muted-foreground tabular-nums"
+                        >
+                          {p.codFornecedor || "—"}
                         </span>
                       </td>
                       <td className="py-3 px-3 sm:px-6 text-right">
@@ -396,7 +429,7 @@ export function ProdutosView() {
                   
                   {visibleCount < filteredProducts.length && (
                     <tr>
-                      <td colSpan={6} className="py-6">
+                      <td colSpan={7} className="py-6">
                         <div className="flex justify-center w-full">
                           <TinyLoader size="sm" />
                         </div>
@@ -409,6 +442,14 @@ export function ProdutosView() {
           </table>
         </div>
       </div>
+
+      {fornecedoresAberto && (
+        <FornecedoresModal
+          brands={brands}
+          marcaInicial={filterBrand}
+          onClose={() => setFornecedoresAberto(false)}
+        />
+      )}
     </div>
   );
 }

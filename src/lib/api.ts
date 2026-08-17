@@ -540,11 +540,26 @@ export interface ProductInfo {
   VALOR_CREDITO?: number | string;
   VALOR_DEBITO?: string;
   MEDIA?: number | string;
+  COD_FORNECEDOR?: string;
+  FORNECEDOR?: string | null;
 }
 
 export const apiDashboardProdutos = (codigo?: string) =>
   get<ProductInfo[]>("/api/dashboard/produtos", {
     ...(codigo ? { codigo } : {})
+  });
+
+export interface ProdutoFornecedor {
+  COD_ITEM: string;
+  DESCRICAO: string;
+  MARCA: string;
+  COD_FORNECEDOR: string;
+  FORNECEDOR: string | null;
+}
+
+export const apiProdutosFornecedores = (marca?: string) =>
+  get<ProdutoFornecedor[]>("/api/dashboard/produtos/fornecedores", {
+    ...(marca && marca !== "Todas as Marcas" ? { marca } : {}),
   });
 
 export const apiFornecedores = () => get("/api/fornecedores");
