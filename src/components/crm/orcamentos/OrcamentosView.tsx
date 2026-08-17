@@ -203,16 +203,17 @@ function filtrarPorPermissao(
 
 // ── Demandas do Dia ────────────────────────────────────────────────────────
 // Filtro de status que junta tudo que cobra ação do vendedor hoje (ou que já
-// venceu e ficou parado): follow-up do ENVIADO, retorno da NEGOCIAÇÃO, as datas
-// de LIB. CRÉDITO / AGUARD. PEDIDO e a entrega prevista de quem já virou VENDA.
+// venceu e ficou parado): follow-up do ENVIADO, retorno da NEGOCIAÇÃO e as datas
+// de LIB. CRÉDITO / AGUARD. PEDIDO. Orçamento decidido (VENDA ou PERDIDO) nunca
+// entra: a demanda acabou junto com a decisão.
 const DEMANDAS_FILTER = "Demandas do Dia";
 // Janela de atraso: demanda vencida há mais que isso já é histórico morto, não
 // pauta do dia — e sem esse corte a consulta cresce indefinidamente.
 const DEMANDA_LOOKBACK_DIAS = 90;
-const DEMANDA_STATUSES = ["ENVIADO", "NEGOCIAÇÃO", "LIB. CRÉDITO", "AGUARD. PEDIDO", "VENDA"];
+const DEMANDA_STATUSES = ["ENVIADO", "NEGOCIAÇÃO", "LIB. CRÉDITO", "AGUARD. PEDIDO"];
 
 export interface Demanda {
-  tipo: "FOLLOW-UP" | "RETORNO" | "CRÉDITO" | "PEDIDO" | "ENTREGA";
+  tipo: "FOLLOW-UP" | "RETORNO" | "CRÉDITO" | "PEDIDO";
   /** Data prometida, em ISO (YYYY-MM-DD). */
   data: string;
   /** 0 = vence hoje; N > 0 = venceu há N dias. */
@@ -269,10 +270,10 @@ function getDemanda(item: Orcamento, todayStr: string): Demanda | null {
       tipo = "PEDIDO";
       data = toIsoDate(item.lembreteData) ?? toIsoDate(item.fechamentoPrevisto);
       break;
-    case "VENDA":
-      tipo = "ENTREGA";
-      data = toIsoDate(item.entregaPrevista);
-      break;
+    // VENDA e PERDIDO caem aqui: já decididos, não há o que cobrar. (A
+    // entrega_prevista continua gravada de quando o orçamento estava em
+    // negociação, então tratá-la como demanda marcava toda venda antiga
+    // como atrasada.)
     default:
       return null;
   }
@@ -883,7 +884,7 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
           .from("crm_status")
           .select("documento, status_crm, motivo_perda, lembrete_data, fechamento_previsto, entrega_prevista")
           .in("status_crm", DEMANDA_STATUSES)
-          .or([janela("lembrete_data"), janela("fechamento_previsto"), janela("entrega_prevista")].join(","))
+          .or([janela("lembrete_data"), janela("fechamento_previsto")].join(","))
           .limit(500);
 
         if (error) throw new Error(error.message);
