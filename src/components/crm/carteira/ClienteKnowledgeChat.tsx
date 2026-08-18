@@ -76,6 +76,7 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, initialPro
   const [resumo, setResumo] = useState<string | null>(null);
   const [escutando, setEscutando] = useState(false);
   const [erroAudio, setErroAudio] = useState<string | null>(null);
+  const [audioPendente, setAudioPendente] = useState<{ file: File; url: string; nome: string } | null>(null);
   const dadosErpRef = useRef<Record<string, unknown>>({});
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -398,14 +399,25 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, initialPro
    * Função comum (não useCallback) de propósito: precisa enxergar o handleSend
    * do render atual, com as mensagens atuais.
    */
-  async function enviarAudio(file: File) {
+  function anexarAudio(file: File) {
     if (loading || escutando) return;
+    setErroAudio(null);
+    if (audioPendente) URL.revokeObjectURL(audioPendente.url);
+    setAudioPendente({ file, url: URL.createObjectURL(file), nome: file.name });
+    setTimeout(() => inputRef.current?.focus(), 50);
+  }
+
+  function removerAudio() {
+    if (audioPendente) URL.revokeObjectURL(audioPendente.url);
+    setAudioPendente(null);
+  }
+
+  async function transcreverEEnviar(contexto: string) {
+    if (!audioPendente || loading || escutando) return;
+    const { file } = audioPendente;
     setEscutando(true);
     setErroAudio(null);
     try {
-      // Normaliza qualquer formato que o navegador saiba decodificar (ogg do
-      // WhatsApp, m4a do iPhone, mp3, webm) para WAV — o Gemini não aceita
-      // webm nem m4a, e o áudio do vendedor pode vir de qualquer lugar.
       const { base64, duracaoSegundos } = await blobParaWavBase64(file);
 
       if (duracaoSegundos > MAX_MINUTOS_AUDIO * 60) {
@@ -422,8 +434,12 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, initialPro
         return;
       }
 
+      removerAudio();
+      const msgFinal = contexto
+        ? `${contexto}\n\n[Transcrição do áudio]\n${texto}`
+        : texto;
       setEscutando(false);
-      await handleSend(texto);
+      await handleSend(msgFinal);
     } catch {
       setErroAudio("Falha ao ler o áudio. Formatos aceitos: mp3, ogg, m4a, wav, opus.");
     } finally {
@@ -697,10 +713,35 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, initialPro
               </div>
             )}
 
+            {audioPendente && (
+              <div className="flex items-center gap-2.5 mb-2.5 px-3 py-2.5 rounded-xl bg-primary/5 border border-primary/20 animate-in slide-in-from-bottom-2 fade-in duration-200">
+                <div className="w-8 h-8 rounded-lg bg-primary/15 border border-primary/25 flex items-center justify-center shrink-0">
+                  <Upload className="w-3.5 h-3.5 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] font-black text-foreground truncate">{audioPendente.nome}</p>
+                  <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">Descreva o contexto do áudio abaixo</p>
+                </div>
+                <audio src={audioPendente.url} controls className="h-8 max-w-[140px]" />
+                <button
+                  type="button"
+                  onClick={removerAudio}
+                  className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 transition-colors shrink-0"
+                  title="Remover áudio"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
             <form
               onSubmit={(e) => {
                 e.preventDefault();
-                handleSend();
+                if (audioPendente) {
+                  void transcreverEEnviar(input.trim());
+                } else {
+                  handleSend();
+                }
               }}
               className="flex items-center gap-3"
             >
@@ -713,10 +754,8 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, initialPro
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
-                  // Zera o value para reenviar o MESMO arquivo disparar o onChange
-                  // de novo (útil quando a primeira transcrição falhou).
                   e.target.value = "";
-                  if (file) void enviarAudio(file);
+                  if (file) anexarAudio(file);
                 }}
               />
 
@@ -732,12 +771,18 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, initialPro
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
-                      handleSend();
+                      if (audioPendente) {
+                        void transcreverEEnviar(input.trim());
+                      } else {
+                        handleSend();
+                      }
                     }
                   }}
                   placeholder={
                     escutando
                       ? "Escutando o áudio…"
+                      : audioPendente
+                      ? "Ex: Áudio que a compradora me enviou… (opcional)"
                       : "Digite ou envie um áudio… (Shift+Enter para nova linha)"
                   }
                   disabled={loading || escutando}
@@ -765,7 +810,7 @@ export function ClienteKnowledgeChat({ cliente, userName, userAvatar, initialPro
                   </button>
                   <button
                     type="submit"
-                    disabled={!input.trim() || loading || escutando}
+                    disabled={(!input.trim() && !audioPendente) || loading || escutando}
                     className="w-8.5 h-8.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white flex items-center justify-center shadow-[0_4px_12px_rgba(37,99,235,0.3)] hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:scale-100 disabled:shadow-none shrink-0"
                   >
                     <Send className="w-4 h-4" />

@@ -751,7 +751,14 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
     let arr = carteirasVisiveis;
     if (filtroVendedor !== "todos") arr = arr.filter(matchFiltro);
     const q = busca.trim().toLowerCase();
-    if (q) arr = arr.filter((v) => v.nome.toLowerCase().includes(q) || v.cod.toLowerCase().includes(q));
+    const qIsNum = q !== "" && /^\d+$/.test(q);
+    if (q) arr = arr.filter((v) =>
+      qIsNum
+        ? v.clientes.some((c) => normCod(String(c.cliente_id)) === normCod(q))
+        : v.nome.toLowerCase().includes(q) ||
+          v.cod.toLowerCase().includes(q) ||
+          v.clientes.some((c) => (c.nome_cliente || "").toLowerCase().includes(q))
+    );
     const { key, dir } = vendSort;
     const mult = dir === "asc" ? 1 : -1;
     return [...arr].sort((a, b) => {
@@ -849,7 +856,12 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
     if (isCarteiraPool(carteiraSel.cod) && filtroPessoa !== "todos")
       arr = arr.filter((c) => (filtroPessoa === "pf" ? !!c.pessoa_fisica : !c.pessoa_fisica));
     const q = buscaCli.trim().toLowerCase();
-    if (q) arr = arr.filter((c) => (c.nome_cliente || "").toLowerCase().includes(q));
+    const qCliIsNum = q !== "" && /^\d+$/.test(q);
+    if (q) arr = arr.filter((c) =>
+      qCliIsNum
+        ? normCod(String(c.cliente_id)) === normCod(q)
+        : (c.nome_cliente || "").toLowerCase().includes(q)
+    );
     const { key, dir } = cliSort;
     const mult = dir === "asc" ? 1 : -1;
     return [...arr].sort((a, b) => {
@@ -1621,7 +1633,7 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
           <input
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            placeholder="Pesquisar vendedor por nome ou código..."
+            placeholder="Pesquisar vendedor ou cliente..."
             className="w-full pl-9 pr-3 h-10 rounded-xl border border-border/85 bg-card/50 text-xs font-semibold text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
           />
         </div>
@@ -1666,7 +1678,10 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
                 <tr
                   key={v.cod}
                   onClick={() => {
+                    const q = busca.trim().toLowerCase();
+                    const matchedByClient = q && !v.nome.toLowerCase().includes(q) && !v.cod.toLowerCase().includes(q);
                     setSelecionado(v.cod);
+                    setBuscaCli(matchedByClient ? busca.trim() : "");
                     setCliSort({ key: "valor_mes", dir: "desc" });
                   }}
                   className="hover:bg-muted/40 transition-colors cursor-pointer group"
