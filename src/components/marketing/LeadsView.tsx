@@ -119,6 +119,7 @@ export function LeadsView() {
   const handleOpenChat = (jid: string) => {
     localStorage.setItem("carflax_pending_chat", jid);
     window.dispatchEvent(new CustomEvent("carflax-change-tab", { detail: "Whatsapp API" }));
+    window.dispatchEvent(new CustomEvent("carflax-open-chat", { detail: jid }));
   };
 
   // Abrir modal de edição

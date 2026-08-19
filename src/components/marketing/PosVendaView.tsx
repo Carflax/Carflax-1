@@ -354,6 +354,7 @@ export function PosVendaView({ userProfile }: PosVendaViewProps) {
   const handleOpenChat = (jid: string) => {
     localStorage.setItem("carflax_pending_chat", jid);
     window.dispatchEvent(new CustomEvent("carflax-change-tab", { detail: "Whatsapp API" }));
+    window.dispatchEvent(new CustomEvent("carflax-open-chat", { detail: jid }));
   };
 
   // Auxiliares visuais

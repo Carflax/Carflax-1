@@ -3796,32 +3796,116 @@ export function WhatsappView({
     }
   }, [selectedChat, messages, loadingMoreMessages, hasMoreMessages]);
 
-  // Initial Auto-selection & Pending Chat Handler
-  useEffect(() => {
-    const pendingChatJid = localStorage.getItem("carflax_pending_chat");
+  // Função para abrir diretamente um chat (mesmo que não esteja na 1ª página carregada)
+  const openDirectChat = useCallback(async (jid: string) => {
+    if (!jid) return;
+    localStorage.removeItem("carflax_pending_chat");
 
-    // Prioridade 1: Chat vindo de outra tela (Leads/Clientes)
-    if (pendingChatJid && chats.length > 0) {
-      const found = chats.find((c) => c.id === pendingChatJid);
-      if (found) {
-        // Se o chat estiver arquivado, muda a visualização para que ele apareça
-        if (found.arquivado && viewMode !== "archived") {
-          setViewMode("archived");
-        } else if (!found.arquivado && viewMode !== "active") {
-          setViewMode("active");
-        }
-
-        handleSelectChat(found);
-        localStorage.removeItem("carflax_pending_chat");
-        return;
+    // 1. Tenta encontrar na lista atual de chats já carregados
+    const found = chats.find((c) => c.id === jid);
+    if (found) {
+      if (found.arquivado && viewMode !== "archived") {
+        setViewMode("archived");
+      } else if (!found.arquivado && viewMode !== "active") {
+        setViewMode("active");
       }
+      handleSelectChat(found);
+      return;
     }
 
-    // Prioridade 2: Seleção automática inicial (se nada estiver aberto)
+    // 2. Se não estiver na memória (ex: além dos 50 primeiros), busca direto no banco
+    try {
+      const { data: item } = await supabase
+        .from("marketing_clientes")
+        .select("*")
+        .eq("remote_jid", jid)
+        .maybeSingle();
+
+      const detected =
+        detectOrigin(item?.ultima_mensagem || "") ||
+        detectOrigin(item?.nome || "") ||
+        detectOrigin(item?.push_name || "");
+      const finalSource = item?.origem || detected || "WhatsApp";
+
+      const newChat: Chat = {
+        id: jid,
+        name: item?.nome || item?.push_name || jid.split("@")[0],
+        lastMessage: item?.ultima_mensagem || "",
+        lastMessageType: inferMsgType(item?.ultima_mensagem || ""),
+        time: item?.ultima_conversa_em
+          ? formatBrTime(new Date(item.ultima_conversa_em))
+          : "",
+        unreadCount: item?.mensagens_nao_lidas || 0,
+        avatar: item?.foto_url || "",
+        arquivado: item?.arquivado,
+        fixado: item?.fixado || false,
+        vendedor_id: item?.vendedor_id || undefined,
+        leadInfo: {
+          status: item?.status || "Novo Lead",
+          temperature: (item?.temperatura as Temperature) || "Frio",
+          source: finalSource,
+          campaign: item?.campanha || "Geral",
+          saleValue:
+            (item?.valor_venda ?? 0) > 0
+              ? item?.valor_venda!.toLocaleString("pt-BR", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })
+              : undefined,
+          quoteValue:
+            (item?.valor_orcamento ?? 0) > 0
+              ? item?.valor_orcamento!.toLocaleString("pt-BR", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })
+              : undefined,
+        },
+      };
+
+      if (newChat.arquivado && viewMode !== "archived") {
+        setViewMode("archived");
+      } else if (!newChat.arquivado && viewMode !== "active") {
+        setViewMode("active");
+      }
+
+      setChats((prev) => [newChat, ...prev.filter((c) => c.id !== jid)]);
+      handleSelectChat(newChat);
+    } catch (err) {
+      console.error("[openDirectChat] Erro ao buscar lead:", err);
+    }
+  }, [chats, viewMode, handleSelectChat]);
+
+  // Listener para eventos de abertura de chat externos e pending chat
+  useEffect(() => {
+    const checkPending = () => {
+      const pendingChatJid = localStorage.getItem("carflax_pending_chat");
+      if (pendingChatJid) {
+        openDirectChat(pendingChatJid);
+      }
+    };
+
+    checkPending();
+
+    const handleOpenChatEvent = (e: Event) => {
+      const customEvent = e as CustomEvent<string>;
+      if (customEvent.detail) {
+        openDirectChat(customEvent.detail);
+      }
+    };
+
+    window.addEventListener("carflax-open-chat", handleOpenChatEvent);
+    return () => {
+      window.removeEventListener("carflax-open-chat", handleOpenChatEvent);
+    };
+  }, [openDirectChat]);
+
+  // Seleção automática inicial (se nada estiver aberto e não houver chat pendente)
+  useEffect(() => {
+    const pendingChatJid = localStorage.getItem("carflax_pending_chat");
     if (displayedChats.length > 0 && !selectedChat && !pendingChatJid) {
       handleSelectChat(displayedChats[0]);
     }
-  }, [chats, displayedChats, selectedChat, handleSelectChat, viewMode]);
+  }, [displayedChats, selectedChat, handleSelectChat]);
 
   const scheduleFollowUp = (dateStr: string) => {
     if (!selectedChat) return;
