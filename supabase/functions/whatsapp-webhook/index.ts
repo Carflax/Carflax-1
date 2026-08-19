@@ -18,6 +18,37 @@ webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+function detectOrigin(text: string): string | null {
+  if (!text) return null;
+  const lower = text.toLowerCase();
+  if (lower.includes('google')) return 'Google';
+  if (lower.includes('instagram') || lower.includes('insta')) return 'Instagram';
+  if (lower.includes('facebook') || lower.includes('face')) return 'Facebook';
+  if (lower.includes('tiktok') || lower.includes('tik tok')) return 'TikTok';
+  if (lower.includes('site') || lower.includes('website') || lower.includes('pelo site')) return 'Site';
+  if (lower.includes('indicação') || lower.includes('indicacao') || lower.includes('indicado')) return 'Indicação';
+  return null;
+}
+
+interface AdReplyData {
+  title?: string;
+  body?: string;
+  sourceUrl?: string;
+  sourceType?: string;
+  sourceId?: string;
+}
+
+function extractAdOrigin(adReply: AdReplyData): { origem: string; campanha?: string } {
+  const src = (adReply.sourceUrl || '').toLowerCase();
+  const origem = src.includes('instagram')
+    ? 'Instagram'
+    : src.includes('facebook') || src.includes('fb.')
+      ? 'Facebook'
+      : 'Meta Ads';
+  const campanha = (adReply.title || adReply.body || '').trim().slice(0, 120) || undefined;
+  return { origem, campanha };
+}
+
 interface PushSubscription {
   endpoint: string;
   p256dh: string;
@@ -126,6 +157,33 @@ Deno.serve(async (req: Request) => {
 
         // Atualiza ou cria o registro do cliente
         if (!fromMe) {
+          // Extrai contextInfo para detectar anúncios Click-to-WhatsApp (CTWA)
+          const ctxInfo = (msgContent?.extendedTextMessage as Record<string, unknown> | undefined)?.contextInfo as Record<string, unknown> | undefined
+            || msgContent?.contextInfo as Record<string, unknown> | undefined;
+          const adReply = ctxInfo?.externalAdReply as AdReplyData | undefined;
+
+          // Monta dados de origem: anúncio CTWA tem prioridade, senão tenta detectar pelo texto
+          let origemData: Record<string, string> = {};
+          if (adReply && (adReply.sourceUrl || adReply.title || adReply.body)) {
+            const ad = extractAdOrigin(adReply);
+            origemData = { origem: ad.origem, conversion_source: 'ctwa' };
+            if (ad.campanha) origemData.campanha = ad.campanha;
+          } else {
+            const detected = detectOrigin(text);
+            if (detected) origemData = { origem: detected, conversion_source: 'text' };
+          }
+
+          // Só seta origem em leads novos — não sobrescreve se já existe
+          if (Object.keys(origemData).length > 0) {
+            const { data: existing } = await supabase
+              .from('marketing_clientes')
+              .select('origem')
+              .eq('remote_jid', remoteJid)
+              .maybeSingle();
+
+            if (existing?.origem) origemData = {};
+          }
+
           await supabase
             .from('marketing_clientes')
             .upsert({
@@ -134,6 +192,7 @@ Deno.serve(async (req: Request) => {
               ultima_mensagem: text || '📎 Mídia recebida',
               ultima_conversa_em: new Date().toISOString(),
               updated_at: new Date().toISOString(),
+              ...origemData,
             }, { onConflict: 'remote_jid', ignoreDuplicates: false });
         }
       } catch (e) {

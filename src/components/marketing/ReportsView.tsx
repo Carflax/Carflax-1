@@ -17,8 +17,10 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Filter,
+  BarChart3,
+  X,
 } from "lucide-react";
-import { marketingService, type ReportsAnalytics } from "@/lib/marketing-service";
+import { marketingService, type ReportsAnalytics, type EvolutionData, type EvolutionClient, type VerbasData } from "@/lib/marketing-service";
 import { cn } from "@/lib/utils";
 import { MiniCalendar } from "@/components/ui/MiniCalendar";
 
@@ -35,12 +37,14 @@ const EMPTY_ANALYTICS: ReportsAnalytics = {
   dailySeries: [],
 };
 
-type TabId = "overview" | "sellers" | "sources" | "trend";
+type TabId = "overview" | "sellers" | "sources" | "trend" | "evolution" | "verbas";
 const TABS: { id: TabId; label: string }[] = [
   { id: "overview", label: "Visão Geral" },
   { id: "sellers", label: "Atendentes" },
   { id: "sources", label: "Origem & Campanha" },
   { id: "trend", label: "Tendência" },
+  { id: "evolution", label: "Evolução" },
+  { id: "verbas", label: "Verbas" },
 ];
 
 const TEMP_STYLE: Record<string, string> = {
@@ -87,6 +91,12 @@ export function ReportsView() {
 
   const [hourlyData, setHourlyData] = useState<number[]>(new Array(24).fill(0));
   const [analytics, setAnalytics] = useState<ReportsAnalytics>(EMPTY_ANALYTICS);
+  const [evolution, setEvolution] = useState<EvolutionData | null>(null);
+  const [evoSearch, setEvoSearch] = useState("");
+  const [evoSort, setEvoSort] = useState<{ key: string; dir: "asc" | "desc" }>({ key: "total_vendas", dir: "desc" });
+  const [chartClient, setChartClient] = useState<EvolutionClient | null>(null);
+  const [verbas, setVerbas] = useState<VerbasData | null>(null);
+  const [verbasLoading, setVerbasLoading] = useState(false);
 
   const peakHour = useMemo(() => {
     let maxVal = -1, maxH = -1;
@@ -97,13 +107,16 @@ export function ReportsView() {
   useEffect(() => {
     async function loadData() {
       setLoading(true);
+      setVerbas(null);
       try {
-        const [reports, hourlyLeads] = await Promise.all([
+        const [reports, hourlyLeads, evoData] = await Promise.all([
           marketingService.getReportsAnalytics(startDate, endDate || undefined),
           marketingService.getHourlyLeads(startDate, endDate || undefined, {}),
+          marketingService.getEvolutionData(),
         ]);
         setAnalytics(reports);
         setHourlyData(hourlyLeads);
+        setEvolution(evoData);
       } catch (err) {
         console.error("Erro ao carregar relatórios:", err);
         setAnalytics(EMPTY_ANALYTICS);
@@ -114,6 +127,17 @@ export function ReportsView() {
     if (!startDate || !endDate) return;
     loadData();
   }, [startDate, endDate]);
+
+  const verbasKey = `${activeTab}-${startDate?.getTime()}-${endDate?.getTime()}`;
+  useEffect(() => {
+    if (activeTab !== "verbas" || !startDate || !endDate) return;
+    setVerbas(null);
+    setVerbasLoading(true);
+    marketingService.getVerbasData(startDate, endDate)
+      .then(setVerbas)
+      .catch((err) => console.error("Erro ao carregar verbas:", err))
+      .finally(() => setVerbasLoading(false));
+  }, [verbasKey]);
 
   const { totals, previous, bySeller, byOrigin, byCampaign, byTemperature, dailySeries } = analytics;
   const maxOriginLeads = Math.max(...byOrigin.map((o) => o.leads), 1);
@@ -435,7 +459,7 @@ export function ReportsView() {
                 </div>
               </section>
             </div>
-          ) : (
+          ) : activeTab === "trend" ? (
             <div className="space-y-6">
               {/* Tendência diária: leads x vendas */}
               <section className="bg-card border border-border rounded-3xl p-6 shadow-sm flex flex-col">
@@ -479,10 +503,12 @@ export function ReportsView() {
                 </h2>
                 <div className="flex-1 h-52 flex items-end gap-1.5">
                   {(() => {
+                    const isRange = startDate && endDate && endDate.getTime() - startDate.getTime() > 86400000;
                     const day = (startDate || new Date()).getDay();
-                    const isSaturday = day === 6;
-                    const startH = isSaturday ? 8 : day === 0 ? 0 : 7;
-                    const endH = isSaturday ? 12 : day === 0 ? 23 : 17;
+                    const isSaturday = !isRange && day === 6;
+                    const isSunday = !isRange && day === 0;
+                    const startH = isSaturday ? 8 : isSunday ? 0 : 7;
+                    const endH = isSaturday ? 12 : isSunday ? 23 : 17;
                     const filtered = hourlyData.map((val, h) => ({ val, h })).filter((d) => d.h >= startH && d.h <= endH);
                     const maxLeads = Math.max(...filtered.map((d) => d.val), 1);
                     return filtered.map(({ val, h }) => (
@@ -514,6 +540,388 @@ export function ReportsView() {
                 </div>
               </section>
             </div>
+          ) : activeTab === "evolution" ? (
+            (() => {
+              if (!evolution) return null;
+              const { clients, totalValue, totalClients } = evolution;
+              const avgTicket = totalClients > 0 ? totalValue / totalClients : 0;
+              const recorrentes = clients.filter((c) => c.vendas.length > 1).length;
+
+              const q = evoSearch.trim().toLowerCase();
+              let filtered = clients;
+              if (q) {
+                filtered = filtered.filter((c) =>
+                  c.push_name.toLowerCase().includes(q) ||
+                  (c.origem || "").toLowerCase().includes(q) ||
+                  (c.campanha || "").toLowerCase().includes(q) ||
+                  (c.vendedor_nome || "").toLowerCase().includes(q)
+                );
+              }
+              const sorted = [...filtered].sort((a, b) => {
+                const { key, dir } = evoSort;
+                let va: string | number = "";
+                let vb: string | number = "";
+                if (key === "total_vendas") { va = a.total_vendas; vb = b.total_vendas; }
+                else if (key === "qtd") { va = a.vendas.length; vb = b.vendas.length; }
+                else if (key === "push_name") { va = a.push_name.toLowerCase(); vb = b.push_name.toLowerCase(); }
+                else if (key === "data_venda") {
+                  va = a.vendas.length > 0 ? a.vendas[a.vendas.length - 1].created_at : "";
+                  vb = b.vendas.length > 0 ? b.vendas[b.vendas.length - 1].created_at : "";
+                }
+                if (va < vb) return dir === "asc" ? -1 : 1;
+                if (va > vb) return dir === "asc" ? 1 : -1;
+                return 0;
+              });
+
+              const toggleSort = (key: string) => {
+                setEvoSort((prev) =>
+                  prev.key === key ? { key, dir: prev.dir === "asc" ? "desc" : "asc" } : { key, dir: "desc" }
+                );
+              };
+              const sortIcon = (key: string) =>
+                evoSort.key === key ? (evoSort.dir === "asc" ? " ↑" : " ↓") : "";
+
+              const maxTotal = Math.max(...clients.map((c) => c.total_vendas), 1);
+
+              return (
+                <div className="space-y-5">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <KpiCard label="Clientes Convertidos" value={totalClients.toLocaleString("pt-BR")} hint="Todo o histórico" icon={<Award className="w-5 h-5" />} accent="text-emerald-500 bg-emerald-500/10" />
+                    <KpiCard label="Recorrentes" value={recorrentes.toLocaleString("pt-BR")} hint={totalClients > 0 ? `${((recorrentes / totalClients) * 100).toFixed(0)}% recompram` : "—"} icon={<TrendingUp className="w-5 h-5" />} accent="text-violet-500 bg-violet-500/10" />
+                    <KpiCard label="Faturamento Total" value={formatCurrency(totalValue)} icon={<DollarSign className="w-5 h-5" />} accent="text-blue-500 bg-blue-500/10" />
+                    <KpiCard label="Ticket Médio" value={formatCurrency(avgTicket)} icon={<Target className="w-5 h-5" />} accent="text-rose-500 bg-rose-500/10" />
+                  </div>
+
+                  <section className="bg-card border border-border rounded-3xl p-6 shadow-sm">
+                    <div className="flex items-center justify-between mb-5">
+                      <h2 className="text-sm font-black uppercase tracking-tight flex items-center gap-2">
+                        <Award className="w-4 h-4 text-primary" /> Ranking por Faturamento
+                      </h2>
+                      <input
+                        type="text"
+                        value={evoSearch}
+                        onChange={(e) => setEvoSearch(e.target.value)}
+                        placeholder="Pesquisar cliente, origem..."
+                        className="h-8 w-56 px-3 rounded-lg border border-border bg-background text-xs font-medium placeholder:text-muted-foreground/50 outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary/40 transition-all"
+                      />
+                    </div>
+
+                    {sorted.length === 0 ? (
+                      <div className="py-12 text-center">
+                        <p className="text-sm font-black uppercase tracking-tight text-muted-foreground">Nenhum cliente convertido encontrado</p>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b border-border">
+                              <th className="text-left py-2.5 px-2 text-[10px] font-black uppercase tracking-wider text-muted-foreground w-8">#</th>
+                              {[
+                                { key: "push_name", label: "Cliente" },
+                                { key: "qtd", label: "Compras" },
+                                { key: "total_vendas", label: "Total Faturado" },
+                                { key: "data_venda", label: "Última Compra" },
+                              ].map((col) => (
+                                <th
+                                  key={col.key}
+                                  onClick={() => toggleSort(col.key)}
+                                  className="text-left py-2.5 px-2 text-[10px] font-black uppercase tracking-wider text-muted-foreground cursor-pointer hover:text-foreground transition-colors select-none whitespace-nowrap"
+                                >
+                                  {col.label}{sortIcon(col.key)}
+                                </th>
+                              ))}
+                              <th className="w-10" />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {sorted.map((c, idx) => {
+                              const lastSale = c.vendas.length > 0 ? c.vendas[c.vendas.length - 1] : null;
+                              const barPct = (c.total_vendas / maxTotal) * 100;
+                              return (
+                                <tr key={c.remote_jid} className="border-b border-border/40 hover:bg-secondary/30 transition-colors">
+                                  <td className="py-2.5 px-2">
+                                    <span className={cn(
+                                      "text-[11px] font-black tabular-nums",
+                                      idx === 0 ? "text-amber-500" : idx === 1 ? "text-slate-400" : idx === 2 ? "text-amber-700" : "text-muted-foreground"
+                                    )}>
+                                      {idx + 1}
+                                    </span>
+                                  </td>
+                                  <td className="py-2.5 px-2">
+                                    <div className="font-bold text-foreground truncate max-w-[180px]">{c.push_name}</div>
+                                    <div className="flex items-center gap-2 mt-0.5">
+                                      {c.vendedor_nome && <span className="text-[10px] text-muted-foreground">Atend: {c.vendedor_nome}</span>}
+                                      {c.origem && (
+                                        <span className="inline-flex items-center gap-1 px-1.5 py-0 rounded-full text-[9px] font-black bg-violet-500/10 text-violet-500">
+                                          {c.origem}
+                                        </span>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="py-2.5 px-2 tabular-nums">
+                                    <span className={cn("font-black", c.vendas.length > 1 ? "text-violet-500" : "text-foreground")}>
+                                      {c.vendas.length}x
+                                    </span>
+                                  </td>
+                                  <td className="py-2.5 px-2 tabular-nums min-w-[180px]">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-bold text-emerald-500 shrink-0">{formatCurrency(c.total_vendas)}</span>
+                                      <div className="flex-1 bg-secondary h-1.5 rounded-full overflow-hidden">
+                                        <div className="h-full rounded-full bg-gradient-to-r from-emerald-600 to-emerald-400 transition-all" style={{ width: `${barPct}%` }} />
+                                      </div>
+                                    </div>
+                                  </td>
+                                  <td className="py-2.5 px-2 text-foreground whitespace-nowrap">
+                                    {lastSale ? new Date(lastSale.created_at).toLocaleDateString("pt-BR") : "—"}
+                                  </td>
+                                  <td className="py-2.5 px-2">
+                                    <button
+                                      onClick={() => setChartClient(c)}
+                                      className="p-1.5 rounded-lg hover:bg-blue-500/10 text-muted-foreground hover:text-blue-500 transition-colors"
+                                      title="Ver evolução de compras"
+                                    >
+                                      <BarChart3 className="w-4 h-4" />
+                                    </button>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                        <div className="mt-3 pt-3 border-t border-border/40 text-[9px] font-black text-muted-foreground uppercase tracking-widest text-center">
+                          {sorted.length} {sorted.length === 1 ? "cliente convertido" : "clientes convertidos"} {q ? "encontrados" : "no histórico"}
+                        </div>
+                      </div>
+                    )}
+                  </section>
+                </div>
+              );
+            })()
+          ) : activeTab === "verbas" ? (
+            verbasLoading ? (
+              <div className="h-64 flex flex-col items-center justify-center gap-3">
+                <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+                <span className="text-xs font-black uppercase tracking-widest text-primary">Carregando Verbas...</span>
+              </div>
+            ) : !verbas || verbas.fornecedores.length === 0 ? (
+              <div className="h-64 flex flex-col items-center justify-center gap-3">
+                <div className="w-16 h-16 rounded-3xl bg-secondary flex items-center justify-center">
+                  <Percent className="w-7 h-7 text-muted-foreground" />
+                </div>
+                <p className="text-sm font-black uppercase tracking-tight">Sem dados de verbas</p>
+                <p className="text-xs text-muted-foreground max-w-xs">Nenhuma compra encontrada no período selecionado.</p>
+              </div>
+            ) : (
+              <div className="space-y-5">
+                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                  <KpiCard label="Total Comprado" value={formatCurrency(verbas.totalGeral)} icon={<ShoppingBag className="w-5 h-5" />} accent="text-blue-500 bg-blue-500/10" />
+                  <KpiCard label="Base de Cálculo" value={formatCurrency(verbas.fornecedores.reduce((s, f) => s + f.totalSemTubo, 0))} hint="Excluindo tubos" icon={<Filter className="w-5 h-5" />} accent="text-violet-500 bg-violet-500/10" />
+                  <KpiCard label="Total Verbas" value={formatCurrency(verbas.totalVerbas)} icon={<Percent className="w-5 h-5" />} accent="text-emerald-500 bg-emerald-500/10" />
+                </div>
+
+                {verbas.fornecedores.map((forn) => {
+                  const gruposSemTubo = forn.grupos.filter((g) => !g.isTubo);
+                  const gruposTubo = forn.grupos.filter((g) => g.isTubo);
+                  const maxGrupo = Math.max(...forn.grupos.map((g) => g.total), 1);
+
+                  return (
+                    <section key={forn.fornecedor} className="bg-card border border-border rounded-3xl p-6 shadow-sm">
+                      <div className="flex items-center justify-between mb-5">
+                        <div>
+                          <h2 className="text-sm font-black uppercase tracking-tight flex items-center gap-2">
+                            <ShoppingBag className="w-4 h-4 text-primary" /> {forn.fornecedor}
+                          </h2>
+                          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">
+                            Verba de {forn.percentualVerba}% sobre compras (exceto tubos)
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-lg font-black text-emerald-500 tabular-nums">{formatCurrency(forn.valorVerba)}</p>
+                          <p className="text-[10px] font-bold text-muted-foreground uppercase">Verba acumulada</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-3 mb-5">
+                        <div className="bg-secondary/50 rounded-xl p-3 text-center">
+                          <p className="text-[10px] font-black text-muted-foreground uppercase tracking-wider">Total Comprado</p>
+                          <p className="text-sm font-black text-foreground tabular-nums mt-0.5">{formatCurrency(forn.totalComprado)}</p>
+                        </div>
+                        <div className="bg-secondary/50 rounded-xl p-3 text-center">
+                          <p className="text-[10px] font-black text-muted-foreground uppercase tracking-wider">Tubos (excluído)</p>
+                          <p className="text-sm font-black text-rose-500 tabular-nums mt-0.5">{formatCurrency(forn.totalComprado - forn.totalSemTubo)}</p>
+                        </div>
+                        <div className="bg-secondary/50 rounded-xl p-3 text-center">
+                          <p className="text-[10px] font-black text-muted-foreground uppercase tracking-wider">Base de Cálculo</p>
+                          <p className="text-sm font-black text-emerald-500 tabular-nums mt-0.5">{formatCurrency(forn.totalSemTubo)}</p>
+                        </div>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs">
+                          <thead>
+                            <tr className="border-b border-border">
+                              <th className="text-left py-2.5 px-2 text-[10px] font-black uppercase tracking-wider text-muted-foreground">Grupo</th>
+                              <th className="text-right py-2.5 px-2 text-[10px] font-black uppercase tracking-wider text-muted-foreground">Total Comprado</th>
+                              <th className="text-center py-2.5 px-2 text-[10px] font-black uppercase tracking-wider text-muted-foreground w-24">Status</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {forn.grupos.map((g, idx) => {
+                              const barPct = (g.total / maxGrupo) * 100;
+                              return (
+                                <tr key={idx} className={cn("border-b border-border/40 transition-colors", g.isTubo ? "opacity-50" : "hover:bg-secondary/30")}>
+                                  <td className="py-2 px-2">
+                                    <span className={cn("font-bold", g.isTubo ? "text-muted-foreground line-through" : "text-foreground")}>{g.grupo}</span>
+                                  </td>
+                                  <td className="py-2 px-2 text-right min-w-[180px]">
+                                    <div className="flex items-center justify-end gap-2">
+                                      <div className="flex-1 max-w-[120px] bg-secondary h-1.5 rounded-full overflow-hidden">
+                                        <div className={cn("h-full rounded-full transition-all", g.isTubo ? "bg-rose-400" : "bg-gradient-to-r from-emerald-600 to-emerald-400")} style={{ width: `${barPct}%` }} />
+                                      </div>
+                                      <span className={cn("font-bold tabular-nums shrink-0", g.isTubo ? "text-rose-500" : "text-emerald-500")}>{formatCurrency(g.total)}</span>
+                                    </div>
+                                  </td>
+                                  <td className="py-2 px-2 text-center">
+                                    <span className={cn(
+                                      "inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase",
+                                      g.isTubo ? "bg-rose-500/10 text-rose-500" : "bg-emerald-500/10 text-emerald-500"
+                                    )}>
+                                      {g.isTubo ? "Excluído" : "Conta"}
+                                    </span>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                        <div className="mt-3 pt-3 border-t border-border/40 flex items-center justify-between text-[9px] font-black text-muted-foreground uppercase tracking-widest">
+                          <span>{gruposSemTubo.length} grupos válidos · {gruposTubo.length} grupos de tubos excluídos</span>
+                          <span>Verba: {forn.percentualVerba}% × {formatCurrency(forn.totalSemTubo)} = {formatCurrency(forn.valorVerba)}</span>
+                        </div>
+                      </div>
+                    </section>
+                  );
+                })}
+              </div>
+            )
+          ) : null}
+
+          {/* Modal de gráfico de evolução do cliente */}
+          {chartClient && (
+            <>
+              <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50" onClick={() => setChartClient(null)} />
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+                <div className="bg-card border border-border rounded-3xl shadow-2xl w-full max-w-2xl pointer-events-auto">
+                  <div className="flex items-center justify-between p-6 pb-0">
+                    <div>
+                      <h3 className="text-sm font-black uppercase tracking-tight text-foreground">{chartClient.push_name}</h3>
+                      <div className="flex items-center gap-2 mt-1">
+                        {chartClient.origem && (
+                          <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-black bg-violet-500/10 text-violet-500">
+                            <MapPin className="w-2.5 h-2.5" /> {chartClient.origem}
+                          </span>
+                        )}
+                        {chartClient.vendedor_nome && <span className="text-[10px] text-muted-foreground">Atend: {chartClient.vendedor_nome}</span>}
+                        <span className="text-[10px] text-muted-foreground">·</span>
+                        <span className="text-[10px] font-bold text-emerald-500">{chartClient.vendas.length} {chartClient.vendas.length === 1 ? "compra" : "compras"} · {formatCurrency(chartClient.total_vendas)}</span>
+                      </div>
+                    </div>
+                    <button onClick={() => setChartClient(null)} className="p-2 rounded-xl hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors">
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+                  <div className="p-6">
+                    {chartClient.vendas.length === 0 ? (
+                      <p className="text-sm text-muted-foreground text-center py-8">Sem compras registradas.</p>
+                    ) : (() => {
+                      const vendas = chartClient.vendas;
+                      const maxVal = Math.max(...vendas.map((v) => v.valor), 1);
+                      const minVal = Math.min(...vendas.map((v) => v.valor));
+                      const padding = (maxVal - minVal) * 0.15 || maxVal * 0.1;
+                      const chartMax = maxVal + padding;
+                      const chartMin = Math.max(minVal - padding, 0);
+                      const range = chartMax - chartMin || 1;
+
+                      const chartW = 500;
+                      const chartH = 200;
+                      const padX = 30;
+                      const padY = 20;
+                      const innerW = chartW - padX * 2;
+                      const innerH = chartH - padY * 2;
+
+                      const points = vendas.map((v, i) => {
+                        const x = padX + (vendas.length === 1 ? innerW / 2 : (i / (vendas.length - 1)) * innerW);
+                        const y = padY + innerH - ((v.valor - chartMin) / range) * innerH;
+                        return { x, y, ...v };
+                      });
+
+                      const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+                      const areaPath = `${linePath} L ${points[points.length - 1].x} ${padY + innerH} L ${points[0].x} ${padY + innerH} Z`;
+
+                      let acumulado = 0;
+
+                      return (
+                        <div>
+                          <svg viewBox={`0 0 ${chartW} ${chartH}`} className="w-full h-52">
+                            <defs>
+                              <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor="rgb(16 185 129)" stopOpacity="0.25" />
+                                <stop offset="100%" stopColor="rgb(16 185 129)" stopOpacity="0.02" />
+                              </linearGradient>
+                            </defs>
+                            <path d={areaPath} fill="url(#lineGrad)" />
+                            <path d={linePath} fill="none" stroke="rgb(16 185 129)" strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+                            {points.map((p, i) => (
+                              <circle key={i} cx={p.x} cy={p.y} r="5" fill="white" stroke="rgb(16 185 129)" strokeWidth="2.5" className="drop-shadow-sm" />
+                            ))}
+                          </svg>
+
+                          <div className="flex justify-between px-6 -mt-1">
+                            {points.map((p, i) => (
+                              <div key={i} className="text-center min-w-0 flex-1">
+                                <span className="text-[10px] font-black text-emerald-500 tabular-nums block">{formatCurrency(p.valor)}</span>
+                                <span className="text-[8px] font-bold text-muted-foreground block mt-0.5">
+                                  {new Date(p.created_at).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" })}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="mt-4 pt-3 border-t border-border/40 space-y-2">
+                            {vendas.map((v, i) => {
+                              acumulado += v.valor;
+                              return (
+                                <div key={i} className="flex items-center justify-between text-[10px]">
+                                  <span className="text-muted-foreground">
+                                    {i + 1}a compra · {new Date(v.created_at).toLocaleDateString("pt-BR")}
+                                  </span>
+                                  <div className="flex items-center gap-3">
+                                    <span className="font-bold text-foreground tabular-nums">{formatCurrency(v.valor)}</span>
+                                    <span className="font-black text-emerald-500 tabular-nums">{formatCurrency(acumulado)}</span>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+
+                          {vendas.length >= 2 && (() => {
+                            const first = new Date(vendas[0].created_at);
+                            const last = new Date(vendas[vendas.length - 1].created_at);
+                            const diffDays = Math.round((last.getTime() - first.getTime()) / 86400000);
+                            const avgDays = Math.round(diffDays / (vendas.length - 1));
+                            return (
+                              <div className="mt-3 pt-3 border-t border-border/40 text-center text-[9px] font-black text-muted-foreground uppercase tracking-widest">
+                                Frequência média: {avgDays} dias entre compras
+                              </div>
+                            );
+                          })()}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              </div>
+            </>
           )}
         </div>
       </div>

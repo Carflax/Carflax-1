@@ -291,6 +291,10 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
         const pedidos = (n.metadata?.pedidos as Array<{ pedido: string; numPedido: number; empresa: string; futura: boolean }>) || [];
         const pedidosFuturos = pedidos.filter((p) => p.futura);
 
+        const markAsRead = () => {
+          supabase.from("hub_notificacoes").update({ lida: true }).eq("id", n.id).then(() => {});
+        };
+
         const action = pedidosFuturos.length > 0
           ? {
               label: "Alterar para Entrega Imediata",
@@ -321,6 +325,7 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
           undefined,
           undefined,
           action,
+          markAsRead,
         );
       }
     };

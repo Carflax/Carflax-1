@@ -7,13 +7,13 @@ import { NotificationContext, type Notification, type NotificationType, type Not
 export function NotificationProvider({ children }: { children: ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  const showNotification = useCallback((type: NotificationType, title: string, message: string, persistent?: boolean, tag?: string, duration?: number, avatarUrl?: string, action?: NotificationAction) => {
+  const showNotification = useCallback((type: NotificationType, title: string, message: string, persistent?: boolean, tag?: string, duration?: number, avatarUrl?: string, action?: NotificationAction, onDismiss?: () => void) => {
     const id = Math.random().toString(36).substring(2, 9);
     const notifDuration = duration || 5000;
 
     setNotifications((prev) => {
       if (tag && prev.some((n) => n.tag === tag)) return prev;
-      return [...prev, { id, type, title, message, persistent, tag, duration: notifDuration, avatarUrl, action }];
+      return [...prev, { id, type, title, message, persistent, tag, duration: notifDuration, avatarUrl, action, onDismiss }];
     });
 
     // Auto-remove after duration ONLY if not persistent
@@ -24,8 +24,9 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const removeNotification = (id: string, tag?: string) => {
+  const removeNotification = (id: string, tag?: string, onDismiss?: () => void) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
+    if (onDismiss) onDismiss();
 
     if (tag) {
       const now = new Date();
@@ -101,7 +102,7 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
                     <button
                       onClick={async () => {
                         await n.action!.onClick();
-                        removeNotification(n.id, n.tag);
+                        removeNotification(n.id, n.tag, n.onDismiss);
                       }}
                       className={cn(
                         "mt-3 px-4 py-2 text-[11px] font-black uppercase tracking-wider rounded-xl transition-all active:scale-95",
@@ -115,8 +116,8 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
                   )}
                 </div>
 
-                <button 
-                  onClick={() => removeNotification(n.id, n.tag)}
+                <button
+                  onClick={() => removeNotification(n.id, n.tag, n.onDismiss)}
                   className="absolute top-4 right-4 p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl text-slate-300 hover:text-slate-500 transition-colors"
                 >
                   <X className="w-4 h-4" />

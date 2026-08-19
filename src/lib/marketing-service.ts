@@ -1,4 +1,5 @@
 import { supabase } from "./supabase";
+import { apiAdminSQL } from "./api";
 
 /**
  * Escapa um valor para uso dentro de um filtro `.or()`/`.ilike()` do PostgREST.
@@ -88,6 +89,49 @@ export interface DailyPoint {
   leads: number;
   sales: number;
   salesValue: number;
+}
+
+export interface ClientSale {
+  valor: number;
+  created_at: string;
+}
+
+export interface EvolutionClient {
+  remote_jid: string;
+  push_name: string;
+  origem: string | null;
+  campanha: string | null;
+  vendedor_nome: string | null;
+  created_at: string;
+  vendas: ClientSale[];
+  total_vendas: number;
+}
+
+export interface EvolutionData {
+  clients: EvolutionClient[];
+  totalValue: number;
+  totalClients: number;
+}
+
+export interface VerbasGrupo {
+  grupo: string;
+  total: number;
+  isTubo: boolean;
+}
+
+export interface VerbasFornecedor {
+  fornecedor: string;
+  grupos: VerbasGrupo[];
+  totalComprado: number;
+  totalSemTubo: number;
+  percentualVerba: number;
+  valorVerba: number;
+}
+
+export interface VerbasData {
+  fornecedores: VerbasFornecedor[];
+  totalGeral: number;
+  totalVerbas: number;
 }
 
 export interface ReportsAnalytics {
@@ -1262,6 +1306,56 @@ export const marketingService = {
     };
   },
 
+  async getEvolutionData(): Promise<EvolutionData> {
+    const [{ data: clientsRaw }, { data: vendasRaw }, { data: usersRaw }] = await Promise.all([
+      supabase
+        .from("marketing_clientes")
+        .select("remote_jid, nome, push_name, origem, campanha, valor_venda, created_at, vendedor_id, status, temperatura")
+        .gt("valor_venda", 0)
+        .order("valor_venda", { ascending: false })
+        .limit(5000),
+      supabase
+        .from("marketing_vendas")
+        .select("remote_jid, valor, created_at")
+        .order("created_at", { ascending: true })
+        .limit(50000),
+      supabase.from("usuarios").select("id, name"),
+    ]);
+
+    const userNames = new Map<string, string>();
+    (usersRaw || []).forEach((u) => userNames.set(u.id, u.name));
+
+    const vendasByJid = new Map<string, ClientSale[]>();
+    for (const v of (vendasRaw || [])) {
+      if (!v.remote_jid || !v.created_at) continue;
+      const list = vendasByJid.get(v.remote_jid) || [];
+      list.push({ valor: Number(v.valor) || 0, created_at: v.created_at });
+      vendasByJid.set(v.remote_jid, list);
+    }
+
+    const clients: EvolutionClient[] = (clientsRaw || [])
+      .filter((c) => !isDescartado(c))
+      .map((c) => {
+        const vendas = vendasByJid.get(c.remote_jid) || [];
+        return {
+          remote_jid: c.remote_jid,
+          push_name: (c.nome && c.nome.trim()) || (c.push_name && c.push_name.trim()) || c.remote_jid.replace("@s.whatsapp.net", ""),
+          origem: c.origem || null,
+          campanha: c.campanha || null,
+          vendedor_nome: c.vendedor_id ? (userNames.get(c.vendedor_id) || null) : null,
+          created_at: c.created_at,
+          vendas,
+          total_vendas: vendas.reduce((s, v) => s + v.valor, 0),
+        };
+      });
+
+    return {
+      clients,
+      totalValue: clients.reduce((s, c) => s + c.total_vendas, 0),
+      totalClients: clients.length,
+    };
+  },
+
   async exportLeadsXlsx(startDate: Date, endDate?: Date) {
     const start = new Date(startDate);
     start.setHours(0, 0, 0, 0);
@@ -1427,6 +1521,8 @@ export const marketingService = {
         'Data Última Venda': formatDate(ultimaVenda),
         'Valor Orçamento (R$)': Number(lead.valor_orcamento) || 0,
         'Data Orçamento': formatDate(lead.data_orcamento),
+        'Origem': lead.origem || 'Não identificada',
+        'Campanha': lead.campanha || '—',
         'Tempo Resposta': formatMinutes(calcResponseMinutes(lead.remote_jid, lead.created_at) ?? avgMinutes)
       };
     });
@@ -1445,12 +1541,12 @@ export const marketingService = {
       { wch: 10 }, { wch: 16 }, { wch: 25 }, { wch: 20 },
       { wch: 16 }, { wch: 12 }, { wch: 20 }, { wch: 16 },
       { wch: 12 }, { wch: 16 }, { wch: 18 }, { wch: 18 },
-      { wch: 16 }, { wch: 18 }
+      { wch: 16 }, { wch: 16 }, { wch: 22 }, { wch: 18 }
     ];
     ws['!cols'] = colWidths;
     ws['!merges'] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: 13 } },
-      { s: { r: 1, c: 0 }, e: { r: 1, c: 13 } }
+      { s: { r: 0, c: 0 }, e: { r: 0, c: 15 } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: 15 } }
     ];
 
     XLSX.utils.book_append_sheet(wb, ws, 'Leads Tráfego');
@@ -1458,5 +1554,48 @@ export const marketingService = {
     const fileName = `Leads_Carflax_${start.toISOString().slice(0, 10)}_${end.toISOString().slice(0, 10)}.xlsx`;
     XLSX.writeFile(wb, fileName);
     return fileName;
+  },
+
+  async getVerbasData(startDate?: Date, endDate?: Date): Promise<VerbasData> {
+    const fornecedoresConfig: { nome: string; marca: string; percentual: number }[] = [
+      { nome: "AMANCO", marca: "AMANCO", percentual: 3 },
+    ];
+
+    const fornecedores: VerbasFornecedor[] = [];
+
+    for (const cfg of fornecedoresConfig) {
+      let sql = `SELECT GRUPO, SUM(TOTAL) AS TOTAL FROM VW_COMPRAS_PRODUTOS WHERE MARCA = '${cfg.marca}'`;
+      if (startDate) sql += ` AND DATA >= '${startDate.toISOString().slice(0, 10)}'`;
+      if (endDate) sql += ` AND DATA <= '${endDate.toISOString().slice(0, 10)}'`;
+      sql += ` GROUP BY GRUPO ORDER BY TOTAL DESC`;
+
+      const res = await apiAdminSQL(sql);
+      if (!res.success || !res.data) continue;
+
+      const grupos: VerbasGrupo[] = (res.data as { GRUPO: string; TOTAL: string }[]).map((r) => {
+        const grupo = (r.GRUPO || "").trim();
+        const isTubo = grupo.toUpperCase().startsWith("TUBO");
+        return { grupo, total: Number(r.TOTAL) || 0, isTubo };
+      });
+
+      const totalComprado = grupos.reduce((s, g) => s + g.total, 0);
+      const totalSemTubo = grupos.filter((g) => !g.isTubo).reduce((s, g) => s + g.total, 0);
+      const valorVerba = totalSemTubo * (cfg.percentual / 100);
+
+      fornecedores.push({
+        fornecedor: cfg.nome,
+        grupos,
+        totalComprado,
+        totalSemTubo,
+        percentualVerba: cfg.percentual,
+        valorVerba,
+      });
+    }
+
+    return {
+      fornecedores,
+      totalGeral: fornecedores.reduce((s, f) => s + f.totalComprado, 0),
+      totalVerbas: fornecedores.reduce((s, f) => s + f.valorVerba, 0),
+    };
   }
 };

@@ -193,7 +193,8 @@
       "Bash(git log *)",
       "Read(//c/Users/Danilo/AppData/Roaming/Claude/local-agent-mode-sessions/skills-plugin/c430529f-1d6b-4d11-9371-2538c20969e1/b150fc5f-4938-4e09-8707-cb480dc3686d/skills/xlsx/**)",
       "Bash(markitdown \"C:\\\\Danilo\\\\Downloads\\\\Leads_Carflax_2026-07-28_2026-07-30.xlsx\")",
-      "Bash(git checkout *)"
+      "Bash(git checkout *)",
+      "Bash(ls \"C:\\\\Users\\\\Danilo\\\\Desktop\\\\Desenvolvimento\\\\Carflax HUB\\\\db\")"
     ]
   }
 }

@@ -17,10 +17,11 @@ export interface Notification {
   duration?: number;
   avatarUrl?: string;
   action?: NotificationAction;
+  onDismiss?: () => void;
 }
 
 interface NotificationContextType {
-  showNotification: (type: NotificationType, title: string, message: string, persistent?: boolean, tag?: string, duration?: number, avatarUrl?: string, action?: NotificationAction) => void;
+  showNotification: (type: NotificationType, title: string, message: string, persistent?: boolean, tag?: string, duration?: number, avatarUrl?: string, action?: NotificationAction, onDismiss?: () => void) => void;
 }
 
 export const NotificationContext = createContext<NotificationContextType | undefined>(undefined);

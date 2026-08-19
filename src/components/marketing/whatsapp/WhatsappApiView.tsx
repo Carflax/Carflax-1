@@ -18,6 +18,7 @@ export function WhatsappApiView({ userProfile }: { userProfile?: UserProfile | n
   return (
     <WhatsappView
       api={whatsappOfficialApi as unknown as WhatsappApi}
+      vendedorId={userProfile?.id}
       userProfile={userProfile}
     />
   );

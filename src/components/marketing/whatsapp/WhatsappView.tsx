@@ -38,7 +38,6 @@ import {
   FolderDown,
   CornerUpLeft,
   Eye,
-  Phone,
 } from "lucide-react";
 import { evolutionApi } from "@/lib/evolution-v2";
 import { supabase } from "@/lib/supabase";
@@ -1399,33 +1398,30 @@ export function WhatsappView({
         };
       });
 
-      setChats(sortChats(mappedChats));
-      setLoading(false);
-
-      // Preenche o ✓/✓✓ da última mensagem já na abertura da lista. Sem isso o
-      // ícone só aparecia depois de clicar na conversa, porque `marketing_clientes`
-      // não guarda remetente/status — só o texto da última mensagem.
-      marketingService
+      // Busca sender/status da última mensagem ANTES de renderizar, para evitar
+      // flickering dos ícones ✓/✓✓ ao dar F5.
+      const meta = await marketingService
         .getLastMessageMetaByJids(mappedChats.map((c) => c.id))
-        .then((meta) => {
-          if (meta.size === 0) return;
-          setChats((prev) =>
-            prev.map((c) => {
-              const m = meta.get(c.id);
-              if (!m) return c;
-              return {
-                ...c,
-                lastMessageSender: m.sender,
-                lastMessageType: m.tipo || c.lastMessageType,
-                lastMessageStatus:
-                  m.sender === "me"
-                    ? ((m.status as "sent" | "delivered" | "read") || "sent")
-                    : undefined,
-              };
-            }),
-          );
-        })
-        .catch(() => null);
+        .catch(() => new Map() as Map<string, { sender: string; status: string; tipo?: string }>);
+
+      const chatsComStatus = meta.size > 0
+        ? mappedChats.map((c) => {
+            const m = meta.get(c.id);
+            if (!m) return c;
+            return {
+              ...c,
+              lastMessageSender: m.sender as "me" | "contact",
+              lastMessageType: m.tipo || c.lastMessageType,
+              lastMessageStatus:
+                m.sender === "me"
+                  ? ((m.status as "sent" | "delivered" | "read") || "sent")
+                  : undefined,
+            };
+          })
+        : mappedChats;
+
+      setChats(sortChats(chatsComStatus));
+      setLoading(false);
 
       // 2. Sincronização em segundo plano (Não trava o usuário)
       if (mappedChats.length > 0) {
@@ -1581,9 +1577,31 @@ export function WhatsappView({
 
       const mapped = more.map(mapClienteToChat);
       const added = mapped.filter((c) => !loadedIdsRef.current.has(c.id)).length;
+
+      // Busca sender/status antes de adicionar à lista, evitando flickering
+      const meta = await marketingService
+        .getLastMessageMetaByJids(mapped.map((c) => c.id))
+        .catch(() => new Map() as Map<string, { sender: string; status: string; tipo?: string }>);
+
+      const mappedComStatus = meta.size > 0
+        ? mapped.map((c) => {
+            const mm = meta.get(c.id);
+            if (!mm) return c;
+            return {
+              ...c,
+              lastMessageSender: mm.sender as "me" | "contact",
+              lastMessageType: mm.tipo || c.lastMessageType,
+              lastMessageStatus:
+                mm.sender === "me"
+                  ? ((mm.status as "sent" | "delivered" | "read") || "sent")
+                  : undefined,
+            };
+          })
+        : mapped;
+
       setChats((prev) => {
         const existingIds = new Set(prev.map((c) => c.id));
-        const newChats = mapped.filter((c) => !existingIds.has(c.id));
+        const newChats = mappedComStatus.filter((c) => !existingIds.has(c.id));
         return sortChats([...prev, ...newChats]);
       });
       // Página inteira repetida (a lista pode ter sido reordenada por mensagem nova
@@ -1592,30 +1610,6 @@ export function WhatsappView({
         hasMoreByModeRef.current = { ...hasMoreByModeRef.current, [mode]: false };
         return;
       }
-
-      // Mesmo preenchimento do ✓/✓✓ feito na carga inicial, para as conversas
-      // que entram por scroll não ficarem sem o ícone até serem abertas.
-      marketingService
-        .getLastMessageMetaByJids(mapped.map((c) => c.id))
-        .then((meta) => {
-          if (meta.size === 0) return;
-          setChats((prev) =>
-            prev.map((c) => {
-              const mm = meta.get(c.id);
-              if (!mm) return c;
-              return {
-                ...c,
-                lastMessageSender: mm.sender,
-                lastMessageType: mm.tipo || c.lastMessageType,
-                lastMessageStatus:
-                  mm.sender === "me"
-                    ? ((mm.status as "sent" | "delivered" | "read") || "sent")
-                    : undefined,
-              };
-            }),
-          );
-        })
-        .catch(() => null);
     } catch (err) {
       console.error("Erro ao carregar mais chats:", err);
     } finally {
@@ -4730,28 +4724,6 @@ export function WhatsappView({
               </div>
 
               <div className="flex items-center gap-2">
-                {/* Botão de ligação via WhatsApp */}
-                <button
-                  onClick={async () => {
-                    try {
-                      const base = "/api-marketing";
-                      const fullBase = base.startsWith("http") ? base : window.location.origin + base;
-                      await fetch(`${fullBase}/api/whatsapp/send-call-button`, {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ to: selectedChat.id }),
-                      });
-                      showNotification("success", "Ligação", "Botão de ligação enviado ao contato!");
-                    } catch {
-                      showNotification("error", "Erro", "Não foi possível enviar o botão de ligação.");
-                    }
-                  }}
-                  className="h-9 w-9 rounded-xl border border-border/80 bg-secondary/30 flex items-center justify-center text-muted-foreground hover:text-emerald-500 hover:border-emerald-500/30 hover:bg-emerald-500/10 transition-all"
-                  title="Enviar botão de ligação WhatsApp"
-                >
-                  <Phone className="w-4 h-4" />
-                </button>
-
                 {/* Atendente (vendedor_id) Estático */}
                 {selectedChat.vendedor_id ? (
                   <div className="h-9 px-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
