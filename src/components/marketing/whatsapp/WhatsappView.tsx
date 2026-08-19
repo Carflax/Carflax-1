@@ -1864,11 +1864,13 @@ export function WhatsappView({
       }
 
       if (total && total > 0) {
-        await marketingService.registerOrcamento(remoteJid, total, isoTs);
         const formatted = total.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         const patch = (info: LeadMetadata | undefined): LeadMetadata => ({ ...info, quoteValue: formatted });
         setChats((prev) => prev.map((c) => (c.id === remoteJid ? { ...c, leadInfo: patch(c.leadInfo) } : c)));
         setSelectedChat((s) => (s && s.id === remoteJid ? { ...s, leadInfo: patch(s.leadInfo) } : s));
+        marketingService.registerOrcamento(remoteJid, total, isoTs).catch((err) =>
+          console.error("[ORCAMENTO] Erro ao salvar orçamento no Supabase:", err)
+        );
       }
     } catch (err) {
       console.error("[ORCAMENTO] Erro ao processar orçamento do documento:", err);
@@ -3202,6 +3204,11 @@ export function WhatsappView({
         }),
       );
 
+      // Inicia a extração e aplicação otimista do orçamento na hora
+      if (fileTipo === "document" || file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+        processAndApplyQuote(selectedChat.id, file, timestamp);
+      }
+
       try {
         const ext = file.name.split(".").pop() || "bin";
         const filename = `${msgId}.${ext}`;
@@ -3259,11 +3266,6 @@ export function WhatsappView({
           quoted_text: quotedText,
           quoted_sender: quotedSender,
         });
-
-        // Se for um arquivo de orçamento (PDF ou documento): extrai direto e registra o valor
-        if (fileTipo === "document" || file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
-          processAndApplyQuote(selectedChat.id, file, timestamp);
-        }
       } catch (error) {
         console.error("Erro ao enviar documento:", error);
       }

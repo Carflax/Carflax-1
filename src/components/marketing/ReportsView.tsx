@@ -23,6 +23,7 @@ import {
 import { marketingService, type ReportsAnalytics, type EvolutionData, type EvolutionClient, type VerbasData } from "@/lib/marketing-service";
 import { cn } from "@/lib/utils";
 import { MiniCalendar } from "@/components/ui/MiniCalendar";
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 
 const EMPTY_ANALYTICS: ReportsAnalytics = {
   totals: {
@@ -128,7 +129,6 @@ export function ReportsView() {
     loadData();
   }, [startDate, endDate]);
 
-  const verbasKey = `${activeTab}-${startDate?.getTime()}-${endDate?.getTime()}`;
   useEffect(() => {
     if (activeTab !== "verbas" || !startDate || !endDate) return;
     setVerbas(null);
@@ -137,7 +137,7 @@ export function ReportsView() {
       .then(setVerbas)
       .catch((err) => console.error("Erro ao carregar verbas:", err))
       .finally(() => setVerbasLoading(false));
-  }, [verbasKey]);
+  }, [activeTab, startDate, endDate]);
 
   const { totals, previous, bySeller, byOrigin, byCampaign, byTemperature, dailySeries } = analytics;
   const maxOriginLeads = Math.max(...byOrigin.map((o) => o.leads), 1);
@@ -463,79 +463,207 @@ export function ReportsView() {
             <div className="space-y-6">
               {/* Tendência diária: leads x vendas */}
               <section className="bg-card border border-border rounded-3xl p-6 shadow-sm flex flex-col">
-                <div className="flex items-center justify-between mb-5">
-                  <h2 className="text-sm font-black uppercase tracking-tight flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-primary" /> Tendência no Período
-                  </h2>
-                  <div className="flex items-center gap-4 text-[9px] font-black uppercase tracking-widest">
-                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-500" /> Leads</span>
-                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" /> Vendas</span>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+                  <div>
+                    <h2 className="text-sm font-black uppercase tracking-tight flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-primary" /> Tendência no Período
+                    </h2>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">
+                      Volume diário de novos leads e conversões em vendas
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-4 text-[10px] font-black uppercase tracking-wider">
+                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-sm shadow-blue-500/50" /> Leads</span>
+                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50" /> Vendas</span>
                   </div>
                 </div>
-                {(() => {
-                  const maxVal = Math.max(...dailySeries.map((d) => Math.max(d.leads, d.sales)), 1);
-                  const showLabelEvery = Math.ceil(dailySeries.length / 12);
-                  return (
-                    <div className="h-56 flex items-end gap-1">
-                      {dailySeries.map((d, i) => (
-                        <div key={d.date} className="flex-1 h-full flex flex-col justify-end items-center gap-2 group/bar min-w-0">
-                          <div className="flex-1 w-full flex items-end justify-center gap-0.5 relative">
-                            <div className="w-1/2 bg-gradient-to-t from-blue-600 to-blue-400 rounded-t transition-all min-h-[2px]" style={{ height: `${(d.leads / maxVal) * 100}%` }} />
-                            <div className="w-1/2 bg-gradient-to-t from-emerald-600 to-emerald-400 rounded-t transition-all min-h-[2px]" style={{ height: `${(d.sales / maxVal) * 100}%` }} />
-                            <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-950 border border-white/10 px-2 py-1 rounded-lg text-[9px] font-black text-white opacity-0 group-hover/bar:opacity-100 transition-all z-20 whitespace-nowrap">
-                              {new Date(d.date + "T00:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })} · {d.leads} leads · {d.sales} vendas
+
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={dailySeries.map((d) => {
+                        const dateObj = new Date(d.date + "T00:00:00");
+                        return {
+                          ...d,
+                          label: dateObj.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
+                          fullDate: dateObj.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }),
+                        };
+                      })}
+                      margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                      barGap={3}
+                    >
+                      <defs>
+                        <linearGradient id="leadGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#3b82f6" stopOpacity={1} />
+                          <stop offset="100%" stopColor="#1d4ed8" stopOpacity={0.8} />
+                        </linearGradient>
+                        <linearGradient id="salesGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#10b981" stopOpacity={1} />
+                          <stop offset="100%" stopColor="#059669" stopOpacity={0.8} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+                      <XAxis
+                        dataKey="label"
+                        stroke="#64748b"
+                        fontSize={10}
+                        fontWeight={700}
+                        tickLine={false}
+                        axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+                        interval={dailySeries.length > 20 ? Math.ceil(dailySeries.length / 10) : 0}
+                      />
+                      <YAxis
+                        stroke="#64748b"
+                        fontSize={10}
+                        fontWeight={700}
+                        tickLine={false}
+                        axisLine={false}
+                        allowDecimals={false}
+                      />
+                      <Tooltip
+                        cursor={{ fill: "rgba(255,255,255,0.03)" }}
+                        content={({ active, payload }) => {
+                          if (!active || !payload || !payload.length) return null;
+                          const data = payload[0].payload;
+                          const conv = data.leads > 0 ? ((data.sales / data.leads) * 100).toFixed(0) : "0";
+                          return (
+                            <div className="bg-slate-950/95 border border-white/10 rounded-2xl p-3.5 shadow-2xl backdrop-blur-md min-w-[170px]">
+                              <p className="text-[11px] font-black text-white uppercase tracking-wider mb-2 border-b border-white/10 pb-1.5">
+                                {data.fullDate}
+                              </p>
+                              <div className="space-y-1.5 text-xs font-bold">
+                                <div className="flex items-center justify-between gap-4">
+                                  <span className="flex items-center gap-1.5 text-blue-400">
+                                    <span className="w-2 h-2 rounded-full bg-blue-500" /> Leads:
+                                  </span>
+                                  <span className="font-black text-white tabular-nums">{data.leads}</span>
+                                </div>
+                                <div className="flex items-center justify-between gap-4">
+                                  <span className="flex items-center gap-1.5 text-emerald-400">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-500" /> Vendas:
+                                  </span>
+                                  <span className="font-black text-white tabular-nums">{data.sales}</span>
+                                </div>
+                                {data.leads > 0 && (
+                                  <div className="pt-1.5 border-t border-white/10 flex items-center justify-between text-[10px] text-muted-foreground">
+                                    <span>Conversão:</span>
+                                    <span className="text-emerald-400 font-black">{conv}%</span>
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                          <span className="text-[7px] font-black uppercase tracking-tighter opacity-50 truncate w-full text-center">
-                            {i % showLabelEvery === 0 ? new Date(d.date + "T00:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : ""}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
+                          );
+                        }}
+                      />
+                      <Bar dataKey="leads" name="Leads" fill="url(#leadGrad)" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                      <Bar dataKey="sales" name="Vendas" fill="url(#salesGrad)" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               </section>
 
               {/* Fluxo por horário */}
               <section className="bg-card border border-border rounded-3xl p-6 shadow-sm flex flex-col">
-                <h2 className="text-sm font-black uppercase tracking-tight flex items-center gap-2 mb-5">
-                  <TrendingUp className="w-4 h-4 text-primary" /> Fluxo de Leads por Horário
-                </h2>
-                <div className="flex-1 h-52 flex items-end gap-1.5">
-                  {(() => {
-                    const isRange = startDate && endDate && endDate.getTime() - startDate.getTime() > 86400000;
-                    const day = (startDate || new Date()).getDay();
-                    const isSaturday = !isRange && day === 6;
-                    const isSunday = !isRange && day === 0;
-                    const startH = isSaturday ? 8 : isSunday ? 0 : 7;
-                    const endH = isSaturday ? 12 : isSunday ? 23 : 17;
-                    const filtered = hourlyData.map((val, h) => ({ val, h })).filter((d) => d.h >= startH && d.h <= endH);
-                    const maxLeads = Math.max(...filtered.map((d) => d.val), 1);
-                    return filtered.map(({ val, h }) => (
-                      <div key={h} className="flex-1 h-full flex flex-col justify-end items-center gap-2 group/bar">
-                        <div className="flex-1 w-full flex flex-col justify-end relative">
-                          <div
-                            className={cn(
-                              "w-full rounded-full transition-all duration-500 relative min-h-[4px]",
-                              val > 0 ? "bg-gradient-to-t from-blue-600 to-indigo-500 hover:from-blue-500 cursor-pointer" : "bg-secondary/35"
-                            )}
-                            style={{ height: `${val > 0 ? Math.max((val / maxLeads) * 100, 8) : 4}%` }}
-                          >
-                            {val > 0 && (
-                              <div className="absolute -top-9 left-1/2 -translate-x-1/2 bg-slate-950 border border-white/10 px-2 py-1 rounded-lg text-[9px] font-black text-white opacity-0 group-hover/bar:opacity-100 transition-all z-20 whitespace-nowrap">
-                                {val} {val === 1 ? "lead" : "leads"} • {h}h
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                        <span className="text-[8px] font-black uppercase tracking-tighter opacity-50">{h}h</span>
-                      </div>
-                    ));
-                  })()}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+                  <div>
+                    <h2 className="text-sm font-black uppercase tracking-tight flex items-center gap-2">
+                      <TrendingUp className="w-4 h-4 text-primary" /> Fluxo de Leads por Horário
+                    </h2>
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">
+                      Distribuição do volume de contato ao longo do dia
+                    </p>
+                  </div>
+                  {peakHour.hour !== -1 && peakHour.count > 0 && (
+                    <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-500/10 border border-blue-500/20 rounded-full text-blue-400 text-[10px] font-black uppercase tracking-wider">
+                      <span>🔥 Pico: {peakHour.hour}h ({peakHour.count} leads)</span>
+                    </div>
+                  )}
                 </div>
+
+                {(() => {
+                  const isRange = startDate && endDate && endDate.getTime() - startDate.getTime() > 86400000;
+                  const day = (startDate || new Date()).getDay();
+                  const isSaturday = !isRange && day === 6;
+                  const isSunday = !isRange && day === 0;
+                  const startH = isSaturday ? 8 : isSunday ? 0 : 7;
+                  const endH = isSaturday ? 12 : isSunday ? 23 : 18;
+                  const filtered = hourlyData
+                    .map((val, h) => ({
+                      hour: h,
+                      label: `${h}h`,
+                      leads: val,
+                      isPeak: h === peakHour.hour,
+                    }))
+                    .filter((d) => d.hour >= startH && d.hour <= endH);
+
+                  return (
+                    <div className="h-56 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={filtered}
+                          margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                        >
+                          <defs>
+                            <linearGradient id="hourlyGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#6366f1" stopOpacity={1} />
+                              <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.8} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+                          <XAxis
+                            dataKey="label"
+                            stroke="#64748b"
+                            fontSize={10}
+                            fontWeight={700}
+                            tickLine={false}
+                            axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+                          />
+                          <YAxis
+                            stroke="#64748b"
+                            fontSize={10}
+                            fontWeight={700}
+                            tickLine={false}
+                            axisLine={false}
+                            allowDecimals={false}
+                          />
+                          <Tooltip
+                            cursor={{ fill: "rgba(255,255,255,0.03)" }}
+                            content={({ active, payload }) => {
+                              if (!active || !payload || !payload.length) return null;
+                              const data = payload[0].payload;
+                              return (
+                                <div className="bg-slate-950/95 border border-white/10 rounded-2xl p-3 shadow-2xl backdrop-blur-md">
+                                  <p className="text-[11px] font-black text-white uppercase tracking-wider mb-1">
+                                    Horário: {data.hour}:00 às {data.hour}:59
+                                  </p>
+                                  <p className="text-xs font-bold text-indigo-400">
+                                    <span className="font-black text-white">{data.leads}</span> {data.leads === 1 ? "lead recebido" : "leads recebidos"}
+                                  </p>
+                                  {data.isPeak && data.leads > 0 && (
+                                    <span className="mt-1 inline-block text-[9px] font-black uppercase text-pink-400 tracking-wider">
+                                      ⭐ Horário de maior pico
+                                    </span>
+                                  )}
+                                </div>
+                              );
+                            }}
+                          />
+                          <Bar
+                            dataKey="leads"
+                            name="Leads"
+                            fill="url(#hourlyGrad)"
+                            radius={[6, 6, 0, 0]}
+                            maxBarSize={36}
+                          />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  );
+                })()}
+
                 <div className="mt-4 pt-3 border-t border-border/40 text-[9px] font-black text-muted-foreground uppercase tracking-widest text-center">
                   {peakHour.hour !== -1 && peakHour.count > 0
-                    ? `Pico às ${peakHour.hour}h · ${peakHour.count} ${peakHour.count === 1 ? "lead" : "leads"}`
+                    ? `Pico de atendimento às ${peakHour.hour}h com ${peakHour.count} ${peakHour.count === 1 ? "lead" : "leads"} no período`
                     : "Nenhum lead registrado no período."}
                 </div>
               </section>
