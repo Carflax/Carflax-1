@@ -44,6 +44,7 @@ import { supabase } from "@/lib/supabase";
 import { marketingService } from "@/lib/marketing-service";
 import { cn, formatBrTime, formatBrDate } from "@/lib/utils";
 import { apiDashboardProdutos, apiGetLinkPreview, apiCrmOrcamentos } from "@/lib/api";
+import { parseOrcamentoPdf } from "@/lib/pdf-orcamento";
 import { transcribeAudio, classifyByRules } from "@/lib/gemini-service";
 import { Package } from "lucide-react";
 import { useNotification } from "@/hooks/useNotification";
@@ -1817,6 +1818,63 @@ export function WhatsappView({
     }
   };
 
+  // Marca origem/campanha a partir do anúncio Meta (Click-to-WhatsApp). É autoritativo:
+  // sobrescreve a origem genérica, pois vem do metadado do anúncio, não de texto do cliente.
+  const applyAdOrigin = (remoteJid: string, platform: string, campanha?: string) => {
+    marketingService
+      .upsertCliente({ remote_jid: remoteJid, origem: platform, ...(campanha ? { campanha } : {}) })
+      .catch(() => null);
+    const patch = (info: LeadMetadata | undefined): LeadMetadata => ({
+      ...info,
+      source: platform,
+      ...(campanha ? { campaign: campanha } : {}),
+    });
+    setChats((prev) => prev.map((c) => (c.id === remoteJid ? { ...c, leadInfo: patch(c.leadInfo) } : c)));
+    setSelectedChat((s) => (s && s.id === remoteJid ? { ...s, leadInfo: patch(s.leadInfo) } : s));
+  };
+
+  // Orçamento gerado no ERP ou enviado como PDF: extrai número/valor e grava no lead
+  const processAndApplyQuote = async (
+    remoteJid: string,
+    fileOrName: File | string,
+    isoTs?: string,
+  ) => {
+    try {
+      const fileName = typeof fileOrName === "string" ? fileOrName : fileOrName.name;
+      let total: number | null = null;
+
+      if (typeof fileOrName !== "string" && (fileOrName.type === "application/pdf" || fileName.toLowerCase().endsWith(".pdf"))) {
+        // Leitura direta do PDF usando pdfjs-dist
+        const extracted = await parseOrcamentoPdf(fileOrName, fileName);
+        if (extracted.valor && extracted.valor > 0) {
+          total = extracted.valor;
+        }
+      }
+
+      // Se não obteve o total pelo PDF diretamente, tenta via número no ERP
+      if (!total || total <= 0) {
+        const m = fileName.match(/^OR[_-](\d{4,})/i) || fileName.match(/(\d{6,})/);
+        if (m) {
+          const list = await apiCrmOrcamentos({ documento: m[1] });
+          total = (list || []).reduce(
+            (max, o) => Math.max(max, parseFloat(String(o.VALOR_TOTAL_ORCAMENTO)) || 0),
+            0,
+          );
+        }
+      }
+
+      if (total && total > 0) {
+        await marketingService.registerOrcamento(remoteJid, total, isoTs);
+        const formatted = total.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const patch = (info: LeadMetadata | undefined): LeadMetadata => ({ ...info, quoteValue: formatted });
+        setChats((prev) => prev.map((c) => (c.id === remoteJid ? { ...c, leadInfo: patch(c.leadInfo) } : c)));
+        setSelectedChat((s) => (s && s.id === remoteJid ? { ...s, leadInfo: patch(s.leadInfo) } : s));
+      }
+    } catch (err) {
+      console.error("[ORCAMENTO] Erro ao processar orçamento do documento:", err);
+    }
+  };
+
   useEffect(() => {
     const currentTimers = tempClassifyTimers.current;
     // Conecta ao WebSocket para receber mensagens em tempo real
@@ -2037,10 +2095,6 @@ export function WhatsappView({
         applyAdOrigin(remoteJid, platform, campanha);
       }
 
-      // Orçamento do ERP enviado como PDF (OR_<numero>.pdf): busca o valor no ERP e grava.
-      const docFileName = messageContent?.documentMessage?.fileName;
-      if (docFileName) applyErpQuoteFromDoc(remoteJid, docFileName, timestamp);
-
       if (!message.key?.fromMe) {
         const senderName = message.pushName || remoteJid.split("@")[0];
         sendBrowserNotification(`Nova mensagem de ${senderName}`, text);
@@ -2062,6 +2116,10 @@ export function WhatsappView({
               : messageContent?.documentMessage
                 ? "document"
                 : "text";
+
+      // Orçamento do ERP enviado como PDF (OR_<numero>.pdf) ou documento recebido
+      const docFileName = messageContent?.documentMessage?.fileName || (tipoMsg === "document" ? text : null);
+      if (docFileName) processAndApplyQuote(remoteJid, docFileName, timestamp);
 
       const validPushName =
         !message.key?.fromMe && message.pushName ? message.pushName : null;
@@ -3201,6 +3259,11 @@ export function WhatsappView({
           quoted_text: quotedText,
           quoted_sender: quotedSender,
         });
+
+        // Se for um arquivo de orçamento (PDF ou documento): extrai direto e registra o valor
+        if (fileTipo === "document" || file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+          processAndApplyQuote(selectedChat.id, file, timestamp);
+        }
       } catch (error) {
         console.error("Erro ao enviar documento:", error);
       }
@@ -3473,43 +3536,6 @@ export function WhatsappView({
       }
       return prev;
     });
-  };
-
-  // Marca origem/campanha a partir do anúncio Meta (Click-to-WhatsApp). É autoritativo:
-  // sobrescreve a origem genérica, pois vem do metadado do anúncio, não de texto do cliente.
-  const applyAdOrigin = (remoteJid: string, platform: string, campanha?: string) => {
-    marketingService
-      .upsertCliente({ remote_jid: remoteJid, origem: platform, ...(campanha ? { campanha } : {}) })
-      .catch(() => null);
-    const patch = (info: LeadMetadata | undefined): LeadMetadata => ({
-      ...info,
-      source: platform,
-      ...(campanha ? { campaign: campanha } : {}),
-    });
-    setChats((prev) => prev.map((c) => (c.id === remoteJid ? { ...c, leadInfo: patch(c.leadInfo) } : c)));
-    setSelectedChat((s) => (s && s.id === remoteJid ? { ...s, leadInfo: patch(s.leadInfo) } : s));
-  };
-
-  // Orçamento gerado no ERP e enviado como PDF (OR_<numero>.pdf): busca o valor total
-  // no ERP pelo número do documento e grava valor_orcamento no lead.
-  const applyErpQuoteFromDoc = (remoteJid: string, fileName: string, isoTs?: string) => {
-    // Ancorado no início ("OR_000...") para não casar dentro de palavras (ex.: FORNECEDOR_123).
-    const m = fileName.match(/^OR[_-](\d{5,})/i);
-    if (!m) return;
-    apiCrmOrcamentos({ documento: m[1] })
-      .then((list) => {
-        const total = (list || []).reduce(
-          (max, o) => Math.max(max, parseFloat(String(o.VALOR_TOTAL_ORCAMENTO)) || 0),
-          0,
-        );
-        if (total <= 0) return;
-        marketingService.registerOrcamento(remoteJid, total, isoTs).catch(() => null);
-        const formatted = total.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        const patch = (info: LeadMetadata | undefined): LeadMetadata => ({ ...info, quoteValue: formatted });
-        setChats((prev) => prev.map((c) => (c.id === remoteJid ? { ...c, leadInfo: patch(c.leadInfo) } : c)));
-        setSelectedChat((s) => (s && s.id === remoteJid ? { ...s, leadInfo: patch(s.leadInfo) } : s));
-      })
-      .catch(() => null);
   };
 
   const handleInsertQuote = () => {

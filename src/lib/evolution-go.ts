@@ -339,12 +339,37 @@ export const evolutionGoApi = {
       listeners.get(event)?.forEach((cb) => { try { cb(payload); } catch { /* ignore */ } });
     };
 
-    const rowToEvo = (row: any) => ({
-      key: { id: row.message_id, remoteJid: row.remote_jid, fromMe: row.sender === 'me' },
-      pushName: undefined,
-      message: { conversation: row.texto || '' },
-      messageTimestamp: Math.floor(new Date(row.timestamp).getTime() / 1000),
-    });
+    const rowToEvo = (row: any) => {
+      const caption = row.texto || '';
+      const tipo = row.tipo || 'text';
+      let message: Record<string, unknown>;
+      switch (tipo) {
+        case 'image':
+          message = { imageMessage: { caption, mimetype: 'image/jpeg' } };
+          break;
+        case 'sticker':
+          message = { stickerMessage: { mimetype: 'image/webp' } };
+          break;
+        case 'video':
+          message = { videoMessage: { caption, mimetype: 'video/mp4' } };
+          break;
+        case 'audio':
+          message = { audioMessage: { mimetype: 'audio/ogg' } };
+          break;
+        case 'document':
+          message = { documentMessage: { fileName: caption, mimetype: 'application/octet-stream' } };
+          break;
+        default:
+          message = { conversation: caption };
+      }
+      return {
+        key: { id: row.message_id, remoteJid: row.remote_jid, fromMe: row.sender === 'me' },
+        pushName: undefined,
+        message,
+        messageTimestamp: Math.floor(new Date(row.timestamp).getTime() / 1000),
+        __resolvedMediaUrl: row.media_url || undefined,
+      };
+    };
     const passaFiltro = (row: any) =>
       !goRealtimeVendedorId || row?.vendedor_id === goRealtimeVendedorId;
 
