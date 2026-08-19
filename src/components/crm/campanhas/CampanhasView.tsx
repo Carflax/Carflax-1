@@ -223,36 +223,28 @@ export function CampanhasView({ userProfile }: { userProfile?: any }) {
         } : null);
       }
 
-      // Broadcast via Supabase Realtime
-      const channel = supabase.channel('sorteio_campanha');
-      const sendPayload = async () => {
-        await channel.send({
-          type: 'broadcast',
-          event: 'sorteio_iniciado',
-          payload: {
-            mes: mesSelecionado.mes,
-            ano: mesSelecionado.ano,
-            elegiveis: elegiveis,
-            ganhador: {
-              COD_VENDEDOR: winner.COD_VENDEDOR,
-              NOME_VENDEDOR: winner.NOME_VENDEDOR,
-              avatar: winner.avatar || null
-            },
-            premio: premioAtual
-          }
-        });
+      // Broadcast via Supabase Realtime — inscreve antes de enviar para evitar fallback REST
+      const channel = supabase.channel('sorteio_campanha', {
+        config: { broadcast: { self: true } },
+      });
+      const payload = {
+        mes: mesSelecionado.mes,
+        ano: mesSelecionado.ano,
+        elegiveis,
+        ganhador: {
+          COD_VENDEDOR: winner.COD_VENDEDOR,
+          NOME_VENDEDOR: winner.NOME_VENDEDOR,
+          avatar: winner.avatar || null,
+        },
+        premio: premioAtual,
       };
-
-      // @ts-ignore
-      if (channel.state === 'joined') {
-        sendPayload();
-      } else {
-        channel.subscribe(async (status) => {
-          if (status === 'SUBSCRIBED') {
-            await sendPayload();
-          }
-        });
-      }
+      channel.subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await channel.send({ type: 'broadcast', event: 'sorteio_iniciado', payload });
+          // Remove o canal logo após o envio (não precisa ficar ouvindo)
+          setTimeout(() => supabase.removeChannel(channel), 3000);
+        }
+      });
       
     } catch (err: any) {
       console.error("Erro no sorteio:", err);
