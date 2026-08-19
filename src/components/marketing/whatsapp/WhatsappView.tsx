@@ -1206,6 +1206,7 @@ export function WhatsappView({
             remote_jid: string;
             vendedor_id?: string | null;
             temperatura?: Temperature | null;
+            mensagens_nao_lidas?: number | null;
           };
           if (updated.remote_jid) {
             // Temperatura é classificada no servidor (webhook) e chega por aqui.
@@ -1218,6 +1219,10 @@ export function WhatsappView({
                 return {
                   ...c,
                   vendedor_id: updated.vendedor_id || undefined,
+                  unreadCount:
+                    updated.mensagens_nao_lidas !== undefined && updated.mensagens_nao_lidas !== null
+                      ? updated.mensagens_nao_lidas
+                      : c.unreadCount,
                   leadInfo: updated.temperatura
                     ? {
                         ...(c.leadInfo || {}),
@@ -1232,6 +1237,10 @@ export function WhatsappView({
                 return {
                   ...prev,
                   vendedor_id: updated.vendedor_id || undefined,
+                  unreadCount:
+                    updated.mensagens_nao_lidas !== undefined && updated.mensagens_nao_lidas !== null
+                      ? updated.mensagens_nao_lidas
+                      : prev.unreadCount,
                   leadInfo: updated.temperatura
                     ? {
                         ...(prev.leadInfo || {}),
@@ -2296,10 +2305,17 @@ export function WhatsappView({
               }
             }
 
-            // Incrementa unread se não for o chat selecionado
-            if (selectedChatRef.current?.id !== remoteJid) {
+            // Se a mensagem for do atendente (fromMe), zera o badge de não lidas imediatamente
+            if (message.key?.fromMe) {
+              chat.unreadCount = 0;
+              supabase
+                .from("marketing_clientes")
+                .update({ mensagens_nao_lidas: 0, updated_at: new Date().toISOString() })
+                .eq("remote_jid", remoteJid)
+                .then();
+            } else if (selectedChatRef.current?.id !== remoteJid) {
+              // Incrementa unread apenas se for mensagem recebida do contato e não for o chat selecionado
               chat.unreadCount = (chat.unreadCount || 0) + 1;
-              // Persiste no banco de forma assíncrona
               marketingService.incrementUnread(remoteJid);
             }
 
@@ -2324,7 +2340,7 @@ export function WhatsappView({
                 lastMessageType: tipoMsg,
                 lastMessageStatus: message.key?.fromMe ? "sent" : undefined,
                 time: time,
-                unreadCount: selectedChatRef.current?.id === remoteJid ? 0 : 1,
+                unreadCount: message.key?.fromMe || selectedChatRef.current?.id === remoteJid ? 0 : 1,
                 avatar: dbCliente?.foto_url || avatarCache.get(remoteJid) || "",
                 arquivado: false,
                 leadInfo: {
