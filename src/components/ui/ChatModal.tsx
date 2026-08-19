@@ -79,6 +79,7 @@ export function ChatModal({
   const [partnerTyping, setPartnerTyping] = useState(false);
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingBroadcast = useRef(0);
+  const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -420,6 +421,7 @@ export function ChatModal({
     // Canal de broadcast para indicador "digitando"
     const cleanDocTyping = documento.replace("#", "").trim();
     const typingChannel = supabase.channel(`typing_${cleanDocTyping}`);
+    typingChannelRef.current = typingChannel;
     typingChannel
       .on('broadcast', { event: 'typing' }, (payload) => {
         if (payload.payload?.userId === userProfile?.id) return;
@@ -432,6 +434,7 @@ export function ChatModal({
     return () => {
       supabase.removeChannel(chatChannel);
       supabase.removeChannel(typingChannel);
+      typingChannelRef.current = null;
       clearInterval(chatPoll);
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
     };
@@ -1448,8 +1451,7 @@ export function ChatModal({
                     const now = Date.now();
                     if (now - lastTypingBroadcast.current > 2000) {
                       lastTypingBroadcast.current = now;
-                      const cleanDocTyping = documento.replace("#", "").trim();
-                      supabase.channel(`typing_${cleanDocTyping}`).send({
+                      typingChannelRef.current?.send({
                         type: 'broadcast',
                         event: 'typing',
                         payload: { userId: userProfile?.id, userName: userProfile?.name },

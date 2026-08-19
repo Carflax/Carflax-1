@@ -19,12 +19,11 @@ import {
   Filter,
   BarChart3,
   X,
-  Settings,
   Send,
   Check,
   Phone,
 } from "lucide-react";
-import { marketingService, type ReportsAnalytics, type EvolutionData, type EvolutionClient, type VerbasData, type VerbasTrimestre } from "@/lib/marketing-service";
+import { marketingService, type ReportsAnalytics, type EvolutionData, type EvolutionClient, type VerbasData } from "@/lib/marketing-service";
 import { apiAdsSpend, apiAdsSendReport, type AdsSpendResponse } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { MiniCalendar } from "@/components/ui/MiniCalendar";
@@ -1364,7 +1363,6 @@ export function ReportsView() {
                       y += 20;
                       ctx.fillStyle = "#fbbf24";
                       ctx.font = "bold 13px system-ui, sans-serif";
-                      const maxCampW = W - 120;
                       const campText = topCampaign.length > 60 ? topCampaign.slice(0, 57) + "..." : topCampaign;
                       ctx.fillText(campText, 56, y);
                     }
