@@ -194,7 +194,24 @@
       "Read(//c/Users/Danilo/AppData/Roaming/Claude/local-agent-mode-sessions/skills-plugin/c430529f-1d6b-4d11-9371-2538c20969e1/b150fc5f-4938-4e09-8707-cb480dc3686d/skills/xlsx/**)",
       "Bash(markitdown \"C:\\\\Danilo\\\\Downloads\\\\Leads_Carflax_2026-07-28_2026-07-30.xlsx\")",
       "Bash(git checkout *)",
-      "Bash(ls \"C:\\\\Users\\\\Danilo\\\\Desktop\\\\Desenvolvimento\\\\Carflax HUB\\\\db\")"
+      "Bash(ls \"C:\\\\Users\\\\Danilo\\\\Desktop\\\\Desenvolvimento\\\\Carflax HUB\\\\db\")",
+      "mcp__2f4075ca-71f5-430b-aa4c-2f92cd93513a__data_source_discovery",
+      "mcp__2f4075ca-71f5-430b-aa4c-2f92cd93513a__accounts_discovery",
+      "mcp__2f4075ca-71f5-430b-aa4c-2f92cd93513a__field_discovery",
+      "mcp__2f4075ca-71f5-430b-aa4c-2f92cd93513a__data_query",
+      "Bash(node \"C:\\\\Users\\\\Danilo\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Danilo-Desktop-Desenvolvimento-Carflax-HUB-Carflax\\\\2f361889-92f4-4cad-a73d-5496411b740f\\\\scratchpad\\\\test-ads-apis.js\")",
+      "Bash(node \"C:\\\\Users\\\\Danilo\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-Danilo-Desktop-Desenvolvimento-Carflax-HUB-Carflax\\\\2f361889-92f4-4cad-a73d-5496411b740f\\\\scratchpad\\\\test-meta.js\")",
+      "Bash(node get-google-ads-token.js)",
+      "PowerShell(Get-NetTCPConnection -LocalPort 53683 -ErrorAction SilentlyContinue | Select-Object OwningProcess | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -Confirm:$false })",
+      "PowerShell(Get-NetTCPConnection -LocalPort 53683 -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -Confirm:$false })",
+      "Bash(node -e ' *)",
+      "mcp__6057b015-9883-4895-853a-b9c9793dee7e__get_data",
+      "mcp__6057b015-9883-4895-853a-b9c9793dee7e__get_connectors",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(npm install *)",
+      "Bash(npm uninstall *)"
     ]
   }
 }

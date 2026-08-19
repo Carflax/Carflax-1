@@ -1213,16 +1213,19 @@ export function WhatsappView({
             if (updated.temperatura) {
               knownTempRef.current.set(updated.remote_jid, updated.temperatura);
             }
+            const isSelected = selectedChatRef.current?.id === updated.remote_jid;
             setChats((prev) =>
               prev.map((c) => {
                 if (c.id !== updated.remote_jid) return c;
+                const newUnread = isSelected
+                  ? 0
+                  : updated.mensagens_nao_lidas !== undefined && updated.mensagens_nao_lidas !== null
+                    ? updated.mensagens_nao_lidas
+                    : c.unreadCount;
                 return {
                   ...c,
                   vendedor_id: updated.vendedor_id || undefined,
-                  unreadCount:
-                    updated.mensagens_nao_lidas !== undefined && updated.mensagens_nao_lidas !== null
-                      ? updated.mensagens_nao_lidas
-                      : c.unreadCount,
+                  unreadCount: newUnread,
                   leadInfo: updated.temperatura
                     ? {
                         ...(c.leadInfo || {}),
@@ -1237,10 +1240,7 @@ export function WhatsappView({
                 return {
                   ...prev,
                   vendedor_id: updated.vendedor_id || undefined,
-                  unreadCount:
-                    updated.mensagens_nao_lidas !== undefined && updated.mensagens_nao_lidas !== null
-                      ? updated.mensagens_nao_lidas
-                      : prev.unreadCount,
+                  unreadCount: 0,
                   leadInfo: updated.temperatura
                     ? {
                         ...(prev.leadInfo || {}),

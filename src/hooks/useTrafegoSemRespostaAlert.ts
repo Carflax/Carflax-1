@@ -1,14 +1,8 @@
 import { useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 
-/**
- * Alerta de SLA de Tráfego / WhatsApp: quando um lead envia mensagem e fica
- * mais de 1 minuto sem resposta de um vendedor, notifica os supervisores de
- * tráfego/vendas (João Paulo, Guilherme, Administradores e Gerentes).
- */
-
-const CHECK_INTERVAL_MS = 15 * 1000; // Checa a cada 15 segundos
-const SLA_LIMIT_MS = 60 * 1000;      // 1 minuto sem resposta
+const CHECK_INTERVAL_MS = 15 * 1000;
+const SLA_LIMIT_MS = 60 * 1000;
 
 type ShowNotification = (
   type: "success" | "error" | "info",
@@ -31,29 +25,15 @@ interface UP {
   operatorCode?: string;
 }
 
-/**
- * Verifica se o usuário atual é supervisor de tráfego/vendas (João Paulo, Guilherme, Gerentes, Admins)
- */
 function isSupervisorTrafego(up?: UP | null): boolean {
   if (!up) return false;
-  if (up.is_admin || up.is_leader) return true;
-
-  const role = (up.role || "").toUpperCase();
-  if (role.includes("SUPERVISOR") || role.includes("GERENTE") || role.includes("DIRETOR") || role.includes("ADMIN")) {
-    return true;
-  }
 
   const normName = (up.name || "")
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .toUpperCase();
 
-  // João Paulo / Guilherme
-  if (normName.includes("JOAO") || normName.includes("GUILHERME")) {
-    return true;
-  }
-
-  return false;
+  return normName.includes("JOAO PAULO") || normName.includes("GUILHERME");
 }
 
 function requestBrowserPermission() {
@@ -85,7 +65,6 @@ export function useTrafegoSemRespostaAlert(
     showRef.current = showNotification;
   }, [showNotification]);
 
-  // Guarda os JIDs já alertados recentemente para não repetir o alerta a cada 15s
   const notifiedJidsRef = useRef<Map<string, number>>(new Map());
 
   useEffect(() => {
@@ -101,9 +80,8 @@ export function useTrafegoSemRespostaAlert(
       try {
         const now = Date.now();
         const limitTime = new Date(now - SLA_LIMIT_MS).toISOString();
-        const maxAge = new Date(now - 24 * 60 * 60 * 1000).toISOString(); // últimas 24h
+        const maxAge = new Date(now - 24 * 60 * 60 * 1000).toISOString();
 
-        // Busca clientes com mensagens não lidas ou cuja última conversa ocorreu há > 1 min
         const { data: clientes, error } = await supabase
           .from("marketing_clientes")
           .select("remote_jid, nome, push_name, ultima_mensagem, ultima_conversa_em, mensagens_nao_lidas, arquivado, status, foto_url")
@@ -120,7 +98,6 @@ export function useTrafegoSemRespostaAlert(
           const remoteJid = cliente.remote_jid;
           if (!remoteJid) continue;
 
-          // Se já alertou nos últimos 3 minutos, pula para evitar flood
           const lastNotified = notifiedJidsRef.current.get(remoteJid) || 0;
           if (now - lastNotified < 3 * 60 * 1000) continue;
 
@@ -129,10 +106,8 @@ export function useTrafegoSemRespostaAlert(
 
           notifiedJidsRef.current.set(remoteJid, now);
 
-          // 1. Som de alerta
           playAlertSound();
 
-          // 2. Notificação no App
           showRef.current(
             "error",
             "⚠️ Conversa sem resposta (> 1 min)",
@@ -150,7 +125,6 @@ export function useTrafegoSemRespostaAlert(
             }
           );
 
-          // 3. Notificação nativa / Push no Google Chrome (mesmo com navegador minimizado ou em outra aba)
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
             try {
               if ("serviceWorker" in navigator) {
@@ -165,7 +139,6 @@ export function useTrafegoSemRespostaAlert(
                     });
                     return;
                   }
-                  // Fallback padrão se não houver registration ativa
                   const notif = new Notification(`⚠️ Tráfego: ${nomeCliente} sem resposta`, {
                     body: `Aguardando há ${tempoEsperaMin} min: "${cliente.ultima_mensagem || "Nova mensagem"}"`,
                     icon: cliente.foto_url || "/favicon.png",
@@ -216,7 +189,6 @@ export function useTrafegoSemRespostaAlert(
       }
     }
 
-    // Primeira checagem 5 segundos após montar
     const timeout = setTimeout(checkUnansweredLeads, 5000);
     const interval = setInterval(checkUnansweredLeads, CHECK_INTERVAL_MS);
 

@@ -577,6 +577,43 @@ export const apiAdminSQL = (query: string, signal?: AbortSignal) =>
 export const apiAdminSchema = () => get<{ success: boolean, dbName: string, tables: { name: string, type: string }[] }>("/api/admin/sql/schema");
 export const apiHealth = () => get<{ status: string }>("/api/health");
 
+// ── Ads (Google + Meta) ──────────────────────────────────────────────────────
+export interface AdsCampaign {
+  campaign: string;
+  spend: number;
+  impressions: number;
+  clicks: number;
+  cpc: number;
+  conversions: number;
+}
+export interface AdsPlatform {
+  campaigns: AdsCampaign[];
+  total: number;
+  totalClicks: number;
+  totalImpressions: number;
+  totalConversions: number;
+  error?: string;
+}
+export interface AdsDailySpend {
+  date: string;
+  google: number;
+  meta: number;
+  total: number;
+}
+export interface AdsSpendResponse {
+  success: boolean;
+  period: { start: string; end: string };
+  daily: AdsDailySpend[];
+  meta: AdsPlatform;
+  google: AdsPlatform;
+  totalSpend: number;
+}
+export const apiAdsSpend = (start: string, end: string) =>
+  get<AdsSpendResponse>("/api/marketing/ads/spend", { start, end });
+
+export const apiAdsSendReport = (body: { phone: string; image: string; caption?: string }) =>
+  post<{ success: boolean; message: string }>("/api/marketing/ads/send-report", body);
+
 export interface LinkPreviewResponse {
   url: string;
   title: string | null;

@@ -637,6 +637,78 @@ function NotificationsTab({ userProfile }: { userProfile?: UserProfile | null })
 
   const [testingId, setTestingId] = useState<string | null>(null);
 
+  interface TrafficReportDest { id: string; nome: string; telefone: string; }
+  const [trafficDests, setTrafficDests] = useState<TrafficReportDest[]>([]);
+  const [loadingTraffic, setLoadingTraffic] = useState(true);
+  const [savingTraffic, setSavingTraffic] = useState(false);
+  const [savedTraffic, setSavedTraffic] = useState(false);
+  const [trafficHour, setTrafficHour] = useState("17:30");
+
+  useEffect(() => {
+    async function fetchTrafficConfig() {
+      setLoadingTraffic(true);
+      const { data } = await supabase
+        .from("crm_config")
+        .select("value")
+        .eq("key", "daily_traffic_report")
+        .maybeSingle();
+      if (data?.value) {
+        try {
+          const parsed = JSON.parse(data.value);
+          setTrafficDests(parsed.destinations || []);
+          setTrafficHour(parsed.hour || "17:30");
+        } catch (e) { console.error("Erro ao parsear daily_traffic_report:", e); }
+      }
+      setLoadingTraffic(false);
+    }
+    fetchTrafficConfig();
+  }, []);
+
+  const [testingTrafficId, setTestingTrafficId] = useState<string | null>(null);
+
+  async function handleTestTraffic(dest: TrafficReportDest) {
+    if (!dest.telefone || !dest.nome) return;
+    setTestingTrafficId(dest.id);
+    try {
+      let phone = dest.telefone.replace(/\D/g, "");
+      if (phone.length >= 10 && !phone.startsWith("55")) phone = "55" + phone;
+
+      const VITE_BACKEND_URL = import.meta.env.VITE_BACKEND_URL || "/api-marketing";
+      const BACKEND_URL = VITE_BACKEND_URL.startsWith("http") ? VITE_BACKEND_URL : window.location.origin + VITE_BACKEND_URL;
+      const msg = [
+        `Olá, *${dest.nome}*.`,
+        ``,
+        `✅ *MENSAGEM DE TESTE* ✅`,
+        `━━━━━━━━━━━━━━━━━━━━━━━━`,
+        `📊 *Relatório Diário de Tráfego*`,
+        `⏰ *Horário:* ${trafficHour}`,
+        `📱 *Número:* ${phone}`,
+        `━━━━━━━━━━━━━━━━━━━━━━━━`,
+        `_Esta é uma mensagem de teste do Carflax HUB._`,
+        `_Se você recebeu, o relatório diário está configurado!_`
+      ].join('\n');
+
+      await fetch(`${BACKEND_URL}/api/whatsapp/send-test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: phone, text: msg }),
+      });
+    } catch (err) {
+      console.error("[Test Traffic] Erro:", err);
+    } finally {
+      setTimeout(() => setTestingTrafficId(null), 2000);
+    }
+  }
+
+  async function handleSaveTraffic() {
+    setSavingTraffic(true);
+    const { error } = await supabase
+      .from("crm_config")
+      .upsert([{ key: "daily_traffic_report", value: JSON.stringify({ destinations: trafficDests, hour: trafficHour }) }]);
+    setSavingTraffic(false);
+    if (!error) { setSavedTraffic(true); setTimeout(() => setSavedTraffic(false), 3000); }
+  }
+
   async function handleTestMessage(resp: LossResponsible) {
     if (!resp.telefone || !resp.nome) return;
     setTestingId(resp.id);
@@ -953,6 +1025,135 @@ function NotificationsTab({ userProfile }: { userProfile?: UserProfile | null })
             )}
           >
             {savingResp ? "Salvando..." : savedResp ? "Responsáveis Salvos!" : "Salvar Responsáveis"}
+          </Button>
+        </div>
+      </div>
+      )}
+
+      {/* Relatório Diário de Tráfego — apenas gerentes/admin */}
+      {isManager && (
+      <div className="bg-white dark:bg-slate-900/50 dark:backdrop-blur-xl border border-slate-200 dark:border-white/10 rounded-2xl p-8 shadow-sm">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 bg-indigo-50 dark:bg-indigo-500/10 rounded-xl flex items-center justify-center border border-indigo-100 dark:border-indigo-500/20 text-indigo-600 dark:text-indigo-400 shrink-0">
+              <Send className="w-5 h-5" />
+            </div>
+            <div>
+              <h5 className="text-[11px] font-black text-slate-900 dark:text-white uppercase tracking-tight leading-none mb-1">
+                Relatório Diário de Tráfego
+              </h5>
+              <p className="text-[9px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest leading-relaxed">
+                Envia automaticamente uma imagem com os resultados do dia via WhatsApp.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setTrafficDests(prev => [...prev, { id: String(Date.now()), nome: "", telefone: "" }])}
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-[10px] font-black uppercase tracking-widest transition-all shadow-md active:scale-95 shrink-0"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            Adicionar Destinatário
+          </button>
+        </div>
+
+        <div className="flex items-center gap-3 mb-5">
+          <label className="text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-wider">Horário de Envio:</label>
+          <input
+            type="time"
+            value={trafficHour}
+            onChange={(e) => setTrafficHour(e.target.value)}
+            className="px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-lg text-[11px] font-bold text-slate-700 dark:text-slate-200 outline-none focus:border-indigo-600/50 focus:ring-2 focus:ring-indigo-600/5 transition-all w-28"
+          />
+        </div>
+
+        <div className="rounded-xl border border-slate-200 dark:border-white/10 overflow-hidden bg-slate-50/10 dark:bg-slate-900/10 shadow-sm">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead className="bg-slate-50 dark:bg-white/[0.02] border-b border-slate-200 dark:border-white/10 select-none">
+              <tr>
+                <th className="px-4 py-3.5 font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider text-[9px] w-[45%]">Nome do Destinatário</th>
+                <th className="px-4 py-3.5 font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider text-[9px] w-[40%]">WhatsApp (com DDD)</th>
+                <th className="px-4 py-3.5 font-black text-slate-400 dark:text-slate-500 uppercase tracking-wider text-[9px] text-center w-[15%]">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200 dark:divide-white/10">
+              {loadingTraffic ? (
+                <tr>
+                  <td colSpan={3} className="px-4 py-8 text-center text-slate-400 dark:text-slate-600 font-bold uppercase tracking-wider text-[9px] animate-pulse">
+                    Carregando configuração...
+                  </td>
+                </tr>
+              ) : trafficDests.length === 0 ? (
+                <tr>
+                  <td colSpan={3} className="px-4 py-8 text-center text-slate-400 dark:text-slate-600 font-bold uppercase tracking-wider text-[9px]">
+                    Nenhum destinatário configurado. Adicione alguém para receber o relatório diário.
+                  </td>
+                </tr>
+              ) : (
+                trafficDests.map((dest) => (
+                  <tr key={dest.id} className="hover:bg-slate-50/30 dark:hover:bg-white/[0.01] transition-colors">
+                    <td className="px-3 py-2.5">
+                      <input
+                        type="text"
+                        value={dest.nome}
+                        onChange={(e) => { const val = e.target.value; setTrafficDests(prev => prev.map(d => d.id === dest.id ? { ...d, nome: val } : d)); }}
+                        placeholder="Nome (ex: Diretor Alan)"
+                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-lg text-[11px] font-bold text-slate-700 dark:text-slate-200 outline-none focus:border-indigo-600/50 focus:ring-2 focus:ring-indigo-600/5 transition-all placeholder:text-slate-300 dark:placeholder:text-slate-700"
+                      />
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <input
+                        type="text"
+                        value={dest.telefone}
+                        onChange={(e) => { const val = e.target.value; setTrafficDests(prev => prev.map(d => d.id === dest.id ? { ...d, telefone: val } : d)); }}
+                        placeholder="Ex: 5511999999999"
+                        className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-white/10 rounded-lg text-[11px] font-bold text-slate-700 dark:text-slate-200 outline-none focus:border-indigo-600/50 focus:ring-2 focus:ring-indigo-600/5 transition-all placeholder:text-slate-300 dark:placeholder:text-slate-700"
+                      />
+                    </td>
+                    <td className="px-3 py-2.5 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleTestTraffic(dest)}
+                          disabled={testingTrafficId === dest.id || !dest.telefone || !dest.nome}
+                          className={cn(
+                            "p-2 rounded-lg transition-colors",
+                            testingTrafficId === dest.id
+                              ? "text-emerald-500 dark:text-emerald-400"
+                              : "text-slate-400 hover:text-indigo-500 dark:text-slate-600 dark:hover:text-indigo-400 hover:bg-indigo-500/10"
+                          )}
+                          title="Enviar mensagem teste"
+                        >
+                          {testingTrafficId === dest.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setTrafficDests(prev => prev.filter(d => d.id !== dest.id))}
+                          className="p-2 text-slate-400 hover:text-rose-500 dark:text-slate-600 dark:hover:text-rose-400 rounded-lg hover:bg-rose-500/10 transition-colors"
+                          title="Remover"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="mt-8 pt-6 border-t border-slate-50 dark:border-white/5 flex items-center justify-end">
+          <Button
+            onClick={handleSaveTraffic}
+            disabled={savingTraffic}
+            className={cn(
+              "h-12 px-10 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all shadow-xl active:scale-95",
+              savedTraffic ? "bg-emerald-600 text-white shadow-emerald-500/20" : "bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-600/20"
+            )}
+          >
+            {savingTraffic ? "Salvando..." : savedTraffic ? "Configuração Salva!" : "Salvar Configuração"}
           </Button>
         </div>
       </div>

@@ -19,8 +19,13 @@ import {
   Filter,
   BarChart3,
   X,
+  Settings,
+  Send,
+  Check,
+  Phone,
 } from "lucide-react";
-import { marketingService, type ReportsAnalytics, type EvolutionData, type EvolutionClient, type VerbasData } from "@/lib/marketing-service";
+import { marketingService, type ReportsAnalytics, type EvolutionData, type EvolutionClient, type VerbasData, type VerbasTrimestre } from "@/lib/marketing-service";
+import { apiAdsSpend, apiAdsSendReport, type AdsSpendResponse } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { MiniCalendar } from "@/components/ui/MiniCalendar";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
@@ -38,7 +43,7 @@ const EMPTY_ANALYTICS: ReportsAnalytics = {
   dailySeries: [],
 };
 
-type TabId = "overview" | "sellers" | "sources" | "trend" | "evolution" | "verbas";
+type TabId = "overview" | "sellers" | "sources" | "trend" | "evolution" | "verbas" | "gastos";
 const TABS: { id: TabId; label: string }[] = [
   { id: "overview", label: "Visão Geral" },
   { id: "sellers", label: "Atendentes" },
@@ -46,6 +51,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "trend", label: "Tendência" },
   { id: "evolution", label: "Evolução" },
   { id: "verbas", label: "Verbas" },
+  { id: "gastos", label: "Gastos" },
 ];
 
 const TEMP_STYLE: Record<string, string> = {
@@ -98,6 +104,12 @@ export function ReportsView() {
   const [chartClient, setChartClient] = useState<EvolutionClient | null>(null);
   const [verbas, setVerbas] = useState<VerbasData | null>(null);
   const [verbasLoading, setVerbasLoading] = useState(false);
+  const [adsData, setAdsData] = useState<AdsSpendResponse | null>(null);
+  const [adsLoading, setAdsLoading] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportPhone, setReportPhone] = useState("");
+  const [reportSending, setReportSending] = useState(false);
+  const [reportSent, setReportSent] = useState(false);
 
   const peakHour = useMemo(() => {
     let maxVal = -1, maxH = -1;
@@ -109,6 +121,7 @@ export function ReportsView() {
     async function loadData() {
       setLoading(true);
       setVerbas(null);
+      setAdsData(null);
       try {
         const [reports, hourlyLeads, evoData] = await Promise.all([
           marketingService.getReportsAnalytics(startDate, endDate || undefined),
@@ -137,6 +150,17 @@ export function ReportsView() {
       .then(setVerbas)
       .catch((err) => console.error("Erro ao carregar verbas:", err))
       .finally(() => setVerbasLoading(false));
+  }, [activeTab, startDate, endDate]);
+
+  useEffect(() => {
+    if (activeTab !== "gastos" || !startDate || !endDate) return;
+    setAdsData(null);
+    setAdsLoading(true);
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    apiAdsSpend(fmt(startDate), fmt(endDate))
+      .then(setAdsData)
+      .catch((err) => console.error("Erro ao carregar gastos:", err))
+      .finally(() => setAdsLoading(false));
   }, [activeTab, startDate, endDate]);
 
   const { totals, previous, bySeller, byOrigin, byCampaign, byTemperature, dailySeries } = analytics;
@@ -841,46 +865,272 @@ export function ReportsView() {
               </div>
             ) : (
               <div className="space-y-5">
+                {verbas.fornecedores.map((forn) => (
+                  <div key={forn.fornecedor} className="space-y-5">
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                      <KpiCard label="Total Comprado" value={formatCurrency(forn.totalComprado)} icon={<ShoppingBag className="w-5 h-5" />} accent="text-blue-500 bg-blue-500/10" />
+                      <KpiCard label="Base (sem tubos)" value={formatCurrency(forn.totalSemTubo)} icon={<Filter className="w-5 h-5" />} accent="text-violet-500 bg-violet-500/10" />
+                      <KpiCard label="Total Verbas" value={formatCurrency(forn.valorVerba)} hint={`${forn.percentualVerba}% sobre base`} icon={<Percent className="w-5 h-5" />} accent="text-emerald-500 bg-emerald-500/10" />
+                      <KpiCard label="Saldo Disponível" value={formatCurrency(forn.valorRestante)} hint="Não expirado" icon={<DollarSign className="w-5 h-5" />} accent="text-amber-500 bg-amber-500/10" />
+                    </div>
+
+                    {forn.trimestres.map((tri) => {
+                      const gruposSemTubo = tri.grupos.filter((g) => !g.isTubo);
+                      const gruposTubo = tri.grupos.filter((g) => g.isTubo);
+                      const maxGrupo = Math.max(...tri.grupos.map((g) => g.total), 1);
+
+                      return (
+                        <section key={tri.trimestre} className={cn("bg-card border rounded-3xl p-6 shadow-sm", tri.expirado ? "border-rose-500/30 opacity-60" : tri.expiraEm <= 2 ? "border-amber-500/50" : "border-border")}>
+                          <div className="flex items-center justify-between mb-5">
+                            <div>
+                              <h2 className="text-sm font-black uppercase tracking-tight flex items-center gap-2">
+                                <ShoppingBag className="w-4 h-4 text-primary" /> {forn.fornecedor} — {tri.label}
+                              </h2>
+                              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">
+                                {forn.percentualVerba}% sobre compras (exceto tubos) · {tri.trimestre}
+                              </p>
+                            </div>
+                            <div className="text-right flex items-center gap-3">
+                              <span className={cn(
+                                "inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-black uppercase",
+                                tri.expirado ? "bg-rose-500/10 text-rose-500" : tri.expiraEm <= 2 ? "bg-amber-500/10 text-amber-500" : "bg-emerald-500/10 text-emerald-500"
+                              )}>
+                                {tri.expirado ? "Expirado" : `Expira em ${tri.expiraEm} ${tri.expiraEm === 1 ? "mês" : "meses"}`}
+                              </span>
+                              <div>
+                                <p className={cn("text-lg font-black tabular-nums", tri.expirado ? "text-rose-500 line-through" : "text-emerald-500")}>{formatCurrency(tri.valorVerba)}</p>
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase">Verba</p>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="grid grid-cols-3 gap-3 mb-5">
+                            <div className="bg-secondary/50 rounded-xl p-3 text-center">
+                              <p className="text-[10px] font-black text-muted-foreground uppercase tracking-wider">Total Comprado</p>
+                              <p className="text-sm font-black text-foreground tabular-nums mt-0.5">{formatCurrency(tri.totalComprado)}</p>
+                            </div>
+                            <div className="bg-secondary/50 rounded-xl p-3 text-center">
+                              <p className="text-[10px] font-black text-muted-foreground uppercase tracking-wider">Tubos (excluído)</p>
+                              <p className="text-sm font-black text-rose-500 tabular-nums mt-0.5">{formatCurrency(tri.totalComprado - tri.totalSemTubo)}</p>
+                            </div>
+                            <div className="bg-secondary/50 rounded-xl p-3 text-center">
+                              <p className="text-[10px] font-black text-muted-foreground uppercase tracking-wider">Base de Cálculo</p>
+                              <p className="text-sm font-black text-emerald-500 tabular-nums mt-0.5">{formatCurrency(tri.totalSemTubo)}</p>
+                            </div>
+                          </div>
+
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-xs">
+                              <thead>
+                                <tr className="border-b border-border">
+                                  <th className="text-left py-2.5 px-2 text-[10px] font-black uppercase tracking-wider text-muted-foreground">Grupo</th>
+                                  <th className="text-right py-2.5 px-2 text-[10px] font-black uppercase tracking-wider text-muted-foreground">Total Comprado</th>
+                                  <th className="text-center py-2.5 px-2 text-[10px] font-black uppercase tracking-wider text-muted-foreground w-24">Status</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {tri.grupos.map((g, idx) => {
+                                  const barPct = (g.total / maxGrupo) * 100;
+                                  return (
+                                    <tr key={idx} className={cn("border-b border-border/40 transition-colors", g.isTubo ? "opacity-50" : "hover:bg-secondary/30")}>
+                                      <td className="py-2 px-2">
+                                        <span className={cn("font-bold", g.isTubo ? "text-muted-foreground line-through" : "text-foreground")}>{g.grupo}</span>
+                                      </td>
+                                      <td className="py-2 px-2 text-right min-w-[180px]">
+                                        <div className="flex items-center justify-end gap-2">
+                                          <div className="flex-1 max-w-[120px] bg-secondary h-1.5 rounded-full overflow-hidden">
+                                            <div className={cn("h-full rounded-full transition-all", g.isTubo ? "bg-rose-400" : "bg-gradient-to-r from-emerald-600 to-emerald-400")} style={{ width: `${barPct}%` }} />
+                                          </div>
+                                          <span className={cn("font-bold tabular-nums shrink-0", g.isTubo ? "text-rose-500" : "text-emerald-500")}>{formatCurrency(g.total)}</span>
+                                        </div>
+                                      </td>
+                                      <td className="py-2 px-2 text-center">
+                                        <span className={cn(
+                                          "inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase",
+                                          g.isTubo ? "bg-rose-500/10 text-rose-500" : "bg-emerald-500/10 text-emerald-500"
+                                        )}>
+                                          {g.isTubo ? "Excluído" : "Conta"}
+                                        </span>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                            <div className="mt-3 pt-3 border-t border-border/40 flex items-center justify-between text-[9px] font-black text-muted-foreground uppercase tracking-widest">
+                              <span>{gruposSemTubo.length} grupos válidos · {gruposTubo.length} excluídos</span>
+                              <span>{forn.percentualVerba}% × {formatCurrency(tri.totalSemTubo)} = {formatCurrency(tri.valorVerba)}</span>
+                            </div>
+                          </div>
+                        </section>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            )
+          ) : activeTab === "gastos" ? (
+            adsLoading ? (
+              <div className="h-64 flex flex-col items-center justify-center gap-3">
+                <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+                <span className="text-xs font-black uppercase tracking-widest text-primary">Carregando Gastos...</span>
+              </div>
+            ) : !adsData ? (
+              <div className="h-64 flex flex-col items-center justify-center gap-3">
+                <div className="w-16 h-16 rounded-3xl bg-secondary flex items-center justify-center">
+                  <DollarSign className="w-7 h-7 text-muted-foreground" />
+                </div>
+                <p className="text-sm font-black uppercase tracking-tight">Sem dados de gastos</p>
+                <p className="text-xs text-muted-foreground max-w-xs">Nenhum dado de anúncios encontrado no período.</p>
+              </div>
+            ) : (
+              <div className="space-y-5">
+                <div className="flex items-center justify-between mb-1">
+                  <div />
+                  <button
+                    onClick={() => { setShowReportModal(true); setReportSent(false); }}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-secondary hover:bg-secondary/80 border border-border text-xs font-black uppercase tracking-wider text-muted-foreground hover:text-foreground transition-all"
+                  >
+                    <Send className="w-3.5 h-3.5" /> Enviar Relatório
+                  </button>
+                </div>
                 <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-                  <KpiCard label="Total Comprado" value={formatCurrency(verbas.totalGeral)} icon={<ShoppingBag className="w-5 h-5" />} accent="text-blue-500 bg-blue-500/10" />
-                  <KpiCard label="Base de Cálculo" value={formatCurrency(verbas.fornecedores.reduce((s, f) => s + f.totalSemTubo, 0))} hint="Excluindo tubos" icon={<Filter className="w-5 h-5" />} accent="text-violet-500 bg-violet-500/10" />
-                  <KpiCard label="Total Verbas" value={formatCurrency(verbas.totalVerbas)} icon={<Percent className="w-5 h-5" />} accent="text-emerald-500 bg-emerald-500/10" />
+                  <KpiCard label="Total Gastos" value={formatCurrency(adsData.totalSpend)} icon={<DollarSign className="w-5 h-5" />} accent="text-rose-500 bg-rose-500/10" />
+                  <KpiCard label="Google Ads" value={formatCurrency(adsData.google.total)} icon={<TrendingUp className="w-5 h-5" />} accent="text-blue-500 bg-blue-500/10" />
+                  <KpiCard label="Meta Ads" value={formatCurrency(adsData.meta.total)} icon={<Megaphone className="w-5 h-5" />} accent="text-indigo-500 bg-indigo-500/10" />
                 </div>
 
-                {verbas.fornecedores.map((forn) => {
-                  const gruposSemTubo = forn.grupos.filter((g) => !g.isTubo);
-                  const gruposTubo = forn.grupos.filter((g) => g.isTubo);
-                  const maxGrupo = Math.max(...forn.grupos.map((g) => g.total), 1);
-
-                  return (
-                    <section key={forn.fornecedor} className="bg-card border border-border rounded-3xl p-6 shadow-sm">
-                      <div className="flex items-center justify-between mb-5">
-                        <div>
-                          <h2 className="text-sm font-black uppercase tracking-tight flex items-center gap-2">
-                            <ShoppingBag className="w-4 h-4 text-primary" /> {forn.fornecedor}
-                          </h2>
-                          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">
-                            Verba de {forn.percentualVerba}% sobre compras (exceto tubos)
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-lg font-black text-emerald-500 tabular-nums">{formatCurrency(forn.valorVerba)}</p>
-                          <p className="text-[10px] font-bold text-muted-foreground uppercase">Verba acumulada</p>
-                        </div>
+                {adsData.daily && adsData.daily.length > 1 && (
+                  <section className="bg-card border border-border rounded-3xl p-6 shadow-sm flex flex-col">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
+                      <div>
+                        <h2 className="text-sm font-black uppercase tracking-tight flex items-center gap-2">
+                          <BarChart3 className="w-4 h-4 text-primary" /> Gastos Diários
+                        </h2>
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">
+                          Investimento diário em Google Ads e Meta Ads
+                        </p>
                       </div>
+                      <div className="flex items-center gap-4 text-[10px] font-black uppercase tracking-wider">
+                        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-sm shadow-blue-500/50" /> Google</span>
+                        <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-indigo-500 shadow-sm shadow-indigo-500/50" /> Meta</span>
+                      </div>
+                    </div>
 
-                      <div className="grid grid-cols-3 gap-3 mb-5">
-                        <div className="bg-secondary/50 rounded-xl p-3 text-center">
-                          <p className="text-[10px] font-black text-muted-foreground uppercase tracking-wider">Total Comprado</p>
-                          <p className="text-sm font-black text-foreground tabular-nums mt-0.5">{formatCurrency(forn.totalComprado)}</p>
-                        </div>
-                        <div className="bg-secondary/50 rounded-xl p-3 text-center">
-                          <p className="text-[10px] font-black text-muted-foreground uppercase tracking-wider">Tubos (excluído)</p>
-                          <p className="text-sm font-black text-rose-500 tabular-nums mt-0.5">{formatCurrency(forn.totalComprado - forn.totalSemTubo)}</p>
-                        </div>
-                        <div className="bg-secondary/50 rounded-xl p-3 text-center">
-                          <p className="text-[10px] font-black text-muted-foreground uppercase tracking-wider">Base de Cálculo</p>
-                          <p className="text-sm font-black text-emerald-500 tabular-nums mt-0.5">{formatCurrency(forn.totalSemTubo)}</p>
+                    <div className="h-64 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={adsData.daily.map((d) => {
+                            const dateObj = new Date(d.date + "T00:00:00");
+                            return {
+                              ...d,
+                              label: dateObj.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
+                              fullDate: dateObj.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" }),
+                            };
+                          })}
+                          margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+                          barGap={3}
+                        >
+                          <defs>
+                            <linearGradient id="googleAdGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#3b82f6" stopOpacity={1} />
+                              <stop offset="100%" stopColor="#1d4ed8" stopOpacity={0.8} />
+                            </linearGradient>
+                            <linearGradient id="metaAdGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor="#6366f1" stopOpacity={1} />
+                              <stop offset="100%" stopColor="#4338ca" stopOpacity={0.8} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+                          <XAxis
+                            dataKey="label"
+                            stroke="#64748b"
+                            fontSize={10}
+                            fontWeight={700}
+                            tickLine={false}
+                            axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+                            interval={adsData.daily.length > 20 ? Math.ceil(adsData.daily.length / 10) : 0}
+                          />
+                          <YAxis
+                            stroke="#64748b"
+                            fontSize={10}
+                            fontWeight={700}
+                            tickLine={false}
+                            axisLine={false}
+                            tickFormatter={(v: number) => v >= 1000 ? `${(v / 1000).toFixed(0)}k` : String(v)}
+                          />
+                          <Tooltip
+                            cursor={{ fill: "rgba(255,255,255,0.03)" }}
+                            content={({ active, payload }) => {
+                              if (!active || !payload || !payload.length) return null;
+                              const data = payload[0].payload;
+                              return (
+                                <div className="bg-slate-950/95 border border-white/10 rounded-2xl p-3.5 shadow-2xl backdrop-blur-md min-w-[190px]">
+                                  <p className="text-[11px] font-black text-white uppercase tracking-wider mb-2 border-b border-white/10 pb-1.5">
+                                    {data.fullDate}
+                                  </p>
+                                  <div className="space-y-1.5 text-xs font-bold">
+                                    <div className="flex items-center justify-between gap-4">
+                                      <span className="flex items-center gap-1.5 text-blue-400">
+                                        <span className="w-2 h-2 rounded-full bg-blue-500" /> Google:
+                                      </span>
+                                      <span className="font-black text-white tabular-nums">{formatCurrency(data.google)}</span>
+                                    </div>
+                                    <div className="flex items-center justify-between gap-4">
+                                      <span className="flex items-center gap-1.5 text-indigo-400">
+                                        <span className="w-2 h-2 rounded-full bg-indigo-500" /> Meta:
+                                      </span>
+                                      <span className="font-black text-white tabular-nums">{formatCurrency(data.meta)}</span>
+                                    </div>
+                                    <div className="pt-1.5 border-t border-white/10 flex items-center justify-between text-[10px] text-muted-foreground">
+                                      <span>Total:</span>
+                                      <span className="text-rose-400 font-black">{formatCurrency(data.total)}</span>
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            }}
+                          />
+                          <Bar dataKey="google" name="Google" fill="url(#googleAdGrad)" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                          <Bar dataKey="meta" name="Meta" fill="url(#metaAdGrad)" radius={[4, 4, 0, 0]} maxBarSize={28} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </section>
+                )}
+
+                {adsData.google.error && (
+                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3 text-xs font-bold text-amber-600">
+                    Google Ads: {adsData.google.error}
+                  </div>
+                )}
+                {adsData.meta.error && (
+                  <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3 text-xs font-bold text-amber-600">
+                    Meta Ads: {adsData.meta.error}
+                  </div>
+                )}
+
+                {[
+                  { title: "Google Ads", platform: adsData.google, colorBase: "blue" as const },
+                  { title: "Meta Ads", platform: adsData.meta, colorBase: "indigo" as const },
+                ].map(({ title, platform, colorBase }) => {
+                  if (platform.campaigns.length === 0 && !platform.error) return null;
+                  const maxSpend = Math.max(...platform.campaigns.map((c) => c.spend), 1);
+                  const iconColor = colorBase === "blue" ? "text-blue-500" : "text-indigo-500";
+                  const barFrom = colorBase === "blue" ? "from-blue-600" : "from-indigo-600";
+                  const barTo = colorBase === "blue" ? "to-blue-400" : "to-indigo-400";
+                  const textColor = colorBase === "blue" ? "text-blue-500" : "text-indigo-500";
+                  return (
+                    <section key={title} className="bg-card border border-border rounded-3xl p-6 shadow-sm">
+                      <div className="flex items-center justify-between mb-5">
+                        <h2 className="text-sm font-black uppercase tracking-tight flex items-center gap-2">
+                          {colorBase === "blue" ? <TrendingUp className={cn("w-4 h-4", iconColor)} /> : <Megaphone className={cn("w-4 h-4", iconColor)} />}
+                          {title}
+                        </h2>
+                        <div className="flex items-center gap-4 text-[10px] font-black uppercase tracking-wider text-muted-foreground">
+                          <span>{platform.totalClicks.toLocaleString("pt-BR")} cliques</span>
+                          <span>{platform.totalImpressions.toLocaleString("pt-BR")} impressões</span>
+                          <span>{platform.totalConversions} conv.</span>
                         </div>
                       </div>
 
@@ -888,48 +1138,326 @@ export function ReportsView() {
                         <table className="w-full text-xs">
                           <thead>
                             <tr className="border-b border-border">
-                              <th className="text-left py-2.5 px-2 text-[10px] font-black uppercase tracking-wider text-muted-foreground">Grupo</th>
-                              <th className="text-right py-2.5 px-2 text-[10px] font-black uppercase tracking-wider text-muted-foreground">Total Comprado</th>
-                              <th className="text-center py-2.5 px-2 text-[10px] font-black uppercase tracking-wider text-muted-foreground w-24">Status</th>
+                              <th className="text-left py-2.5 px-2 text-[10px] font-black uppercase tracking-wider text-muted-foreground">Campanha</th>
+                              <th className="text-right py-2.5 px-2 text-[10px] font-black uppercase tracking-wider text-muted-foreground">Gasto</th>
+                              <th className="text-right py-2.5 px-2 text-[10px] font-black uppercase tracking-wider text-muted-foreground">Cliques</th>
+                              <th className="text-right py-2.5 px-2 text-[10px] font-black uppercase tracking-wider text-muted-foreground">Impressões</th>
+                              <th className="text-right py-2.5 px-2 text-[10px] font-black uppercase tracking-wider text-muted-foreground">CPC</th>
+                              <th className="text-right py-2.5 px-2 text-[10px] font-black uppercase tracking-wider text-muted-foreground">Conv.</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {forn.grupos.map((g, idx) => {
-                              const barPct = (g.total / maxGrupo) * 100;
-                              return (
-                                <tr key={idx} className={cn("border-b border-border/40 transition-colors", g.isTubo ? "opacity-50" : "hover:bg-secondary/30")}>
-                                  <td className="py-2 px-2">
-                                    <span className={cn("font-bold", g.isTubo ? "text-muted-foreground line-through" : "text-foreground")}>{g.grupo}</span>
-                                  </td>
-                                  <td className="py-2 px-2 text-right min-w-[180px]">
-                                    <div className="flex items-center justify-end gap-2">
-                                      <div className="flex-1 max-w-[120px] bg-secondary h-1.5 rounded-full overflow-hidden">
-                                        <div className={cn("h-full rounded-full transition-all", g.isTubo ? "bg-rose-400" : "bg-gradient-to-r from-emerald-600 to-emerald-400")} style={{ width: `${barPct}%` }} />
+                            {platform.campaigns
+                              .sort((a, b) => b.spend - a.spend)
+                              .map((c, idx) => {
+                                const barPct = (c.spend / maxSpend) * 100;
+                                return (
+                                  <tr key={idx} className="border-b border-border/40 hover:bg-secondary/30 transition-colors">
+                                    <td className="py-2 px-2 font-bold text-foreground max-w-[220px] truncate">{c.campaign}</td>
+                                    <td className="py-2 px-2 text-right min-w-[180px]">
+                                      <div className="flex items-center justify-end gap-2">
+                                        <div className="flex-1 max-w-[120px] bg-secondary h-1.5 rounded-full overflow-hidden">
+                                          <div className={cn("h-full rounded-full bg-gradient-to-r", barFrom, barTo)} style={{ width: `${barPct}%` }} />
+                                        </div>
+                                        <span className={cn("font-bold tabular-nums shrink-0", textColor)}>{formatCurrency(c.spend)}</span>
                                       </div>
-                                      <span className={cn("font-bold tabular-nums shrink-0", g.isTubo ? "text-rose-500" : "text-emerald-500")}>{formatCurrency(g.total)}</span>
-                                    </div>
-                                  </td>
-                                  <td className="py-2 px-2 text-center">
-                                    <span className={cn(
-                                      "inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-black uppercase",
-                                      g.isTubo ? "bg-rose-500/10 text-rose-500" : "bg-emerald-500/10 text-emerald-500"
-                                    )}>
-                                      {g.isTubo ? "Excluído" : "Conta"}
-                                    </span>
-                                  </td>
-                                </tr>
-                              );
-                            })}
+                                    </td>
+                                    <td className="py-2 px-2 text-right font-bold tabular-nums text-foreground">{c.clicks.toLocaleString("pt-BR")}</td>
+                                    <td className="py-2 px-2 text-right font-bold tabular-nums text-muted-foreground">{c.impressions.toLocaleString("pt-BR")}</td>
+                                    <td className="py-2 px-2 text-right font-bold tabular-nums text-foreground">{formatCurrency(c.cpc)}</td>
+                                    <td className="py-2 px-2 text-right font-bold tabular-nums text-emerald-500">{c.conversions}</td>
+                                  </tr>
+                                );
+                              })}
                           </tbody>
                         </table>
                         <div className="mt-3 pt-3 border-t border-border/40 flex items-center justify-between text-[9px] font-black text-muted-foreground uppercase tracking-widest">
-                          <span>{gruposSemTubo.length} grupos válidos · {gruposTubo.length} grupos de tubos excluídos</span>
-                          <span>Verba: {forn.percentualVerba}% × {formatCurrency(forn.totalSemTubo)} = {formatCurrency(forn.valorVerba)}</span>
+                          <span>{platform.campaigns.length} campanhas</span>
+                          <span>Total: {formatCurrency(platform.total)}</span>
                         </div>
                       </div>
                     </section>
                   );
                 })}
+
+                {showReportModal && adsData && (() => {
+                  const fmt = (v: number) => "R$ " + v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                  const fmtN = (v: number) => v.toLocaleString("pt-BR");
+                  const totalClicks = (adsData.google.totalClicks || 0) + (adsData.meta.totalClicks || 0);
+                  const totalImpressions = (adsData.google.totalImpressions || 0) + (adsData.meta.totalImpressions || 0);
+                  const allCampaigns = [...adsData.google.campaigns, ...adsData.meta.campaigns].sort((a, b) => b.spend - a.spend);
+                  const topCampaign = allCampaigns.length > 0 ? allCampaigns[0].campaign : null;
+                  const todayStr = new Date().toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" });
+                  const responseTimeStr = formatResponseTime(totals.avgResponseMinutes);
+                  const responseColor = totals.avgResponseMinutes !== null && totals.avgResponseMinutes <= 5 ? "#34d399" : totals.avgResponseMinutes !== null && totals.avgResponseMinutes <= 15 ? "#fbbf24" : "#f87171";
+
+                  const generateReportImage = (): string => {
+                    const W = 800, H = 920;
+                    const canvas = document.createElement("canvas");
+                    canvas.width = W;
+                    canvas.height = H;
+                    const ctx = canvas.getContext("2d")!;
+
+                    const grad = ctx.createLinearGradient(0, 0, 0, H);
+                    grad.addColorStop(0, "#0f172a");
+                    grad.addColorStop(1, "#1e293b");
+                    ctx.fillStyle = grad;
+                    ctx.beginPath();
+                    ctx.roundRect(0, 0, W, H, 24);
+                    ctx.fill();
+
+                    const accentGrad = ctx.createLinearGradient(0, 0, W, 0);
+                    accentGrad.addColorStop(0, "#6366f1");
+                    accentGrad.addColorStop(1, "#3b82f6");
+                    ctx.fillStyle = accentGrad;
+                    ctx.beginPath();
+                    ctx.roundRect(0, 0, W, 6, [24, 24, 0, 0]);
+                    ctx.fill();
+
+                    let y = 50;
+                    ctx.fillStyle = "#ffffff";
+                    ctx.font = "bold 22px system-ui, sans-serif";
+                    ctx.fillText("📊  RELATÓRIO DIÁRIO DE TRÁFEGO", 40, y);
+                    y += 28;
+                    ctx.fillStyle = "#94a3b8";
+                    ctx.font = "14px system-ui, sans-serif";
+                    ctx.fillText(`📅 ${todayStr}  •  CARFLAX`, 40, y);
+
+                    y += 40;
+                    ctx.fillStyle = "rgba(255,255,255,0.08)";
+                    ctx.fillRect(40, y, W - 80, 1);
+
+                    y += 30;
+                    ctx.fillStyle = "#34d399";
+                    ctx.font = "bold 16px system-ui, sans-serif";
+                    ctx.fillText("👥  ATENDIMENTO", 40, y);
+
+                    y += 35;
+                    const boxW = (W - 100) / 2;
+
+                    const drawMetricBox = (x: number, yy: number, label: string, value: string, color: string) => {
+                      ctx.fillStyle = "rgba(255,255,255,0.04)";
+                      ctx.beginPath();
+                      ctx.roundRect(x, yy, boxW, 70, 12);
+                      ctx.fill();
+                      ctx.strokeStyle = "rgba(255,255,255,0.08)";
+                      ctx.lineWidth = 1;
+                      ctx.beginPath();
+                      ctx.roundRect(x, yy, boxW, 70, 12);
+                      ctx.stroke();
+                      ctx.fillStyle = "#94a3b8";
+                      ctx.font = "12px system-ui, sans-serif";
+                      ctx.fillText(label, x + 16, yy + 25);
+                      ctx.fillStyle = color;
+                      ctx.font = "bold 22px system-ui, sans-serif";
+                      ctx.fillText(value, x + 16, yy + 55);
+                    };
+
+                    drawMetricBox(40, y, "LEADS RECEBIDOS", fmtN(totals.leads), "#60a5fa");
+                    drawMetricBox(40 + boxW + 20, y, "TEMPO MÉDIO RESPOSTA", responseTimeStr, responseColor);
+                    y += 90;
+
+                    if (totals.quotesCount > 0 || totals.salesCount > 0) {
+                      drawMetricBox(40, y, "ORÇAMENTOS", fmtN(totals.quotesCount), "#a78bfa");
+                      drawMetricBox(40 + boxW + 20, y, "VENDAS", fmtN(totals.salesCount), "#34d399");
+                      y += 90;
+                    }
+
+                    y += 10;
+                    ctx.fillStyle = "rgba(255,255,255,0.08)";
+                    ctx.fillRect(40, y, W - 80, 1);
+                    y += 25;
+
+                    ctx.fillStyle = "#f87171";
+                    ctx.font = "bold 16px system-ui, sans-serif";
+                    ctx.fillText("💰  INVESTIMENTO EM TRÁFEGO", 40, y);
+                    y += 8;
+
+                    ctx.fillStyle = "#ffffff";
+                    ctx.font = "bold 32px system-ui, sans-serif";
+                    y += 38;
+                    ctx.fillText(fmt(adsData.totalSpend), 40, y);
+
+                    y += 35;
+                    const platW = (W - 100) / 2;
+
+                    if (adsData.google.total > 0) {
+                      ctx.fillStyle = "rgba(59,130,246,0.1)";
+                      ctx.beginPath();
+                      ctx.roundRect(40, y, platW, 100, 12);
+                      ctx.fill();
+                      ctx.strokeStyle = "rgba(59,130,246,0.3)";
+                      ctx.lineWidth = 1;
+                      ctx.beginPath();
+                      ctx.roundRect(40, y, platW, 100, 12);
+                      ctx.stroke();
+                      ctx.fillStyle = "#60a5fa";
+                      ctx.font = "bold 13px system-ui, sans-serif";
+                      ctx.fillText("🔵 GOOGLE ADS", 56, y + 24);
+                      ctx.fillStyle = "#ffffff";
+                      ctx.font = "bold 20px system-ui, sans-serif";
+                      ctx.fillText(fmt(adsData.google.total), 56, y + 52);
+                      ctx.fillStyle = "#94a3b8";
+                      ctx.font = "12px system-ui, sans-serif";
+                      ctx.fillText(`${fmtN(adsData.google.totalClicks)} cliques  •  ${fmtN(adsData.google.totalImpressions)} alcance`, 56, y + 76);
+                      if (adsData.google.totalClicks > 0) {
+                        ctx.fillText(`CPC: ${fmt(adsData.google.total / adsData.google.totalClicks)}`, 56, y + 92);
+                      }
+                    }
+
+                    if (adsData.meta.total > 0) {
+                      const mx = 40 + platW + 20;
+                      ctx.fillStyle = "rgba(99,102,241,0.1)";
+                      ctx.beginPath();
+                      ctx.roundRect(mx, y, platW, 100, 12);
+                      ctx.fill();
+                      ctx.strokeStyle = "rgba(99,102,241,0.3)";
+                      ctx.lineWidth = 1;
+                      ctx.beginPath();
+                      ctx.roundRect(mx, y, platW, 100, 12);
+                      ctx.stroke();
+                      ctx.fillStyle = "#a78bfa";
+                      ctx.font = "bold 13px system-ui, sans-serif";
+                      ctx.fillText("🟣 META ADS", mx + 16, y + 24);
+                      ctx.fillStyle = "#ffffff";
+                      ctx.font = "bold 20px system-ui, sans-serif";
+                      ctx.fillText(fmt(adsData.meta.total), mx + 16, y + 52);
+                      ctx.fillStyle = "#94a3b8";
+                      ctx.font = "12px system-ui, sans-serif";
+                      ctx.fillText(`${fmtN(adsData.meta.totalClicks)} cliques  •  ${fmtN(adsData.meta.totalImpressions)} alcance`, mx + 16, y + 76);
+                      if (adsData.meta.totalClicks > 0) {
+                        ctx.fillText(`CPC: ${fmt(adsData.meta.total / adsData.meta.totalClicks)}`, mx + 16, y + 92);
+                      }
+                    }
+
+                    y += 120;
+                    ctx.fillStyle = "rgba(255,255,255,0.08)";
+                    ctx.fillRect(40, y, W - 80, 1);
+                    y += 25;
+
+                    ctx.fillStyle = "#fbbf24";
+                    ctx.font = "bold 16px system-ui, sans-serif";
+                    ctx.fillText("📈  RESULTADO", 40, y);
+                    y += 30;
+
+                    const results: [string, string, string][] = [];
+                    if (totals.leads > 0) results.push(["Custo por Lead", fmt(adsData.totalSpend / totals.leads), "#fbbf24"]);
+                    results.push(["Total de Cliques", fmtN(totalClicks), "#ffffff"]);
+                    results.push(["Alcance Total", fmtN(totalImpressions), "#ffffff"]);
+                    if (totalClicks > 0) results.push(["CPC Médio", fmt(adsData.totalSpend / totalClicks), "#ffffff"]);
+
+                    for (const [label, value, color] of results) {
+                      ctx.fillStyle = "#94a3b8";
+                      ctx.font = "13px system-ui, sans-serif";
+                      ctx.fillText(`•  ${label}`, 56, y);
+                      ctx.fillStyle = color;
+                      ctx.font = "bold 13px system-ui, sans-serif";
+                      ctx.fillText(value, 300, y);
+                      y += 24;
+                    }
+
+                    if (topCampaign) {
+                      y += 5;
+                      ctx.fillStyle = "#94a3b8";
+                      ctx.font = "13px system-ui, sans-serif";
+                      ctx.fillText("🏆  Campanha destaque:", 56, y);
+                      y += 20;
+                      ctx.fillStyle = "#fbbf24";
+                      ctx.font = "bold 13px system-ui, sans-serif";
+                      const maxCampW = W - 120;
+                      const campText = topCampaign.length > 60 ? topCampaign.slice(0, 57) + "..." : topCampaign;
+                      ctx.fillText(campText, 56, y);
+                    }
+
+                    y = H - 30;
+                    ctx.fillStyle = "#475569";
+                    ctx.font = "11px system-ui, sans-serif";
+                    ctx.fillText("Gerado automaticamente pelo Carflax HUB", 40, y);
+
+                    return canvas.toDataURL("image/png");
+                  };
+
+                  const handleSend = async () => {
+                    const cleaned = reportPhone.replace(/\D/g, "");
+                    if (cleaned.length < 10) return;
+                    setReportSending(true);
+                    try {
+                      const base64 = generateReportImage();
+                      await apiAdsSendReport({
+                        phone: cleaned,
+                        image: base64,
+                        caption: `📊 Relatório de Tráfego — ${todayStr}`,
+                      });
+                      setReportSent(true);
+                    } catch (err) {
+                      console.error("Erro ao enviar relatório:", err);
+                    } finally {
+                      setReportSending(false);
+                    }
+                  };
+
+                  return (
+                    <>
+                      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50" onClick={() => setShowReportModal(false)} />
+                      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
+                        <div className="bg-card border border-border rounded-3xl shadow-2xl w-full max-w-lg pointer-events-auto max-h-[90vh] overflow-y-auto">
+                          <div className="flex items-center justify-between p-6 pb-4">
+                            <div>
+                              <h3 className="text-sm font-black uppercase tracking-tight text-foreground flex items-center gap-2">
+                                <Send className="w-4 h-4 text-primary" /> Enviar Relatório
+                              </h3>
+                              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">
+                                Imagem via WhatsApp para o diretor
+                              </p>
+                            </div>
+                            <button onClick={() => setShowReportModal(false)} className="p-1.5 rounded-xl hover:bg-secondary transition-colors">
+                              <X className="w-4 h-4 text-muted-foreground" />
+                            </button>
+                          </div>
+
+                          <div className="px-6 pb-4">
+                            <div className="rounded-2xl overflow-hidden border border-white/10 shadow-xl">
+                              <img src={generateReportImage()} alt="Preview do relatório" className="w-full" />
+                            </div>
+                          </div>
+
+                          <div className="px-6 pb-6">
+                            {reportSent ? (
+                              <div className="flex items-center justify-center gap-2 py-3 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 text-xs font-black uppercase tracking-wider">
+                                <Check className="w-4 h-4" /> Relatório enviado com sucesso!
+                              </div>
+                            ) : (
+                              <div className="flex gap-2">
+                                <div className="relative flex-1">
+                                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                                  <input
+                                    type="tel"
+                                    placeholder="(00) 00000-0000"
+                                    value={reportPhone}
+                                    onChange={(e) => setReportPhone(e.target.value)}
+                                    className="w-full pl-10 pr-3 py-2.5 rounded-xl bg-secondary border border-border text-sm font-bold text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                  />
+                                </div>
+                                <button
+                                  onClick={handleSend}
+                                  disabled={reportSending || reportPhone.replace(/\D/g, "").length < 10}
+                                  className="px-5 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-black uppercase tracking-wider hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center gap-2"
+                                >
+                                  {reportSending ? (
+                                    <div className="w-4 h-4 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
+                                  ) : (
+                                    <Send className="w-3.5 h-3.5" />
+                                  )}
+                                  Enviar
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             )
           ) : null}

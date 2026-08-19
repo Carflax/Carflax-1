@@ -119,13 +119,25 @@ export interface VerbasGrupo {
   isTubo: boolean;
 }
 
+export interface VerbasTrimestre {
+  trimestre: string;
+  label: string;
+  grupos: VerbasGrupo[];
+  totalComprado: number;
+  totalSemTubo: number;
+  valorVerba: number;
+  expiraEm: number;
+  expirado: boolean;
+}
+
 export interface VerbasFornecedor {
   fornecedor: string;
-  grupos: VerbasGrupo[];
+  trimestres: VerbasTrimestre[];
   totalComprado: number;
   totalSemTubo: number;
   percentualVerba: number;
   valorVerba: number;
+  valorRestante: number;
 }
 
 export interface VerbasData {
@@ -1557,38 +1569,95 @@ export const marketingService = {
   },
 
   async getVerbasData(startDate?: Date, endDate?: Date): Promise<VerbasData> {
-    const fornecedoresConfig: { nome: string; marca: string; percentual: number }[] = [
-      { nome: "AMANCO", marca: "AMANCO", percentual: 3 },
+    const fornecedoresConfig: { nome: string; marca: string; percentual: number; expiraMeses: number }[] = [
+      { nome: "AMANCO", marca: "AMANCO", percentual: 3, expiraMeses: 9 },
     ];
 
     const fornecedores: VerbasFornecedor[] = [];
 
     for (const cfg of fornecedoresConfig) {
-      let sql = `SELECT GRUPO, SUM(TOTAL) AS TOTAL FROM VW_COMPRAS_PRODUTOS WHERE MARCA = '${cfg.marca}'`;
+      let sql = `SELECT GRUPO, DATA, TOTAL FROM VW_COMPRAS_PRODUTOS WHERE MARCA = '${cfg.marca}'`;
       if (startDate) sql += ` AND DATA >= '${startDate.toISOString().slice(0, 10)}'`;
       if (endDate) sql += ` AND DATA <= '${endDate.toISOString().slice(0, 10)}'`;
-      sql += ` GROUP BY GRUPO ORDER BY TOTAL DESC`;
+      sql += ` ORDER BY DATA`;
 
       const res = await apiAdminSQL(sql);
       if (!res.success || !res.data) continue;
 
-      const grupos: VerbasGrupo[] = (res.data as { GRUPO: string; TOTAL: string }[]).map((r) => {
-        const grupo = (r.GRUPO || "").trim();
-        const isTubo = grupo.toUpperCase().startsWith("TUBO");
-        return { grupo, total: Number(r.TOTAL) || 0, isTubo };
+      const rows = res.data as { GRUPO: string; DATA: string; TOTAL: string }[];
+
+      const triMap = new Map<string, { grupo: string; total: number }[]>();
+      for (const r of rows) {
+        const d = new Date(r.DATA);
+        const q = Math.ceil((d.getMonth() + 1) / 3);
+        const key = `T ${String(q).padStart(2, "0")}-${String(d.getFullYear()).slice(2)}`;
+        if (!triMap.has(key)) triMap.set(key, []);
+        triMap.get(key)!.push({ grupo: (r.GRUPO || "").trim(), total: Number(r.TOTAL) || 0 });
+      }
+
+      const now = new Date();
+      const trimestres: VerbasTrimestre[] = [];
+
+      for (const [tri, items] of triMap) {
+        const grupoAgg = new Map<string, number>();
+        for (const it of items) {
+          grupoAgg.set(it.grupo, (grupoAgg.get(it.grupo) || 0) + it.total);
+        }
+        const grupos: VerbasGrupo[] = Array.from(grupoAgg.entries())
+          .map(([grupo, total]) => ({ grupo, total, isTubo: grupo.toUpperCase().startsWith("TUBO") }))
+          .sort((a, b) => b.total - a.total);
+
+        const totalComprado = grupos.reduce((s, g) => s + g.total, 0);
+        const totalSemTubo = grupos.filter((g) => !g.isTubo).reduce((s, g) => s + g.total, 0);
+        const valorVerba = totalSemTubo * (cfg.percentual / 100);
+
+        const parts = tri.match(/T (\d+)-(\d+)/);
+        const qNum = parts ? parseInt(parts[1]) : 1;
+        const yShort = parts ? parseInt(parts[2]) : 0;
+        const year = yShort < 50 ? 2000 + yShort : 1900 + yShort;
+        const lastMonthOfQ = qNum * 3;
+        const endOfQ = new Date(year, lastMonthOfQ, 0);
+        const expireDate = new Date(endOfQ);
+        expireDate.setMonth(expireDate.getMonth() + cfg.expiraMeses);
+        const diffMs = expireDate.getTime() - now.getTime();
+        const expiraEm = Math.max(0, Math.ceil(diffMs / (30 * 24 * 60 * 60 * 1000)));
+        const expirado = diffMs <= 0;
+
+        const labels: Record<number, string> = { 1: "1º Tri", 2: "2º Tri", 3: "3º Tri", 4: "4º Tri" };
+
+        trimestres.push({
+          trimestre: tri,
+          label: `${labels[qNum] || tri} ${year}`,
+          grupos,
+          totalComprado,
+          totalSemTubo,
+          valorVerba,
+          expiraEm,
+          expirado,
+        });
+      }
+
+      trimestres.sort((a, b) => {
+        const pa = a.trimestre.match(/T (\d+)-(\d+)/);
+        const pb = b.trimestre.match(/T (\d+)-(\d+)/);
+        const ya = pa ? parseInt(pa[2]) : 0, qa = pa ? parseInt(pa[1]) : 0;
+        const yb = pb ? parseInt(pb[2]) : 0, qb = pb ? parseInt(pb[1]) : 0;
+        return ya !== yb ? ya - yb : qa - qb;
       });
 
-      const totalComprado = grupos.reduce((s, g) => s + g.total, 0);
-      const totalSemTubo = grupos.filter((g) => !g.isTubo).reduce((s, g) => s + g.total, 0);
-      const valorVerba = totalSemTubo * (cfg.percentual / 100);
+      const totalComprado = trimestres.reduce((s, t) => s + t.totalComprado, 0);
+      const totalSemTubo = trimestres.reduce((s, t) => s + t.totalSemTubo, 0);
+      const valorVerba = trimestres.reduce((s, t) => s + t.valorVerba, 0);
+      const valorRestante = trimestres.filter((t) => !t.expirado).reduce((s, t) => s + t.valorVerba, 0);
 
       fornecedores.push({
         fornecedor: cfg.nome,
-        grupos,
+        trimestres,
         totalComprado,
         totalSemTubo,
         percentualVerba: cfg.percentual,
         valorVerba,
+        valorRestante,
       });
     }
 
