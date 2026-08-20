@@ -211,7 +211,8 @@
       "Bash(git commit -m ' *)",
       "Bash(git push *)",
       "Bash(npm install *)",
-      "Bash(npm uninstall *)"
+      "Bash(npm uninstall *)",
+      "Bash(node -e \"require\\('./src/lib/premioMesScheduler'\\)\")"
     ]
   }
 }

@@ -2198,7 +2198,6 @@ export function UpcomingEventsCard({ loading: externalLoading, operatorCode }: {
             {events.map((ev, i) => {
               const style = getTypeStyle(ev.type);
               const daysDiff = getDaysDiff(ev.day, ev.month, ev.year);
-              const isFirst = i === 0;
               
               return (
                 <div key={i} className="flex gap-4 group/item items-start">
@@ -2210,7 +2209,7 @@ export function UpcomingEventsCard({ loading: externalLoading, operatorCode }: {
                        <p className="text-xs font-black text-foreground uppercase tracking-tight truncate flex-1 group-hover/item:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
                         {ev.title}
                       </p>
-                      {isFirst && daysDiff >= 0 && (
+                      {daysDiff >= 0 && (
                         <span className={cn(
                           "ml-2 text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-md shrink-0 border",
                           daysDiff === 0 ? "bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/50" :
