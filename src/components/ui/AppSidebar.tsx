@@ -297,21 +297,10 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
 
         const action = pedidosFuturos.length > 0
           ? {
-              label: "Alterar para Entrega Imediata",
+              label: "Entendido",
               onClick: async () => {
-                try {
-                  for (const p of pedidosFuturos) {
-                    await fetch("/api-marketing/pedidos/entrega-imediata", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({ pedido: p.pedido, empresa: p.empresa }),
-                    });
-                  }
-                  await supabase.from("hub_notificacoes").update({ lida: true }).eq("id", n.id);
-                  showNotification("success", "Entrega Atualizada", `${pedidosFuturos.length} pedido(s) alterado(s) para entrega imediata.`);
-                } catch {
-                  showNotification("error", "Erro", "Não foi possível alterar a entrega. Tente novamente.");
-                }
+                await supabase.from("hub_notificacoes").update({ lida: true }).eq("id", n.id);
+                showNotification("success", "Notificação Lida", "Altere a entrega futura para imediata no Autcom.");
               },
             }
           : undefined;
