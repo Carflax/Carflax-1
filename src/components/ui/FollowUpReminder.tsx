@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Bell, ChevronRight, Clock, CalendarCheck, Check, X } from "lucide-react";
+import { Bell, ChevronRight, Clock, CalendarCheck } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import type { UserProfile } from "@/App";
@@ -197,32 +197,8 @@ export function FollowUpReminder({ userProfile, onNavigateToFollowUps }: Props) 
     return t;
   };
 
-  const [dismissingDoc, setDismissingDoc] = useState<string | null>(null);
 
-  const handleDismissItem = async (doc: string, action: "reagendar" | "concluido") => {
-    setDismissingDoc(doc);
-    try {
-      if (action === "reagendar") {
-        const nextWeek = new Date();
-        nextWeek.setDate(nextWeek.getDate() + 7);
-        const newDate = nextWeek.toISOString().split("T")[0];
-        await supabase.from("crm_status").update({
-          lembrete_data: newDate,
-          updated_at: new Date().toISOString(),
-        }).eq("documento", doc);
-      } else {
-        await supabase.from("crm_status").update({
-          status_crm: "RETORNADO",
-          updated_at: new Date().toISOString(),
-        }).eq("documento", doc);
-      }
-      setFollowUps((prev) => prev.filter((f) => f.documento !== doc));
-    } catch {
-      // silêncio
-    } finally {
-      setDismissingDoc(null);
-    }
-  };
+
 
   const overdueCount = followUps.filter((f) => {
     const t = f.lembrete_data?.trim();
