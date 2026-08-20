@@ -948,7 +948,7 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
         if (cancelled) return;
 
         const crmByDoc = new Map(rows.map((r) => [String(r.documento || "").trim(), r]));
-        const extras = parseOrcamentos(raw).map((o) => {
+        let extras = parseOrcamentos(raw).map((o) => {
           const crm = crmByDoc.get(o.id.trim());
           if (!crm) return o;
           const erpStatus = o.status;
@@ -958,13 +958,27 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
             citelStatus: erpStatus,
             crmStatusVendedor: crmStatus,
             crmMotivoVendedor: crm.motivo_perda ?? undefined,
-            // Mesma precedência do merge principal: VENDA/PERDIDO do ERP mandam.
             status: erpStatus === "VENDA" || erpStatus === "PERDIDO" ? erpStatus : crmStatus,
             lossReason: o.lossReason ?? crm.motivo_perda ?? undefined,
             lembreteData: crm.lembrete_data ?? crm.fechamento_previsto ?? undefined,
             fechamentoPrevisto: crm.fechamento_previsto ?? undefined,
             entregaPrevista: crm.entrega_prevista ?? undefined,
           };
+        });
+
+        // Excluir orçamentos transferidos (docGerado aponta para outro doc existente)
+        const normDoc = (s?: string) =>
+          String(s || "").split("-")[0].replace(/\D/g, "").padStart(12, "0");
+        const allIds = new Set([
+          ...orçamentosData.map((o) => normDoc(o.id)),
+          ...extras.map((o) => normDoc(o.id)),
+        ]);
+        extras = extras.filter((o) => {
+          if (o.status === "VENDA" || o.status === "PERDIDO") return true;
+          if (!o.docGerado) return true;
+          const gerado = normDoc(o.docGerado);
+          if (gerado === normDoc(o.id)) return true;
+          return !allIds.has(gerado);
         });
 
         setDemandasExtras(filtrarPorPermissao(extras, userProfile, subordinateCodes));
