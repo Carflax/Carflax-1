@@ -194,7 +194,7 @@ export function CampanhasView({ userProfile }: { userProfile?: any }) {
     
     try {
       // Update Supabase DB
-      const { error: dbError } = await supabase
+      const { data: updatedRows, error: dbError } = await supabase
         .from("premio_mes")
         .update({
           vendedor_codigo: winner.COD_VENDEDOR,
@@ -202,9 +202,14 @@ export function CampanhasView({ userProfile }: { userProfile?: any }) {
           vendedor_avatar: winner.avatar || null,
           atualizado_em: new Date().toISOString()
         })
-        .eq("id", premioAtual.id);
-        
+        .eq("id", premioAtual.id)
+        .select();
+
       if (dbError) throw dbError;
+      if (!updatedRows || updatedRows.length === 0) {
+        throw new Error("Nenhum registro atualizado — verifique permissões (RLS) da tabela premio_mes");
+      }
+      console.log("[Sorteio] Ganhador salvo:", winner.NOME_VENDEDOR, "| Rows:", updatedRows.length);
       
       // Update states
       setPremioAtual(prev => prev ? {
