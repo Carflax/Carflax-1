@@ -223,28 +223,21 @@ export function CampanhasView({ userProfile }: { userProfile?: any }) {
         } : null);
       }
 
-      // Broadcast via Supabase Realtime — inscreve antes de enviar para evitar fallback REST
-      const channel = supabase.channel('sorteio_campanha', {
-        config: { broadcast: { self: true } },
-      });
-      const payload = {
-        mes: mesSelecionado.mes,
-        ano: mesSelecionado.ano,
-        elegiveis,
-        ganhador: {
-          COD_VENDEDOR: winner.COD_VENDEDOR,
-          NOME_VENDEDOR: winner.NOME_VENDEDOR,
-          avatar: winner.avatar || null,
-        },
-        premio: premioAtual,
-      };
-      channel.subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          await channel.send({ type: 'broadcast', event: 'sorteio_iniciado', payload });
-          // Remove o canal logo após o envio (não precisa ficar ouvindo)
-          setTimeout(() => supabase.removeChannel(channel), 3000);
+      // Dispara evento local — o App.tsx cuida de exibir o modal localmente
+      // E fazer o broadcast via Supabase Realtime para os demais usuários.
+      window.dispatchEvent(new CustomEvent('carflax-sorteio-trigger', {
+        detail: {
+          mes: mesSelecionado.mes,
+          ano: mesSelecionado.ano,
+          elegiveis,
+          ganhador: {
+            COD_VENDEDOR: winner.COD_VENDEDOR,
+            NOME_VENDEDOR: winner.NOME_VENDEDOR,
+            avatar: winner.avatar || null,
+          },
+          premio: premioAtual,
         }
-      });
+      }));
       
     } catch (err: any) {
       console.error("Erro no sorteio:", err);

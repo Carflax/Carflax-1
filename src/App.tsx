@@ -405,7 +405,18 @@ function DashboardContent({
       })
       .subscribe();
 
+    // Quando o líder dispara o sorteio localmente, exibe o modal aqui
+    // e faz o broadcast pelo canal já inscrito para os demais usuários.
+    const handleLocalSorteio = (e: Event) => {
+      const payload = (e as CustomEvent).detail;
+      if (!payload) return;
+      setActiveSorteio(payload);
+      channel.send({ type: 'broadcast', event: 'sorteio_iniciado', payload });
+    };
+    window.addEventListener('carflax-sorteio-trigger', handleLocalSorteio);
+
     return () => {
+      window.removeEventListener('carflax-sorteio-trigger', handleLocalSorteio);
       supabase.removeChannel(channel);
     };
   }, [userProfile?.id]);
