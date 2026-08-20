@@ -142,7 +142,12 @@ export const apiCampanhaMetas = (mesano: string) =>
 /** Retorna apenas vendedores com ≥ 97% da meta (regra do gestao-de-tempo) */
 export const apiElegiveisParaSorteio = async (mesano: string): Promise<MetaVendedor[]> => {
   const data = await apiCampanhaMetas(mesano);
-  return data.resumo.filter((v) => parseFloat(v.PERC_META_BATIDA) >= 97);
+  return data.resumo.filter((v) => {
+    if (parseFloat(v.PERC_META_BATIDA) < 97) return false;
+    const nome = (v.NOME_VENDEDOR || "").toUpperCase().trim();
+    if (/^CAIXA\b/.test(nome)) return false;
+    return true;
+  });
 };
 
 // ── Bônus Trimestral ──────────────────────────────────────────────────────────
