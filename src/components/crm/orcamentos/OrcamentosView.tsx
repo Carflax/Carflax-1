@@ -1493,7 +1493,7 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
     const emAbertoPedidos = faturamento ? Number(faturamento.EM_ABERTO) || 0 : 0;
 
     // Motivos que não representam perda comercial real — excluídos da taxa de conversão.
-    const MOTIVOS_NAO_COMERCIAIS = ["MÃO DE OBRA", "MAO DE OBRA", "MATERIAL"];
+    const MOTIVOS_NAO_COMERCIAIS = ["MÃO DE OBRA E MATERIAL", "MAO DE OBRA E MATERIAL"];
     const perdidosConversao = filteredAndSortedItems
       .filter((o) => o.status === "PERDIDO" && !MOTIVOS_NAO_COMERCIAIS.includes((o.lossReason || "").toUpperCase().trim()))
       .reduce((s, o) => s + o.totalValue, 0);
