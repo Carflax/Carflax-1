@@ -2202,8 +2202,9 @@ export function WhatsappView({
         if (mediaBase64) {
           // O Websocket já mandou a imagem pra gente, subimos direto!
           const ext = mimetype.split("/")[1]?.split(";")[0] || "bin";
+          const uploadName = docFileName ? `${msgId}/${docFileName}` : `${msgId}.${ext}`;
           marketingService
-            .uploadMedia(mediaBase64, mimetype, `${msgId}.${ext}`)
+            .uploadMedia(mediaBase64, mimetype, uploadName)
             .then(async (publicUrl) => {
               if (publicUrl) {
                 await marketingService.updateMessageMediaUrl(msgId, publicUrl);
@@ -2221,10 +2222,11 @@ export function WhatsappView({
             .then(async (media) => {
               if (!media?.base64) return;
               const ext = media.mimetype?.split("/")[1]?.split(";")[0] || "bin";
+              const fallbackName = docFileName ? `${msgId}/${docFileName}` : `${msgId}.${ext}`;
               const publicUrl = await marketingService.uploadMedia(
                 media.base64,
                 media.mimetype,
-                `${msgId}.${ext}`,
+                fallbackName,
               );
               if (!publicUrl) return;
               await marketingService.updateMessageMediaUrl(msgId, publicUrl);
@@ -2386,6 +2388,7 @@ export function WhatsappView({
               status: "sent",
               tipo: tipoMsg,
               mediaUrl: mediaUrl,
+              ...(docFileName ? { fileName: docFileName } : {}),
               ...(quotedText ? { quotedText, quotedSender } : {}),
               ...(linkPreview ? { linkPreview } : {}),
             };
@@ -5440,18 +5443,32 @@ export function WhatsappView({
                                     >
                                       Abrir
                                     </a>
-                                    <a
-                                      href={msg.mediaUrl}
-                                      download={msg.text}
+                                    <button
+                                      onClick={async () => {
+                                        try {
+                                          const res = await fetch(msg.mediaUrl!);
+                                          const blob = await res.blob();
+                                          const url = URL.createObjectURL(blob);
+                                          const a = document.createElement("a");
+                                          a.href = url;
+                                          a.download = msg.fileName || msg.text || "arquivo";
+                                          document.body.appendChild(a);
+                                          a.click();
+                                          a.remove();
+                                          URL.revokeObjectURL(url);
+                                        } catch {
+                                          window.open(msg.mediaUrl!, "_blank");
+                                        }
+                                      }}
                                       className={cn(
-                                        "py-3 text-center text-[11px] font-black uppercase tracking-widest hover:bg-white/5 transition-colors border-l",
+                                        "py-3 text-center text-[11px] font-black uppercase tracking-widest hover:bg-white/5 transition-colors border-l cursor-pointer",
                                         msg.sender === "me"
                                           ? "text-white/80 border-white/10"
                                           : "text-primary border-border/50",
                                       )}
                                     >
                                       Salvar como...
-                                    </a>
+                                    </button>
                                   </div>
                                 </div>
                               )}
