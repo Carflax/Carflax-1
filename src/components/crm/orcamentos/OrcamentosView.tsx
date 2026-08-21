@@ -1492,8 +1492,14 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
     // `pipeline` acima, que é orçamento ainda não decidido.
     const emAbertoPedidos = faturamento ? Number(faturamento.EM_ABERTO) || 0 : 0;
 
-    // Taxa de conversão real = vendas / (vendas + perdidos)
-    const decididos = vendasValor + perdidosValor;
+    // Motivos que não representam perda comercial real — excluídos da taxa de conversão.
+    const MOTIVOS_NAO_COMERCIAIS = ["MÃO DE OBRA", "MAO DE OBRA", "MATERIAL"];
+    const perdidosConversao = filteredAndSortedItems
+      .filter((o) => o.status === "PERDIDO" && !MOTIVOS_NAO_COMERCIAIS.includes((o.lossReason || "").toUpperCase().trim()))
+      .reduce((s, o) => s + o.totalValue, 0);
+
+    // Taxa de conversão real = vendas / (vendas + perdidos comerciais)
+    const decididos = vendasValor + perdidosConversao;
     const convValor = decididos > 0 ? ((vendasValor / decididos) * 100) : 0;
 
     const reasonCounts = filteredAndSortedItems
