@@ -1548,7 +1548,7 @@ export function EsteiraView({ userProfile, subquadroId }: EsteiraViewProps) {
                     Descrição / Tarefas
                   </label>
                   {isViewOnly ? (
-                    <div className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-sm min-h-[80px] max-h-[160px] overflow-y-auto custom-scrollbar">
+                    <div className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-sm min-h-[80px] max-h-[160px] overflow-y-auto custom-scrollbar whitespace-pre-line">
                       {getCleanDescriptionText(selectedCard.description || "").trim() || (
                         <span className="text-muted-foreground italic text-xs">
                           Nenhuma descrição informada.
@@ -1559,17 +1559,23 @@ export function EsteiraView({ userProfile, subquadroId }: EsteiraViewProps) {
                     <textarea
                       rows={3}
                       placeholder="Detalhes, links de referências ou roteiros..."
-                      className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all resize-none font-semibold"
+                      className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all resize-vertical font-semibold min-h-[80px] max-h-[300px]"
                       value={getCleanDescriptionText(selectedCard.description || "")}
-                      onChange={(e) =>
+                      onChange={(e) => {
                         setSelectedCard({
                           ...selectedCard,
                           description: updateDescriptionText(
                             selectedCard.description || "",
                             e.target.value
                           ),
-                        })
-                      }
+                        });
+                        e.target.style.height = "auto";
+                        e.target.style.height = Math.min(e.target.scrollHeight, 300) + "px";
+                      }}
+                      onFocus={(e) => {
+                        e.target.style.height = "auto";
+                        e.target.style.height = Math.min(e.target.scrollHeight, 300) + "px";
+                      }}
                     />
                   )}
                 </div>

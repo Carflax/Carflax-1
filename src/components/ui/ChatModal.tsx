@@ -1005,38 +1005,38 @@ export function ChatModal({
         isMaximized ? "max-w-none" : "max-w-[420px]"
       )}>
         {/* Header bar */}
-        <div className="bg-secondary/40 border-b border-border/30 px-4 py-2.5 flex items-center justify-between">
+        <div className={cn("bg-secondary/40 border-b border-border/30 flex items-center justify-between", isMaximized ? "px-6 py-3.5" : "px-4 py-2.5")}>
           <div className="flex items-center gap-2">
-            <RefreshCw className="w-3.5 h-3.5 text-blue-500" />
-            <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+            <RefreshCw className={cn("text-blue-500", isMaximized ? "w-4.5 h-4.5" : "w-3.5 h-3.5")} />
+            <span className={cn("font-black uppercase tracking-widest text-muted-foreground", isMaximized ? "text-[12px]" : "text-[9px]")}>
               Status do Orçamento
             </span>
           </div>
-          <span className="text-[9px] font-black text-muted-foreground uppercase tracking-wider bg-secondary/80 px-2 py-0.5 rounded border border-border/60">
+          <span className={cn("font-black text-muted-foreground uppercase tracking-wider bg-secondary/80 px-2 py-0.5 rounded border border-border/60", isMaximized ? "text-[12px]" : "text-[9px]")}>
             #{parsed.orcamento}
           </span>
         </div>
 
         {/* Content body */}
-        <div className="p-4 space-y-3.5 text-left">
+        <div className={cn("text-left", isMaximized ? "p-6 space-y-5" : "p-4 space-y-3.5")}>
           {/* Cliente and Seller Info */}
-          <div className="space-y-2">
+          <div className={cn(isMaximized ? "space-y-3" : "space-y-2")}>
             {parsed.cliente && (
               <div className="flex items-start gap-2.5">
-                <Building2 className="w-4 h-4 text-muted-foreground/60 shrink-0 mt-0.5" />
+                <Building2 className={cn("text-muted-foreground/60 shrink-0 mt-0.5", isMaximized ? "w-5 h-5" : "w-4 h-4")} />
                 <div className="flex-1 min-w-0">
-                  <span className="text-[8px] font-black uppercase tracking-wider text-muted-foreground block leading-none mb-0.5">Cliente</span>
-                  <span className="font-bold text-foreground text-xs leading-snug block">{parsed.cliente}</span>
+                  <span className={cn("font-black uppercase tracking-wider text-muted-foreground block leading-none mb-0.5", isMaximized ? "text-[11px]" : "text-[8px]")}>Cliente</span>
+                  <span className={cn("font-bold text-foreground leading-snug block", isMaximized ? "text-sm" : "text-xs")}>{parsed.cliente}</span>
                 </div>
               </div>
             )}
-            
+
             {parsed.vendedor && (
               <div className="flex items-start gap-2.5">
-                <User2 className="w-4 h-4 text-muted-foreground/60 shrink-0 mt-0.5" />
+                <User2 className={cn("text-muted-foreground/60 shrink-0 mt-0.5", isMaximized ? "w-5 h-5" : "w-4 h-4")} />
                 <div className="flex-1 min-w-0">
-                  <span className="text-[8px] font-black uppercase tracking-wider text-muted-foreground block leading-none mb-0.5">Vendedor</span>
-                  <span className="font-bold text-foreground text-xs leading-snug block">{parsed.vendedor}</span>
+                  <span className={cn("font-black uppercase tracking-wider text-muted-foreground block leading-none mb-0.5", isMaximized ? "text-[11px]" : "text-[8px]")}>Vendedor</span>
+                  <span className={cn("font-bold text-foreground leading-snug block", isMaximized ? "text-sm" : "text-xs")}>{parsed.vendedor}</span>
                 </div>
               </div>
             )}
@@ -1045,21 +1045,21 @@ export function ChatModal({
           {/* Status and Channel details */}
           <div className="pt-3 border-t border-border/30 grid grid-cols-2 gap-4">
             <div>
-              <span className="text-[8px] font-black uppercase tracking-wider text-muted-foreground block mb-1">Status</span>
-              <span className={cn("inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-black uppercase border shadow-sm", badgeColor)}>
+              <span className={cn("font-black uppercase tracking-wider text-muted-foreground block mb-1", isMaximized ? "text-[11px]" : "text-[8px]")}>Status</span>
+              <span className={cn("inline-flex items-center gap-1.5 px-3 py-1 rounded-full font-black uppercase border shadow-sm", isMaximized ? "text-[13px]" : "text-[10px]", badgeColor)}>
                 <span className={cn("w-1.5 h-1.5 rounded-full shadow", dotColor)} />
                 {parsed.status ? parsed.status.replace(/[^\w\sÀ-ÿ]/gi, '').trim() : ""}
               </span>
             </div>
-            
+
             {parsed.canal && (
               <div>
-                <span className="text-[8px] font-black uppercase tracking-wider text-muted-foreground block mb-1">Contato</span>
-                <span className="flex items-center gap-1 text-xs font-bold text-foreground leading-snug mt-1">
+                <span className={cn("font-black uppercase tracking-wider text-muted-foreground block mb-1", isMaximized ? "text-[11px]" : "text-[8px]")}>Contato</span>
+                <span className={cn("flex items-center gap-1 font-bold text-foreground leading-snug mt-1", isMaximized ? "text-sm" : "text-xs")}>
                   {isWhatsApp ? (
-                    <MessageSquare className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                    <MessageSquare className={cn("text-emerald-500 shrink-0", isMaximized ? "w-4.5 h-4.5" : "w-3.5 h-3.5")} />
                   ) : (
-                    <Phone className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                    <Phone className={cn("text-blue-500 shrink-0", isMaximized ? "w-4.5 h-4.5" : "w-3.5 h-3.5")} />
                   )}
                   <span className="break-words leading-tight">{parsed.canal} {parsed.contato ? `(${parsed.contato})` : ""}</span>
                 </span>
@@ -1069,20 +1069,20 @@ export function ChatModal({
 
           {/* Lost Quote / Motivo */}
           {parsed.motivo && (
-            <div className="p-3 bg-rose-500/5 border border-rose-500/10 rounded-xl flex gap-2">
-              <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+            <div className={cn("bg-rose-500/5 border border-rose-500/10 rounded-xl flex gap-2", isMaximized ? "p-4" : "p-3")}>
+              <AlertCircle className={cn("text-rose-500 shrink-0 mt-0.5", isMaximized ? "w-5 h-5" : "w-4 h-4")} />
               <div className="flex-1 min-w-0">
-                <span className="text-[8px] font-black uppercase tracking-wider text-rose-500 block leading-none mb-0.5">Motivo do Encerramento</span>
-                <p className="font-bold text-[11px] text-rose-600 dark:text-rose-400 uppercase leading-snug">{parsed.motivo}</p>
+                <span className={cn("font-black uppercase tracking-wider text-rose-500 block leading-none mb-0.5", isMaximized ? "text-[11px]" : "text-[8px]")}>Motivo do Encerramento</span>
+                <p className={cn("font-bold text-rose-600 dark:text-rose-400 uppercase leading-snug", isMaximized ? "text-[14px]" : "text-[11px]")}>{parsed.motivo}</p>
               </div>
             </div>
           )}
 
           {/* Itens Afetados */}
           {parsed.itens && (
-            <div className="p-3 bg-secondary/30 border border-border rounded-xl">
-              <span className="text-[8px] font-black uppercase tracking-wider text-muted-foreground block mb-1.5">Itens Perdidos/Afetados</span>
-              <div className="text-[11px] font-bold text-foreground/80 whitespace-pre-wrap leading-relaxed">
+            <div className={cn("bg-secondary/30 border border-border rounded-xl", isMaximized ? "p-4" : "p-3")}>
+              <span className={cn("font-black uppercase tracking-wider text-muted-foreground block mb-1.5", isMaximized ? "text-[11px]" : "text-[8px]")}>Itens Perdidos/Afetados</span>
+              <div className={cn("font-bold text-foreground/80 whitespace-pre-wrap leading-relaxed", isMaximized ? "text-[14px]" : "text-[11px]")}>
                 {parsed.itens}
               </div>
             </div>
@@ -1090,9 +1090,9 @@ export function ChatModal({
 
           {/* Observação / Comentário */}
           {parsed.observacao && (
-            <div className="p-3 bg-amber-500/5 border border-amber-500/10 rounded-xl relative overflow-hidden">
-              <span className="text-[8px] font-black uppercase tracking-wider text-amber-500 block mb-1">Observação do Atendimento</span>
-              <p className="text-[11px] leading-relaxed text-amber-700 dark:text-amber-300 font-semibold italic">
+            <div className={cn("bg-amber-500/5 border border-amber-500/10 rounded-xl relative overflow-hidden", isMaximized ? "p-4" : "p-3")}>
+              <span className={cn("font-black uppercase tracking-wider text-amber-500 block", isMaximized ? "text-[15px] mb-2" : "text-[8px] mb-1")}>Observação do Atendimento</span>
+              <p className={cn("leading-relaxed text-amber-700 dark:text-amber-300 font-semibold italic", isMaximized ? "text-[20px]" : "text-[11px]")}>
                 "{parsed.observacao}"
               </p>
             </div>
@@ -1100,7 +1100,7 @@ export function ChatModal({
         </div>
 
         {/* Footer timestamp */}
-        <div className="bg-secondary/25 px-4 py-2 border-t border-border/30 flex items-center justify-end text-[8px] text-muted-foreground font-bold">
+        <div className={cn("bg-secondary/25 px-4 py-2 border-t border-border/30 flex items-center justify-end text-muted-foreground font-bold", isMaximized ? "text-[11px]" : "text-[8px]")}>
           {formatTime(msg.timestamp)}
         </div>
       </div>
@@ -1116,8 +1116,8 @@ export function ChatModal({
       if (tableRows.length > 0) {
         result.push(
           <div key={`table-${result.length}`} className="my-3 rounded-xl border border-border/50 overflow-hidden bg-background/50 shadow-inner">
-            <table className={cn("w-full text-left transition-all", isMaximized ? "text-[11px]" : "text-[10px]")}>
-              <thead className={cn("bg-secondary/60 text-muted-foreground uppercase tracking-widest font-black", isMaximized ? "text-[9px]" : "text-[8px]")}>
+            <table className={cn("w-full text-left transition-all", isMaximized ? "text-[14px]" : "text-[10px]")}>
+              <thead className={cn("bg-secondary/60 text-muted-foreground uppercase tracking-widest font-black", isMaximized ? "text-[12px]" : "text-[8px]")}>
                 <tr>
                   {tableRows[0].map((h, i) => <th key={i} className={cn("px-2 py-1.5 border-b border-border/50", i > 0 && "text-center")}>{h}</th>)}
                 </tr>
@@ -1228,7 +1228,8 @@ export function ChatModal({
         <div className="p-4 pt-[calc(1rem+env(safe-area-inset-top))] sm:pt-4 border-b border-border flex items-center justify-between gap-2 bg-secondary/30 rounded-t-none sm:rounded-t-2xl shrink-0 transition-all">
           <div className="flex items-center gap-3 min-w-0 flex-1">
             <div className={cn(
-              "w-8 h-8 rounded-full flex items-center justify-center text-xs font-black overflow-hidden border border-blue-500/30",
+              "rounded-full flex items-center justify-center font-black overflow-hidden border border-blue-500/30",
+              isMaximized ? "w-11 h-11 text-sm" : "w-8 h-8 text-xs",
               (headerLoading) ? "bg-secondary/40 animate-pulse" : "bg-blue-500/20 text-blue-500"
             )}>
               {displayUser?.avatar && !headerLoading ? (
@@ -1244,14 +1245,14 @@ export function ChatModal({
                 <div className="h-2 w-24 bg-secondary/40 rounded-full animate-pulse" />
               ) : (
                 <span
-                  className="text-[13px] font-black text-foreground tracking-tight leading-none uppercase truncate"
+                  className={cn("font-black text-foreground tracking-tight leading-none uppercase truncate", isMaximized ? "text-[16px]" : "text-[13px]")}
                   title={displayUser.name}
                 >
                   {shortenName(displayUser.name)}
                 </span>
               )}
               {documento && !headerLoading ? (
-                <span className="text-[11px] font-black text-blue-500 uppercase tracking-tighter opacity-80 flex items-center gap-1 min-w-0">
+                <span className={cn("font-black text-blue-500 uppercase tracking-tighter opacity-80 flex items-center gap-1 min-w-0", isMaximized ? "text-[13px]" : "text-[11px]")}>
                   <span className="shrink-0" title={documento}>#{numeroDocCurto}</span>
                   {markupPct !== null && (
                     <span
@@ -1267,7 +1268,7 @@ export function ChatModal({
               )}
               {clientName && !headerLoading && (
                 <span
-                  className="text-[10px] font-black text-foreground/80 uppercase tracking-tight leading-none truncate"
+                  className={cn("font-black text-foreground/80 uppercase tracking-tight leading-none truncate", isMaximized ? "text-[12px]" : "text-[10px]")}
                   title={clientName}
                 >
                   {shortenName(clientName)}
@@ -1380,7 +1381,7 @@ export function ChatModal({
                   <div key={msg.id} className="flex flex-col space-y-4">
                     {showDateSeparator && (
                       <div className="flex justify-center select-none my-2">
-                        <span className="text-[8px] font-black text-muted-foreground/80 uppercase bg-secondary/60 px-3 py-1 rounded-full border border-border/40 tracking-wider">
+                        <span className={cn("font-black text-muted-foreground/80 uppercase bg-secondary/60 px-3 py-1 rounded-full border border-border/40 tracking-wider", isMaximized ? "text-[10px]" : "text-[8px]")}>
                           {formatDateSeparator(msg.timestamp)}
                         </span>
                       </div>
@@ -1398,7 +1399,7 @@ export function ChatModal({
                       return (
                         <div className={cn("flex flex-col space-y-1", isMe(msg) ? "items-end" : "items-start")}>
                           {!isMe(msg) && (
-                            <span className="text-[10px] font-black text-muted-foreground uppercase ml-1 tracking-widest">
+                            <span className={cn("font-black text-muted-foreground uppercase ml-1 tracking-widest", isMaximized ? "text-[12px]" : "text-[10px]")}>
                               {(() => {
                                 if (msg.enviado_por_nome?.toUpperCase() === "SISTEMA") {
                                   const match = msg.obs.match(/Vendedor:.*?\*?\s*(.*?)(?:\n|$)/i);
@@ -1417,16 +1418,16 @@ export function ChatModal({
                             data-msg-id={msg.id}
                             className={cn(
                             "rounded-2xl max-w-full shadow-xl leading-relaxed transition-all",
-                            isMaximized ? "p-4 text-[15px] font-bold" : "p-3.5 text-[13px] font-semibold",
+                            isMaximized ? "p-5 text-[17px] font-bold" : "p-3.5 text-[13px] font-semibold",
                             isMe(msg) ? "bg-blue-600 text-white rounded-tr-none" : "bg-secondary/80 text-foreground/90 rounded-tl-none border border-border/40"
                           )}>
                             {renderFormattedText(msg.obs)}
                           </div>
                           <div className={cn("flex items-center gap-2", isMe(msg) ? "mr-1" : "ml-1")}>
-                            <span className="text-[9px] font-black text-muted-foreground uppercase opacity-50">{formatTime(msg.timestamp)}</span>
+                            <span className={cn("font-black text-muted-foreground uppercase opacity-50", isMaximized ? "text-[11px]" : "text-[9px]")}>{formatTime(msg.timestamp)}</span>
                             {isMe(msg) && (() => {
                               const s = deliveryStatus(msg);
-                              return <span title={s.tooltip} className={cn("text-[9px] font-black uppercase", s.cls)}>{s.label}</span>;
+                              return <span title={s.tooltip} className={cn("font-black uppercase", isMaximized ? "text-[11px]" : "text-[9px]", s.cls)}>{s.label}</span>;
                             })()}
                           </div>
                         </div>
@@ -1468,7 +1469,7 @@ export function ChatModal({
                   rows={1}
                   className={cn(
                     "w-full bg-secondary/50 border border-border rounded-xl pl-4 pr-10 outline-none focus:border-blue-500/50 transition-all placeholder:text-muted-foreground/30 font-bold resize-none py-3 scrollbar-hide",
-                    isMaximized ? "text-[14px] min-h-[52px]" : "text-[13px] min-h-[44px]"
+                    isMaximized ? "text-[16px] min-h-[56px]" : "text-[13px] min-h-[44px]"
                   )} 
                 />
                 <button 
