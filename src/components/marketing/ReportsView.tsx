@@ -25,7 +25,7 @@ import {
   Building2,
 } from "lucide-react";
 import { marketingService, type ReportsAnalytics, type EvolutionData, type EvolutionClient, type VerbasData } from "@/lib/marketing-service";
-import { apiAdsSpend, apiAdsSendReport, type AdsSpendResponse } from "@/lib/api";
+import { apiAdsSpend, apiAdsSendReport, apiCustosFixos, type AdsSpendResponse, type CustosFixosPeriodo } from "@/lib/api";
 import { CustosFixosSection } from "./CustosFixosSection";
 import { cn } from "@/lib/utils";
 import { MiniCalendar } from "@/components/ui/MiniCalendar";
@@ -103,6 +103,8 @@ export function ReportsView() {
   const [evoSearch, setEvoSearch] = useState("");
   const [evoSort, setEvoSort] = useState<{ key: string; dir: "asc" | "desc" }>({ key: "total_vendas", dir: "desc" });
   const [chartClient, setChartClient] = useState<EvolutionClient | null>(null);
+  const [custos, setCustos] = useState<CustosFixosPeriodo | null>(null);
+  const [adsErro, setAdsErro] = useState<string | null>(null);
   const [verbas, setVerbas] = useState<VerbasData | null>(null);
   const [verbasLoading, setVerbasLoading] = useState(false);
   const [adsData, setAdsData] = useState<AdsSpendResponse | null>(null);
@@ -161,12 +163,32 @@ export function ReportsView() {
       if (!startDate || !endDate) return;
       if (comLoading) {
         setAdsData(null);
+        setCustos(null);
         setAdsLoading(true);
       }
       const fmt = (d: Date) => d.toISOString().slice(0, 10);
-      apiAdsSpend(fmt(startDate), fmt(endDate))
-        .then(setAdsData)
-        .catch((err) => console.error("Erro ao carregar gastos:", err))
+      const [ini, fim] = [fmt(startDate), fmt(endDate)];
+      setAdsErro(null);
+
+      // As duas consultas são independentes de propósito: se o Meta/Google
+      // falhar, os custos fixos ainda precisam aparecer — e vice-versa.
+      Promise.allSettled([apiAdsSpend(ini, fim), apiCustosFixos(ini, fim)])
+        .then(([ads, cf]) => {
+          if (ads.status === "fulfilled") {
+            setAdsData(ads.value);
+          } else {
+            console.error("Erro ao carregar gastos:", ads.reason);
+            setAdsErro(
+              ads.reason instanceof Error ? ads.reason.message : "Falha ao consultar Meta/Google.",
+            );
+          }
+          if (cf.status === "fulfilled") {
+            setCustos({ itens: cf.value.itens ?? [], total: cf.value.total ?? 0 });
+          } else {
+            console.error("Erro ao carregar custos fixos:", cf.reason);
+            setCustos({ itens: [], total: 0, error: "Falha ao carregar custos fixos." });
+          }
+        })
         .finally(() => setAdsLoading(false));
     },
     [startDate, endDate],
@@ -989,14 +1011,6 @@ export function ReportsView() {
                 <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
                 <span className="text-xs font-black uppercase tracking-widest text-primary">Carregando Gastos...</span>
               </div>
-            ) : !adsData ? (
-              <div className="h-64 flex flex-col items-center justify-center gap-3">
-                <div className="w-16 h-16 rounded-3xl bg-secondary flex items-center justify-center">
-                  <DollarSign className="w-7 h-7 text-muted-foreground" />
-                </div>
-                <p className="text-sm font-black uppercase tracking-tight">Sem dados de gastos</p>
-                <p className="text-xs text-muted-foreground max-w-xs">Nenhum dado de anúncios encontrado no período.</p>
-              </div>
             ) : (
               <div className="space-y-5">
                 <div className="flex items-center justify-between mb-1">
@@ -1009,13 +1023,33 @@ export function ReportsView() {
                   </button>
                 </div>
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                  <KpiCard label="Investido Total" value={formatCurrency(adsData.totalInvestido ?? adsData.totalSpend)} icon={<DollarSign className="w-5 h-5" />} accent="text-rose-500 bg-rose-500/10" />
-                  <KpiCard label="Google Ads" value={formatCurrency(adsData.google.total)} icon={<TrendingUp className="w-5 h-5" />} accent="text-blue-500 bg-blue-500/10" />
-                  <KpiCard label="Meta Ads" value={formatCurrency(adsData.meta.total)} icon={<Megaphone className="w-5 h-5" />} accent="text-indigo-500 bg-indigo-500/10" />
-                  <KpiCard label="Custos Fixos" value={formatCurrency(adsData.custosFixos?.total ?? 0)} icon={<Building2 className="w-5 h-5" />} accent="text-amber-500 bg-amber-500/10" />
+                  <KpiCard label="Investido Total" value={formatCurrency((adsData?.totalSpend ?? 0) + (custos?.total ?? 0))} icon={<DollarSign className="w-5 h-5" />} accent="text-rose-500 bg-rose-500/10" />
+                  <KpiCard label="Google Ads" value={formatCurrency(adsData?.google.total ?? 0)} icon={<TrendingUp className="w-5 h-5" />} accent="text-blue-500 bg-blue-500/10" />
+                  <KpiCard label="Meta Ads" value={formatCurrency(adsData?.meta.total ?? 0)} icon={<Megaphone className="w-5 h-5" />} accent="text-indigo-500 bg-indigo-500/10" />
+                  <KpiCard label="Custos Fixos" value={formatCurrency(custos?.total ?? 0)} icon={<Building2 className="w-5 h-5" />} accent="text-amber-500 bg-amber-500/10" />
                 </div>
 
-                <CustosFixosSection custos={adsData.custosFixos} onChange={recarregarGastos} />
+                {/* Erro de consulta e ausência de gasto são coisas diferentes: mostrar
+                    "sem dados" quando a chamada falhou faz o usuário achar que não
+                    investiu nada no período. */}
+                {adsErro && (
+                  <div className="flex items-start gap-2.5 rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3">
+                    <X className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-wider text-rose-500">Falha ao consultar Meta/Google</p>
+                      <p className="text-[11px] font-medium text-muted-foreground mt-0.5">
+                        {adsErro} · Os valores de mídia abaixo estão zerados por isso, não por ausência de investimento.
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {!adsErro && adsData && adsData.totalSpend === 0 && (
+                  <p className="text-[11px] font-bold text-muted-foreground">
+                    Nenhum investimento em mídia registrado no período.
+                  </p>
+                )}
+
+                <CustosFixosSection custos={custos ?? undefined} onChange={() => recarregarGastos(false)} />
 
                 {adsData.daily && adsData.daily.length > 1 && (
                   <section className="bg-card border border-border rounded-3xl p-6 shadow-sm flex flex-col">
