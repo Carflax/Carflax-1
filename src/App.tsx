@@ -478,6 +478,88 @@ function DashboardContent({
     };
   }, [userProfile?.id, podeReceberWhatsapp]);
 
+  // Notificação global de novos comunicados (Notificação do Chrome / Navegador para todos)
+  useEffect(() => {
+    if (!userProfile?.id) return;
+
+    if ("Notification" in window && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
+
+    const channel = supabase
+      .channel(`global_comunicados_notif_${userProfile.id}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "comunicados" },
+        (payload) => {
+          const row = payload.new as {
+            id?: string | number;
+            titulo?: string;
+            descricao?: string;
+            filtro?: string;
+            tag?: string;
+            image_url?: string;
+            image?: string;
+          };
+          if (!row || !row.titulo) return;
+
+          // Emite evento para o feed de comunicados atualizar instantaneamente se estiver aberto
+          window.dispatchEvent(new CustomEvent("carflax-novo-comunicado", { detail: row }));
+
+          // Verifica se o usuário tem a preferência ativada
+          try {
+            const raw = localStorage.getItem("carflax_notif_prefs");
+            const prefs = raw ? JSON.parse(raw)?.equipe : null;
+            if (prefs?.broadcast === false) return;
+          } catch {
+            /* segue */
+          }
+
+          // Notificação Nativa do Chrome / Navegador
+          if ("Notification" in window && Notification.permission === "granted") {
+            try {
+              const categoria = row.filtro ? `[${row.filtro.toUpperCase()}] ` : "";
+              const tituloLimpo = row.titulo.trim();
+              const resumo = row.descricao
+                ? row.descricao.replace(/\n+/g, " ").slice(0, 140)
+                : "Novo comunicado publicado no HUB Carflax";
+
+              const notif = new Notification(`📢 ${categoria}${tituloLimpo}`, {
+                body: resumo,
+                icon: (row.image_url || row.image || "/favicon.png").trim(),
+                badge: "/favicon.png",
+                tag: `comunicado-${row.id || Date.now()}`,
+                silent: false,
+              });
+
+              notif.onclick = () => {
+                window.focus();
+                window.dispatchEvent(new CustomEvent("carflax-change-tab", { detail: "Geral" }));
+              };
+            } catch (err) {
+              console.error("[Comunicados] Erro ao disparar notificação do Chrome:", err);
+            }
+          }
+
+          // Toca som de notificação
+          try {
+            const audio = new Audio(
+              "https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3"
+            );
+            audio.volume = 0.5;
+            audio.play().catch(() => {});
+          } catch {
+            /* silêncio */
+          }
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userProfile?.id]);
+
   // ── Web Push — Service Worker + Subscrição persistente ──────────────
   const pushSetupDone = useRef(false);
   const pushUserId = userProfile?.id;

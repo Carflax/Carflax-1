@@ -8,6 +8,8 @@ import {
   MessageCircle,
   Send,
   Smile,
+  Maximize2,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
@@ -451,6 +453,7 @@ export function CommunicationCard({
   const [imageLoaded, setImageLoaded] = useState(false);
   const [likersAvatars, setLikersAvatars] = useState<string[]>([]);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [showImageModal, setShowImageModal] = useState(false);
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState<ComunicadoComment[]>([]);
   const [commentCount, setCommentCount] = useState(initialCommentCount);
@@ -882,13 +885,24 @@ export function CommunicationCard({
 
   return (
     <div className="bg-card border border-border rounded-2xl overflow-hidden transition-all duration-300 hover:shadow-lg group">
-      <div className="flex flex-col sm:flex-row h-auto sm:min-h-[220px]">
-        <div className="w-full sm:w-64 bg-slate-100 dark:bg-slate-800/50 shrink-0 border-b sm:border-b-0 sm:border-r border-border overflow-hidden relative min-h-[160px]">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-start p-2.5 sm:p-3 gap-2.5">
+        <div
+          onClick={() => setShowImageModal(true)}
+          className="w-full sm:w-52 md:w-60 aspect-square shrink-0 rounded-xl bg-slate-900/40 dark:bg-slate-950/60 border border-border overflow-hidden relative cursor-pointer group/img select-none flex items-center justify-center sm:self-start shadow-sm"
+          title="Clique para ver a foto ampliada"
+        >
           {!imageLoaded && (
-            <div className="absolute inset-0 bg-slate-200 animate-pulse flex items-center justify-center">
-              <div className="w-10 h-10 border-4 border-slate-300 border-t-slate-400 rounded-full animate-spin" />
+            <div className="absolute inset-0 bg-slate-200 dark:bg-slate-800 animate-pulse flex items-center justify-center z-10">
+              <div className="w-8 h-8 border-3 border-slate-300 border-t-slate-400 dark:border-slate-700 dark:border-t-blue-500 rounded-full animate-spin" />
             </div>
           )}
+          {/* Fundo suave com blur para banners ou imagens que não sejam 1:1 */}
+          <img
+            src={data.image}
+            alt=""
+            aria-hidden="true"
+            className="absolute inset-0 w-full h-full object-cover blur-lg scale-125 opacity-25 pointer-events-none"
+          />
           <img
             key={data.image}
             src={data.image}
@@ -896,14 +910,18 @@ export function CommunicationCard({
             onLoad={() => setImageLoaded(true)}
             onError={() => setImageLoaded(true)}
             className={cn(
-              "w-full h-full object-cover",
-              "group-hover:scale-110 transition-transform duration-500",
+              "w-full h-full object-contain relative z-[1]",
+              "group-hover/img:scale-105 transition-transform duration-500",
             )}
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent opacity-0 group-hover/img:opacity-100 transition-opacity duration-300 z-[2] flex items-end justify-start p-2.5 pointer-events-none">
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-white bg-black/60 backdrop-blur-md px-2 py-0.5 rounded-lg shadow border border-white/10">
+              <Maximize2 className="w-3 h-3" /> Ampliar
+            </span>
+          </div>
         </div>
 
-        <div className="flex-1 p-6 flex flex-col min-w-0">
+        <div className="flex-1 flex flex-col min-w-0 min-h-[190px] sm:min-h-[220px] justify-between py-0.5">
           <div className="flex justify-between items-start gap-4 mb-2">
             <div className="flex items-center gap-3">
               <span className="text-[11px] font-black px-3 py-1 rounded-lg bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 uppercase tracking-widest">
@@ -1155,6 +1173,41 @@ export function CommunicationCard({
           )}
         </div>
       )}
+
+      {/* Lightbox / Modal de Foto Ampliada */}
+      {showImageModal && (
+        <div
+          className="fixed inset-0 z-[200] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200"
+          onClick={() => setShowImageModal(false)}
+        >
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowImageModal(false);
+            }}
+            className="absolute top-4 right-4 sm:top-6 sm:right-6 p-2.5 bg-black/60 hover:bg-black/90 text-white rounded-full transition-colors border border-white/20 z-10"
+            title="Fechar (Esc)"
+          >
+            <X className="w-5 h-5" />
+          </button>
+          <div
+            className="relative max-w-5xl max-h-[90vh] flex flex-col items-center select-none"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <img
+              src={data.image}
+              alt={data.title}
+              className="max-w-full max-h-[80vh] object-contain rounded-2xl shadow-2xl border border-white/10"
+            />
+            <div className="mt-3 text-center px-4">
+              <span className="inline-block text-[10px] font-black uppercase tracking-wider text-blue-400 bg-blue-950/60 border border-blue-800/60 px-2.5 py-0.5 rounded-md mb-1">
+                {data.category}
+              </span>
+              <p className="text-white font-bold text-sm line-clamp-1">{data.title}</p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1248,6 +1301,15 @@ export function CommunicationSection({
 
   useEffect(() => {
     fetchComunicados();
+  }, [fetchComunicados]);
+
+  // Atualiza automaticamente o feed de comunicados quando um novo comunicado for publicado
+  useEffect(() => {
+    const handleNovoComunicado = () => {
+      fetchComunicados(true);
+    };
+    window.addEventListener("carflax-novo-comunicado", handleNovoComunicado);
+    return () => window.removeEventListener("carflax-novo-comunicado", handleNovoComunicado);
   }, [fetchComunicados]);
 
   const [newPost, setNewPost] = useState<{
@@ -1599,10 +1661,10 @@ export function CommunicationSection({
           Array.from({ length: 3 }).map((_, i) => (
             <div
               key={i}
-              className="bg-card border border-border rounded-2xl overflow-hidden flex flex-col sm:flex-row h-auto sm:min-h-[220px] animate-pulse"
+              className="bg-card border border-border rounded-2xl overflow-hidden flex flex-col sm:flex-row items-stretch sm:items-start p-2.5 sm:p-3 gap-2.5 animate-pulse"
             >
-              <div className="w-full min-h-[160px] sm:w-64 sm:min-h-0 bg-secondary dark:bg-slate-800/50 shrink-0" />
-              <div className="flex-1 p-6 flex flex-col gap-4">
+              <div className="w-full sm:w-52 md:w-60 aspect-square shrink-0 rounded-xl bg-secondary dark:bg-slate-800/50" />
+              <div className="flex-1 flex flex-col gap-3 w-full justify-between min-h-[190px] sm:min-h-[220px]">
                 <div className="flex items-center gap-3">
                   <div className="h-5 w-16 bg-secondary dark:bg-slate-800 rounded-lg" />
                   <div className="h-4 w-20 bg-secondary dark:bg-slate-800 rounded" />
