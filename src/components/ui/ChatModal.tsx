@@ -80,6 +80,11 @@ export function ChatModal({
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastTypingBroadcast = useRef(0);
   const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  // Ids das mensagens de divergência abertas neste chat: elas são reescritas pelo
+  // coletor conforme a separação avança, então o poll precisa reler o texto delas.
+  const divergenciaIdsRef = useRef<string[]>([]);
+  // Último chat para o qual o nome do cliente foi resolvido (documento + título).
+  const alvoClienteRef = useRef<string>("");
   const [sending, setSending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -363,16 +368,35 @@ export function ChatModal({
     };
 
     // Atualiza os "ticks" (entregue/vista) ao vivo quando a outra parte recebe/lê.
+    // O texto (obs) também é mesclado: a mensagem de divergência é reescrita pelo
+    // coletor a cada item conferido, então a tabela precisa mudar na tela.
     const handleMsgUpdate = (upd: CrmConversa) => {
       const msgDoc = (upd.documento || "").replace("#", "").trim();
       if (msgDoc !== cleanDoc) return;
-      setConversas((prev) =>
-        prev.map((m) =>
-          m.id === upd.id
-            ? { ...m, lida: upd.lida, lida_em: upd.lida_em, entregue_em: upd.entregue_em }
-            : m
-        )
-      );
+      setConversas((prev) => {
+        let mudou = false;
+        const proximo = prev.map((m) => {
+          if (m.id !== upd.id) return m;
+          const novo = {
+            ...m,
+            obs: upd.obs ?? m.obs,
+            lida: upd.lida,
+            lida_em: upd.lida_em,
+            entregue_em: upd.entregue_em,
+          };
+          if (
+            novo.obs !== m.obs ||
+            novo.lida !== m.lida ||
+            novo.lida_em !== m.lida_em ||
+            novo.entregue_em !== m.entregue_em
+          ) {
+            mudou = true;
+            return novo;
+          }
+          return m;
+        });
+        return mudou ? proximo : prev;
+      });
     };
 
     let chatChannel = supabase
@@ -411,6 +435,32 @@ export function ChatModal({
           for (const msg of data) {
             if (msg.timestamp) lastPollTs = msg.timestamp;
             handleNewMsg(msg as CrmConversa);
+          }
+        }
+
+        // Divergência de separação é EDITADA (mesmo id, mesmo timestamp) a cada
+        // item conferido no coletor — o filtro por timestamp acima nunca a traria.
+        const divIds = divergenciaIdsRef.current;
+        if (divIds.length > 0) {
+          const { data: edits } = await supabase
+            .from("crm_conversas")
+            .select("id, obs")
+            .in("id", divIds);
+          if (edits && edits.length > 0) {
+            setConversas((prev) => {
+              let mudou = false;
+              const proximo = prev.map((m) => {
+                const upd = edits.find((e) => e.id === m.id);
+                if (upd && upd.obs && upd.obs !== m.obs) {
+                  mudou = true;
+                  return { ...m, obs: upd.obs };
+                }
+                return m;
+              });
+              // Sem mudança real, devolve a MESMA lista: um array novo a cada 10s
+              // re-dispararia os efeitos de header (nome do cliente piscando).
+              return mudou ? proximo : prev;
+            });
           }
         }
       } catch {
@@ -522,6 +572,13 @@ export function ChatModal({
   useEffect(() => {
     if (!isOpen || !documento) return;
 
+    // Este efeito também roda quando chega/muda uma mensagem. Limpar o nome nesse
+    // caso fazia o cliente sumir do header e voltar só quando a API respondia
+    // (o "pisca" a cada atualização). Só zera quando o chat em si mudou.
+    const alvo = `${documento}|${title}`;
+    const mudouAlvo = alvoClienteRef.current !== alvo;
+    alvoClienteRef.current = alvo;
+
     // Tenta primeiro obter a partir do `title` se ele não for um nome de sistema ou do centralizador/vendedor
     const isTitleNotSellerOrCentralizer = 
       title && 
@@ -545,10 +602,10 @@ export function ChatModal({
       const clienteMatch = divMsg?.obs?.match(/Cliente:\s*\*?([^*\n]+)\*?/i);
       if (clienteMatch) {
         setClientName(clienteMatch[1].trim());
-      } else {
+      } else if (mudouAlvo) {
         setClientName(null);
       }
-    } else {
+    } else if (mudouAlvo) {
       setClientName(null);
     }
 
@@ -576,6 +633,13 @@ export function ChatModal({
 
     fetchClientName();
   }, [isOpen, documento, title, sellerName, userProfile?.name, conversas]);
+
+  // Mantém a lista de mensagens de divergência (editáveis pelo coletor) atualizada.
+  useEffect(() => {
+    divergenciaIdsRef.current = conversas
+      .filter((c) => (c.obs || "").includes("Divergência de Separação") && c.id)
+      .map((c) => c.id as string);
+  }, [conversas]);
 
   // Scroll automático
   useEffect(() => {
