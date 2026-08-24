@@ -2,7 +2,6 @@ import {
   TrendingUp,
   TrendingDown,
   AlertTriangle,
-  Building2,
   Target,
   ArrowRight,
 } from "lucide-react";
@@ -55,35 +54,6 @@ export function RentabilidadeSection({ dados }: { dados: RentabilidadeResponse }
 
   return (
     <div className="space-y-5">
-      {/* ── Empresa: números fechados, sem estimativa ───────────────────── */}
-      <section className="bg-card border border-border rounded-3xl p-6 shadow-sm">
-        <div className="mb-5">
-          <h2 className="text-sm font-black uppercase tracking-tight flex items-center gap-2">
-            <Building2 className="w-4 h-4 text-primary" /> Resultado da Empresa
-          </h2>
-          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">
-            Faturamento e margem reais do ERP · sem estimativa
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-4">
-          <Elo label="Faturado" valor={brl(empresa.faturado)} />
-          <Elo label="Margem" valor={brl(empresa.margem)} hint={`${empresa.margemPct}% do faturado`} tom="bom" />
-          <Elo
-            label="Investido em marketing"
-            valor={brl(investimento.total)}
-            hint={`${brl(investimento.midia)} mídia + ${brl(investimento.fixos)} fixos`}
-            tom="custo"
-          />
-          <Elo
-            label="Peso no lucro"
-            valor={`${dados.pesoNoLucro}%`}
-            hint="do lucro da empresa"
-            seta={false}
-          />
-        </div>
-      </section>
-
       {/* ── Tráfego: depende da atribuição ──────────────────────────────── */}
       <section
         className={cn(
