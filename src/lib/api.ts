@@ -661,10 +661,19 @@ export interface RentabilidadeResponse {
     porCanal: RentabilidadeCanal[];
   };
   trafego: {
-    lucroPago: number;
+    /** Lucro estimado sobre todas as vendas do CRM de marketing */
+    lucro: number;
+    faturamento: number;
     retornoReal: number;
     roas: number;
     faturamentoParaEmpatar: number;
+    /** Recorte só dos canais pagos identificados */
+    somentePago: {
+      faturamento: number;
+      lucro: number;
+      retornoReal: number;
+      roas: number;
+    };
   };
   lucroAtribuido: number;
   /** % do lucro da empresa consumido pelo investimento em marketing */

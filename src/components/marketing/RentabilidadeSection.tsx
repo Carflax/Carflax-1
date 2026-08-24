@@ -94,10 +94,10 @@ export function RentabilidadeSection({ dados }: { dados: RentabilidadeResponse }
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-5">
           <div>
             <h2 className="text-sm font-black uppercase tracking-tight flex items-center gap-2">
-              <Target className="w-4 h-4 text-blue-500" /> Retorno do Tráfego Pago
+              <Target className="w-4 h-4 text-blue-500" /> Retorno do Marketing
             </h2>
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mt-0.5">
-              Só o faturamento que conseguimos ligar a um lead de canal pago
+              Vendas registradas no CRM de marketing no período
             </p>
           </div>
           <div
@@ -114,13 +114,13 @@ export function RentabilidadeSection({ dados }: { dados: RentabilidadeResponse }
 
         <div className="flex flex-wrap items-center gap-4 mb-5">
           <Elo
-            label="Faturado (canal pago)"
-            valor={brl(atribuido.faturamentoPago)}
-            hint={`${atribuido.vendas} venda(s) atribuída(s) no total`}
+            label="Faturado (marketing)"
+            valor={brl(trafego.faturamento)}
+            hint={`${atribuido.vendas} venda(s) no período`}
           />
           <Elo
             label="Lucro estimado"
-            valor={brl(trafego.lucroPago)}
+            valor={brl(trafego.lucro)}
             hint={`margem de ${empresa.margemPct}%`}
             tom="bom"
           />
@@ -134,21 +134,26 @@ export function RentabilidadeSection({ dados }: { dados: RentabilidadeResponse }
           />
         </div>
 
-        {/* O aviso é parte do número, não decoração: sem ele o retorno negativo
-            leva a cortar verba que talvez esteja funcionando. */}
+        {/* O retorno acima já conta as vendas sem origem. O aviso existe para
+            dizer o que ainda não dá para saber: de qual canal elas vieram. */}
         {coberturaFraca && (
           <div className="flex items-start gap-2.5 rounded-2xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 mb-4">
             <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
             <div className="text-[11px] leading-relaxed">
               <p className="font-black uppercase tracking-wider text-amber-500 mb-1">
-                Leia este número com desconfiança
+                Origem incompleta
               </p>
               <p className="text-muted-foreground">
                 {brl(atribuido.semOrigem.faturamento)} em {atribuido.semOrigem.vendas} venda(s) não
-                têm origem registrada. Parte disso pode ter vindo dos anúncios — e nesse caso o
-                retorno acima está subestimado. Para empatar, o tráfego pago precisaria faturar{" "}
-                <strong className="text-foreground">{brl(trafego.faturamentoParaEmpatar)}</strong>.
+                têm canal registrado. Elas já entram no retorno acima, mas não dá para dizer qual
+                canal trouxe — a divisão por canal abaixo fica incompleta.
               </p>
+              {!positivo && (
+                <p className="text-muted-foreground mt-1.5">
+                  Para empatar, o marketing precisaria faturar{" "}
+                  <strong className="text-foreground">{brl(trafego.faturamentoParaEmpatar)}</strong>.
+                </p>
+              )}
               {atribuido.comAnuncio.vendas === 0 && (
                 <p className="text-muted-foreground mt-1.5">
                   Nenhuma venda ainda tem o anúncio de origem carimbado. A captura só vale para
@@ -156,6 +161,24 @@ export function RentabilidadeSection({ dados }: { dados: RentabilidadeResponse }
                 </p>
               )}
             </div>
+          </div>
+        )}
+
+        {/* Recorte de canal pago: o número que responde "o anúncio se paga?" */}
+        {atribuido.faturamentoPago > 0 && (
+          <div className="rounded-2xl border border-border bg-secondary/20 px-4 py-3 mb-4">
+            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-1">
+              Só canais pagos identificados
+            </p>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              <strong className="text-foreground tabular-nums">
+                {brl(trafego.somentePago.faturamento)}
+              </strong>{" "}
+              faturados com origem em canal pago · ROAS{" "}
+              <strong className="text-foreground tabular-nums">
+                {trafego.somentePago.roas}x
+              </strong>
+            </p>
           </div>
         )}
 
