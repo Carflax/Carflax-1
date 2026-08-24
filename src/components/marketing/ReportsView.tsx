@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import {
   TrendingUp,
   Users,
@@ -22,9 +22,11 @@ import {
   Send,
   Check,
   Phone,
+  Building2,
 } from "lucide-react";
 import { marketingService, type ReportsAnalytics, type EvolutionData, type EvolutionClient, type VerbasData } from "@/lib/marketing-service";
 import { apiAdsSpend, apiAdsSendReport, type AdsSpendResponse } from "@/lib/api";
+import { CustosFixosSection } from "./CustosFixosSection";
 import { cn } from "@/lib/utils";
 import { MiniCalendar } from "@/components/ui/MiniCalendar";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
@@ -151,16 +153,29 @@ export function ReportsView() {
       .finally(() => setVerbasLoading(false));
   }, [activeTab, startDate, endDate]);
 
+  // Recarrega os gastos do período. Extraído do efeito para que a edição de um
+  // custo fixo possa refazer a consulta sem trocar de aba — o total de
+  // investimento muda na hora.
+  const recarregarGastos = useCallback(
+    (comLoading = true) => {
+      if (!startDate || !endDate) return;
+      if (comLoading) {
+        setAdsData(null);
+        setAdsLoading(true);
+      }
+      const fmt = (d: Date) => d.toISOString().slice(0, 10);
+      apiAdsSpend(fmt(startDate), fmt(endDate))
+        .then(setAdsData)
+        .catch((err) => console.error("Erro ao carregar gastos:", err))
+        .finally(() => setAdsLoading(false));
+    },
+    [startDate, endDate],
+  );
+
   useEffect(() => {
-    if (activeTab !== "gastos" || !startDate || !endDate) return;
-    setAdsData(null);
-    setAdsLoading(true);
-    const fmt = (d: Date) => d.toISOString().slice(0, 10);
-    apiAdsSpend(fmt(startDate), fmt(endDate))
-      .then(setAdsData)
-      .catch((err) => console.error("Erro ao carregar gastos:", err))
-      .finally(() => setAdsLoading(false));
-  }, [activeTab, startDate, endDate]);
+    if (activeTab !== "gastos") return;
+    recarregarGastos();
+  }, [activeTab, recarregarGastos]);
 
   const { totals, previous, bySeller, byOrigin, byCampaign, byTemperature, dailySeries } = analytics;
   const maxOriginLeads = Math.max(...byOrigin.map((o) => o.leads), 1);
@@ -993,11 +1008,14 @@ export function ReportsView() {
                     <Send className="w-3.5 h-3.5" /> Enviar Relatório
                   </button>
                 </div>
-                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-                  <KpiCard label="Total Gastos" value={formatCurrency(adsData.totalSpend)} icon={<DollarSign className="w-5 h-5" />} accent="text-rose-500 bg-rose-500/10" />
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  <KpiCard label="Investido Total" value={formatCurrency(adsData.totalInvestido ?? adsData.totalSpend)} icon={<DollarSign className="w-5 h-5" />} accent="text-rose-500 bg-rose-500/10" />
                   <KpiCard label="Google Ads" value={formatCurrency(adsData.google.total)} icon={<TrendingUp className="w-5 h-5" />} accent="text-blue-500 bg-blue-500/10" />
                   <KpiCard label="Meta Ads" value={formatCurrency(adsData.meta.total)} icon={<Megaphone className="w-5 h-5" />} accent="text-indigo-500 bg-indigo-500/10" />
+                  <KpiCard label="Custos Fixos" value={formatCurrency(adsData.custosFixos?.total ?? 0)} icon={<Building2 className="w-5 h-5" />} accent="text-amber-500 bg-amber-500/10" />
                 </div>
+
+                <CustosFixosSection custos={adsData.custosFixos} onChange={recarregarGastos} />
 
                 {adsData.daily && adsData.daily.length > 1 && (
                   <section className="bg-card border border-border rounded-3xl p-6 shadow-sm flex flex-col">

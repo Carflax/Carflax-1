@@ -605,19 +605,59 @@ export interface AdsDailySpend {
   meta: number;
   total: number;
 }
+export interface CustoFixo {
+  id: string;
+  descricao: string;
+  categoria: string;
+  valorMensal: number;
+  inicio: string;
+  fim: string | null;
+  observacao?: string | null;
+  /** valor rateado por dias dentro do período consultado */
+  valorPeriodo: number;
+}
+export interface CustosFixosPeriodo {
+  itens: CustoFixo[];
+  total: number;
+  error?: string;
+}
 export interface AdsSpendResponse {
   success: boolean;
   period: { start: string; end: string };
   daily: AdsDailySpend[];
   meta: AdsPlatform;
   google: AdsPlatform;
+  /** apenas mídia (Meta + Google) */
   totalSpend: number;
+  /** mídia + custos fixos — o que saiu do caixa */
+  totalInvestido?: number;
+  custosFixos?: CustosFixosPeriodo;
 }
 export const apiAdsSpend = (start: string, end: string) =>
   get<AdsSpendResponse>("/api/marketing/ads/spend", { start, end });
 
 export const apiAdsSendReport = (body: { phone: string; image: string; caption?: string }) =>
   post<{ success: boolean; message: string }>("/api/marketing/ads/send-report", body);
+
+export const apiCustosFixos = (start: string, end: string) =>
+  get<{ success: boolean } & CustosFixosPeriodo>("/api/marketing/ads/custos-fixos", { start, end });
+
+export const apiSalvarCustoFixo = (body: {
+  id?: string;
+  descricao: string;
+  categoria?: string;
+  valor_mensal: number;
+  inicio: string;
+  fim?: string | null;
+  observacao?: string | null;
+}) => post<{ success: boolean; custo: unknown }>("/api/marketing/ads/custos-fixos", body);
+
+export const apiExcluirCustoFixo = async (id: string) => {
+  const baseUrl = API_BASE.startsWith("http") ? API_BASE : window.location.origin + API_BASE;
+  const res = await fetch(`${baseUrl}/api/marketing/ads/custos-fixos/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json() as Promise<{ success: boolean }>;
+};
 
 export interface LinkPreviewResponse {
   url: string;
