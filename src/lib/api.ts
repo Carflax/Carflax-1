@@ -639,6 +639,46 @@ export const apiAdsSpend = (start: string, end: string) =>
 export const apiAdsSendReport = (body: { phone: string; image: string; caption?: string }) =>
   post<{ success: boolean; message: string }>("/api/marketing/ads/send-report", body);
 
+export interface RentabilidadeCanal {
+  canal: string;
+  vendas: number;
+  faturamento: number;
+  pago: boolean;
+}
+export interface RentabilidadeResponse {
+  success: boolean;
+  period: { start: string; end: string };
+  empresa: { faturado: number; custo: number; impostos: number; margem: number; margemPct: number };
+  investimento: { midia: number; fixos: number; total: number };
+  atribuido: {
+    vendas: number;
+    faturamentoTotal: number;
+    faturamentoPago: number;
+    semOrigem: { vendas: number; faturamento: number };
+    comAnuncio: { vendas: number; faturamento: number };
+    /** % do faturamento atribuído que tem origem conhecida */
+    cobertura: number;
+    porCanal: RentabilidadeCanal[];
+  };
+  trafego: {
+    lucroPago: number;
+    retornoReal: number;
+    roas: number;
+    faturamentoParaEmpatar: number;
+  };
+  lucroAtribuido: number;
+  /** % do lucro da empresa consumido pelo investimento em marketing */
+  pesoNoLucro: number;
+  aviso: string;
+}
+
+export const apiRentabilidade = (start: string, end: string, midia: number) =>
+  get<RentabilidadeResponse>("/api/marketing/ads/rentabilidade", {
+    start,
+    end,
+    midia: String(midia),
+  });
+
 export const apiCustosFixos = (start: string, end: string) =>
   get<{ success: boolean } & CustosFixosPeriodo>("/api/marketing/ads/custos-fixos", { start, end });
 

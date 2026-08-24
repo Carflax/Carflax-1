@@ -25,8 +25,9 @@ import {
   Building2,
 } from "lucide-react";
 import { marketingService, type ReportsAnalytics, type EvolutionData, type EvolutionClient, type VerbasData } from "@/lib/marketing-service";
-import { apiAdsSpend, apiAdsSendReport, apiCustosFixos, type AdsSpendResponse, type CustosFixosPeriodo } from "@/lib/api";
+import { apiAdsSpend, apiAdsSendReport, apiCustosFixos, apiRentabilidade, type AdsSpendResponse, type CustosFixosPeriodo, type RentabilidadeResponse } from "@/lib/api";
 import { CustosFixosSection } from "./CustosFixosSection";
+import { RentabilidadeSection } from "./RentabilidadeSection";
 import { cn } from "@/lib/utils";
 import { MiniCalendar } from "@/components/ui/MiniCalendar";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
@@ -44,7 +45,7 @@ const EMPTY_ANALYTICS: ReportsAnalytics = {
   dailySeries: [],
 };
 
-type TabId = "overview" | "sellers" | "sources" | "trend" | "evolution" | "verbas" | "gastos";
+type TabId = "overview" | "sellers" | "sources" | "trend" | "evolution" | "verbas" | "gastos" | "rentabilidade";
 const TABS: { id: TabId; label: string }[] = [
   { id: "overview", label: "Visão Geral" },
   { id: "sellers", label: "Atendentes" },
@@ -53,6 +54,7 @@ const TABS: { id: TabId; label: string }[] = [
   { id: "evolution", label: "Evolução" },
   { id: "verbas", label: "Verbas" },
   { id: "gastos", label: "Gastos" },
+  { id: "rentabilidade", label: "Rentabilidade" },
 ];
 
 const TEMP_STYLE: Record<string, string> = {
@@ -104,6 +106,8 @@ export function ReportsView() {
   const [evoSort, setEvoSort] = useState<{ key: string; dir: "asc" | "desc" }>({ key: "total_vendas", dir: "desc" });
   const [chartClient, setChartClient] = useState<EvolutionClient | null>(null);
   const [custos, setCustos] = useState<CustosFixosPeriodo | null>(null);
+  const [rentab, setRentab] = useState<RentabilidadeResponse | null>(null);
+  const [rentabLoading, setRentabLoading] = useState(false);
   const [adsErro, setAdsErro] = useState<string | null>(null);
   const [verbas, setVerbas] = useState<VerbasData | null>(null);
   const [verbasLoading, setVerbasLoading] = useState(false);
@@ -195,9 +199,21 @@ export function ReportsView() {
   );
 
   useEffect(() => {
-    if (activeTab !== "gastos") return;
+    if (activeTab !== "gastos" && activeTab !== "rentabilidade") return;
     recarregarGastos();
   }, [activeTab, recarregarGastos]);
+
+  // A rentabilidade depende do total de mídia, que vem da consulta de gastos.
+  // Por isso ela roda DEPOIS que adsData chega — e recalcula se ele mudar.
+  useEffect(() => {
+    if (activeTab !== "rentabilidade" || !startDate || !endDate) return;
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    setRentabLoading(true);
+    apiRentabilidade(fmt(startDate), fmt(endDate), adsData?.totalSpend ?? 0)
+      .then(setRentab)
+      .catch((err) => console.error("Erro ao carregar rentabilidade:", err))
+      .finally(() => setRentabLoading(false));
+  }, [activeTab, startDate, endDate, adsData]);
 
   const { totals, previous, bySeller, byOrigin, byCampaign, byTemperature, dailySeries } = analytics;
   const maxOriginLeads = Math.max(...byOrigin.map((o) => o.leads), 1);
@@ -1004,6 +1020,27 @@ export function ReportsView() {
                   </div>
                 ))}
               </div>
+            )
+          ) : activeTab === "rentabilidade" ? (
+            rentabLoading && !rentab ? (
+              <div className="h-64 flex flex-col items-center justify-center gap-3">
+                <div className="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+                <span className="text-xs font-black uppercase tracking-widest text-primary">
+                  Calculando rentabilidade...
+                </span>
+              </div>
+            ) : !rentab ? (
+              <div className="h-64 flex flex-col items-center justify-center gap-3">
+                <div className="w-16 h-16 rounded-3xl bg-secondary flex items-center justify-center">
+                  <DollarSign className="w-7 h-7 text-muted-foreground" />
+                </div>
+                <p className="text-sm font-black uppercase tracking-tight">Não foi possível calcular</p>
+                <p className="text-xs text-muted-foreground max-w-xs">
+                  Falha ao consultar faturamento ou investimento do período.
+                </p>
+              </div>
+            ) : (
+              <RentabilidadeSection dados={rentab} />
             )
           ) : activeTab === "gastos" ? (
             adsLoading ? (
