@@ -1051,7 +1051,7 @@ export function ReportsView() {
 
                 <CustosFixosSection custos={custos ?? undefined} onChange={() => recarregarGastos(false)} />
 
-                {adsData.daily && adsData.daily.length > 1 && (
+                {adsData?.daily && adsData?.daily.length > 1 && (
                   <section className="bg-card border border-border rounded-3xl p-6 shadow-sm flex flex-col">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
                       <div>
@@ -1071,7 +1071,7 @@ export function ReportsView() {
                     <div className="h-64 w-full">
                       <ResponsiveContainer width="100%" height="100%">
                         <BarChart
-                          data={adsData.daily.map((d) => {
+                          data={adsData?.daily.map((d) => {
                             const dateObj = new Date(d.date + "T00:00:00");
                             return {
                               ...d,
@@ -1100,7 +1100,7 @@ export function ReportsView() {
                             fontWeight={700}
                             tickLine={false}
                             axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
-                            interval={adsData.daily.length > 20 ? Math.ceil(adsData.daily.length / 10) : 0}
+                            interval={adsData?.daily.length > 20 ? Math.ceil(adsData?.daily.length / 10) : 0}
                           />
                           <YAxis
                             stroke="#64748b"
@@ -1150,18 +1150,18 @@ export function ReportsView() {
                   </section>
                 )}
 
-                {adsData.google.error && (
+                {adsData?.google.error && (
                   <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3 text-xs font-bold text-amber-600">
-                    Google Ads: {adsData.google.error}
+                    Google Ads: {adsData?.google.error}
                   </div>
                 )}
-                {adsData.meta.error && (
+                {adsData?.meta.error && (
                   <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3 text-xs font-bold text-amber-600">
-                    Meta Ads: {adsData.meta.error}
+                    Meta Ads: {adsData?.meta.error}
                   </div>
                 )}
 
-                {[
+                {adsData && [
                   { title: "Google Ads", platform: adsData.google, colorBase: "blue" as const },
                   { title: "Meta Ads", platform: adsData.meta, colorBase: "indigo" as const },
                 ].map(({ title, platform, colorBase }) => {
