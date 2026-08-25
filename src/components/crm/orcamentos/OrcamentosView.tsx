@@ -1,6 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, useRef, memo } from "react";
 import { supabase } from "@/lib/supabase";
-import { dedupeOrcamentos } from "@/lib/orcamentos-dedupe";
 import {
   Search,
   Calendar,
@@ -708,9 +707,41 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
       if (endDate) params.fim = toLocalDateStr(endDate);
 
       const raw = await apiCrmOrcamentos(params);
-      // Dedupe compartilhado com a Tx de Conversão do painel (ver orcamentos-dedupe.ts):
-      // documento repetido entre lojas e orçamento migrado que já virou venda.
-      let orcamentos = parseOrcamentos(dedupeOrcamentos(raw));
+      let orcamentos = parseOrcamentos(raw);
+
+      // Deduplicar: mesmo documento em lojas diferentes → manter o de status mais avançado
+      const statusPriority: Record<string, number> = { "VENDA": 3, "PERDIDO": 2 };
+      const byDoc = new Map<string, typeof orcamentos[number]>();
+      for (const o of orcamentos) {
+        const key = o.id.trim();
+        const existing = byDoc.get(key);
+        if (!existing) {
+          byDoc.set(key, o);
+        } else {
+          const existingPrio = statusPriority[existing.status] || 0;
+          const currentPrio = statusPriority[o.status] || 0;
+          if (currentPrio > existingPrio) {
+            byDoc.set(key, o);
+          }
+        }
+      }
+      orcamentos = Array.from(byDoc.values());
+
+      // Deduplicar orçamentos "migrados" entre empresas usando o vínculo real do ERP:
+      // um orçamento faturado guarda em docGerado (FGO_NUMFAT) o número do pedido/venda
+      // que gerou. Se esse número aparece como outro documento na lista, o orçamento de
+      // origem (em aberto) deve sumir — mantemos o resultante (a venda).
+      const normDoc = (s?: string) =>
+        String(s || "").split("-")[0].replace(/\D/g, "").padStart(12, "0");
+      const idsPresentes = new Set(orcamentos.map((o) => normDoc(o.id)));
+      orcamentos = orcamentos.filter((o) => {
+        if (o.status === "VENDA" || o.status === "PERDIDO") return true; // nunca esconde definitivo
+        if (!o.docGerado) return true;
+        const gerado = normDoc(o.docGerado);
+        if (gerado === normDoc(o.id)) return true; // aponta pra si mesmo: ignora
+        // Se o documento gerado está na lista (a venda resultante), esconde a origem
+        return !idsPresentes.has(gerado);
+      });
 
       // Atualizar mapa de sellerCode (ref, sem causar re-render)
       const map = new Map<string, string>();
@@ -1461,22 +1492,15 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
     // `pipeline` acima, que é orçamento ainda não decidido.
     const emAbertoPedidos = faturamento ? Number(faturamento.EM_ABERTO) || 0 : 0;
 
-    // Motivos que não representam perda comercial real — saem da base da conversão.
+    // Motivos que não representam perda comercial real — excluídos da taxa de conversão.
     const MOTIVOS_NAO_COMERCIAIS = ["MÃO DE OBRA E MATERIAL", "MAO DE OBRA E MATERIAL"];
-    const ehNaoComercial = (o: { status: string; lossReason?: string }) =>
-      o.status === "PERDIDO" && MOTIVOS_NAO_COMERCIAIS.includes((o.lossReason || "").toUpperCase().trim());
+    const perdidosConversao = filteredAndSortedItems
+      .filter((o) => o.status === "PERDIDO" && !MOTIVOS_NAO_COMERCIAIS.includes((o.lossReason || "").toUpperCase().trim()))
+      .reduce((s, o) => s + o.totalValue, 0);
 
-    // Perdas por "mão de obra e material": continuam somando no Valor Perdido, mas
-    // são exibidas à parte e descontadas da base da conversão.
-    const desconsiderados = filteredAndSortedItems.filter(ehNaoComercial);
-    const desconsideradoValor = desconsiderados.reduce((s, o) => s + o.totalValue, 0);
-    const desconsideradoQtd = desconsiderados.length;
-
-    // Taxa de conversão = (faturado + pedidos em aberto) / (total orçado − desconsiderado).
-    // Ou seja: de tudo que foi orçado e é comercialmente disputável, quanto já virou
-    // venda (faturada ou aguardando faturamento).
-    const baseConversao = totalOrcamentosValor - desconsideradoValor;
-    const convValor = baseConversao > 0 ? (((vendasValor + emAbertoPedidos) / baseConversao) * 100) : 0;
+    // Taxa de conversão real = vendas / (vendas + perdidos comerciais)
+    const decididos = vendasValor + perdidosConversao;
+    const convValor = decididos > 0 ? ((vendasValor / decididos) * 100) : 0;
 
     const reasonCounts = filteredAndSortedItems
       .filter((o) => o.status === "PERDIDO" && o.lossReason)
@@ -1493,7 +1517,7 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
         return acc;
       }, {});
 
-    return { statusCounts, statusValues, vendas, vendasValor, perdidos, perdidosValor, pipeline, totalOrcamentosValor, emAbertoPedidos, convValor, total, reasonCounts, reasonValues, desconsideradoValor, desconsideradoQtd };
+    return { statusCounts, statusValues, vendas, vendasValor, perdidos, perdidosValor, pipeline, totalOrcamentosValor, emAbertoPedidos, convValor, total, reasonCounts, reasonValues };
   }, [filteredAndSortedItems, filterStatus, faturamento]);
 
   const requestSort = (key: string) => {
@@ -1540,8 +1564,6 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
       ? `${startDate.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })}...`
       : "Selecione o período...";
 
-  // Os dois cards de Insights são ordenados e dimensionados por VALOR, não por
-  // quantidade: um motivo com poucos orçamentos pode pesar muito mais em dinheiro.
   const statusBarData = [
     { label: "Emitido", key: "EMITIDO", color: "bg-slate-400" },
     { label: "Enviado", key: "ENVIADO", color: "bg-blue-500" },
@@ -1549,15 +1571,15 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
     { label: "Aguard. Pedido", key: "AGUARD. PEDIDO", color: "bg-orange-500" },
     { label: "Venda", key: "VENDA", color: "bg-emerald-500" },
     { label: "Perdido", key: "PERDIDO", color: "bg-rose-500" },
-  ].sort((a, b) => (insights.statusValues[b.key] || 0) - (insights.statusValues[a.key] || 0));
-  const maxStatusValue = Math.max(...statusBarData.map((s) => insights.statusValues[s.key] || 0), 1);
+  ];
+  const maxStatusCount = Math.max(...statusBarData.map((s) => insights.statusCounts[s.key] || 0), 1);
 
-  const reasonEntries = Object.entries(insights.reasonValues)
+  const reasonEntries = Object.entries(insights.reasonCounts)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
-    .map(([label, value]) => ({ label, value, count: insights.reasonCounts[label] || 0 }));
+    .map(([label, count]) => ({ label, count, value: insights.reasonValues[label] || 0 }));
   const fmtCurrency = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
-  const maxReasonValue = Math.max(...reasonEntries.map((e) => e.value), 1);
+  const maxReasonCount = Math.max(...reasonEntries.map((e) => e.count), 1);
 
   return (
     <div className="h-full flex flex-col pt-4 px-3 sm:px-6 pb-2 overflow-y-auto scrollbar-hide bg-background">
@@ -1695,7 +1717,7 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
                       </div>
                     </div>
                     <div className="h-1 bg-secondary dark:bg-slate-800 rounded-full overflow-hidden">
-                      <div className={cn("h-full rounded-full", s.color)} style={{ width: `${(valMoney / maxStatusValue) * 100}%` }} />
+                      <div className={cn("h-full rounded-full", s.color)} style={{ width: `${(val / maxStatusCount) * 100}%` }} />
                     </div>
                   </div>
                 );
@@ -1731,7 +1753,7 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
                     </div>
                   </div>
                   <div className="h-2.5 bg-secondary dark:bg-slate-800 rounded-sm overflow-hidden border border-border/50">
-                    <div className="h-full rounded-r-sm bg-rose-500 transition-all duration-700" style={{ width: `${(value / maxReasonValue) * 100}%` }} />
+                    <div className="h-full rounded-r-sm bg-rose-500 transition-all duration-700" style={{ width: `${(count / maxReasonCount) * 100}%` }} />
                   </div>
                 </div>
               ))
@@ -1777,7 +1799,7 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
                             </defs>
                           </svg>
                           <div className="absolute inset-0 flex items-center justify-center">
-                            <span className="text-[15px] font-black text-foreground leading-none">{d.pct.toFixed(2)}%</span>
+                            <span className="text-[16px] font-black text-foreground leading-none">{d.pct.toFixed(1)}%</span>
                           </div>
                         </div>
                         <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight">{d.label}</span>
@@ -1792,13 +1814,6 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
                     { label: "Qtde. Orçamentos", value: String(insights.total), color: "text-foreground" },
                     { label: "Valor em Aberto", value: fmtCurrency(insights.pipeline), color: "text-blue-500 dark:text-blue-400" },
                     { label: "Valor Perdido", value: fmtCurrency(insights.perdidosValor), color: "text-rose-500 dark:text-rose-400" },
-                    // Perdas de "mão de obra e material" — já contam no Valor Perdido,
-                    // mas ficam de fora da taxa de conversão do donut.
-                    {
-                      label: `Desconsiderado (Mão de Obra${insights.desconsideradoQtd ? ` · ${insights.desconsideradoQtd}` : ""})`,
-                      value: fmtCurrency(insights.desconsideradoValor),
-                      color: "text-muted-foreground",
-                    },
                     { label: "Valor de Venda", value: fmtCurrency(insights.vendasValor), color: "text-emerald-600 dark:text-emerald-400" },
                     // As duas linhas abaixo espelham EM ABERTO e TOTAL do card do vendedor
                     // no Dashboard Geral — mesma fonte, para os números baterem entre as telas.
