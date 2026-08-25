@@ -322,6 +322,56 @@ function telefoneDoJid(jid?: string): string {
   return `+${digitos}`;
 }
 
+/**
+ * Primeiro e último nome. O pushName do WhatsApp costuma vir com sobrenome
+ * composto, empresa ou emoji ("Danilo Oliveira Marketing"), o que estoura o
+ * cabeçalho. Partícula ("da", "de", "dos") não conta como sobrenome.
+ */
+function nomeESobrenome(bruto?: string): string {
+  const PARTICULAS = ["da", "de", "do", "das", "dos", "e", "di", "du"];
+  const partes = String(bruto || "")
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "")
+    .split(/\s+/)
+    .filter(Boolean);
+  if (partes.length === 0) return "";
+
+  const cap = (p: string) =>
+    PARTICULAS.includes(p.toLowerCase())
+      ? p.toLowerCase()
+      : p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
+
+  // Os DOIS PRIMEIROS termos, não o primeiro e o último: o pushName costuma
+  // terminar com empresa ou apelido ("Danilo Oliveira Marketing" -> "Danilo
+  // Oliveira", e não "Danilo Marketing"). Partícula é pulada, para não parar
+  // em "Maria da".
+  const uteis = partes.filter((t) => !PARTICULAS.includes(t.toLowerCase()));
+  if (uteis.length === 0) return cap(partes[0]);
+  return uteis.slice(0, 2).map(cap).join(" ");
+}
+
+/**
+ * Etiqueta curta da campanha, para caber ao lado do nome.
+ * "[CARFLAX] [PESQUISA] [VINHEDO] 06-2026" -> "VINHEDO"
+ * Termos genéricos não distinguem uma campanha da outra e são descartados.
+ */
+const CAMPANHA_GENERICA = ["CARFLAX", "PESQUISA", "PERFORMANCE", "PMAX", "ADS", "DISPLAY", "GERAL", "MANUAL"];
+function abreviarCampanha(campanha?: string): string {
+  const bruto = String(campanha || "").trim();
+  if (!bruto || CAMPANHA_GENERICA.includes(bruto.toUpperCase())) return "";
+
+  // Só dígitos: veio o {campaignid} do Google, sem nome legível.
+  if (/^\d+$/.test(bruto)) return `#${bruto.slice(-4)}`;
+
+  const tokens = bruto
+    .replace(/[[\]]/g, " ")
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t && !CAMPANHA_GENERICA.includes(t.toUpperCase()) && !/^\d{2}-\d{4}$/.test(t));
+
+  const escolhido = tokens.find((t) => /[A-Za-zÀ-ÿ]/.test(t)) || tokens[0] || "";
+  return escolhido.toUpperCase().slice(0, 12);
+}
+
 interface Chat {
   id: string;
   name: string;
@@ -4847,11 +4897,20 @@ export function WhatsappView({
                   {getOriginBadge(selectedChat.leadInfo?.source)}
                 </div>
                 <div>
-                  <h4 className="font-bold text-base tracking-tight font-inter">
-                    {selectedChat.name
-                      .toLowerCase()
-                      .replace(/\b\w/g, (l) => l.toUpperCase())}
-                  </h4>
+                  <div className="flex items-center gap-2">
+                    <h4 className="font-bold text-base tracking-tight font-inter">
+                      {nomeESobrenome(selectedChat.name)}
+                    </h4>
+                    {/* Campanha que trouxe o cliente — some quando não há atribuição. */}
+                    {abreviarCampanha(selectedChat.leadInfo?.campaign) && (
+                      <span
+                        className="px-1.5 py-0.5 rounded-md bg-primary/10 border border-primary/20 text-primary text-[9px] font-black uppercase tracking-wider leading-none"
+                        title={selectedChat.leadInfo?.campaign}
+                      >
+                        {abreviarCampanha(selectedChat.leadInfo?.campaign)}
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2">
                     {presenceChats.has(selectedChat.id) ? (
                       <p className="text-[10px] text-white font-bold tracking-widest animate-pulse">

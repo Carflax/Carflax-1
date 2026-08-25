@@ -58,3 +58,16 @@ drop policy if exists ads_cliques_le_autenticado on public.ads_cliques;
 create policy ads_cliques_le_autenticado
   on public.ads_cliques for select to authenticated
   using (true);
+
+-- ─── Casamento por janela de tempo ───────────────────────────────────────────
+-- O código na mensagem pode ser apagado pelo cliente antes de enviar. Nesse caso
+-- o webhook procura um clique recente ainda não casado; `confianca` registra
+-- como a atribuição foi feita, para o relatório não tratar palpite como certeza.
+--   'codigo'                -> o código veio na mensagem (1:1, exato)
+--   'janela'                -> único clique sem dono na janela de tempo
+--   'janela_mesma_campanha' -> vários cliques na janela, todos da mesma campanha
+alter table public.ads_cliques add column if not exists confianca text;
+
+-- Índice parcial: a busca por janela só olha cliques órfãos.
+create index if not exists ads_cliques_pendentes_idx
+  on public.ads_cliques (created_at desc) where remote_jid is null;
