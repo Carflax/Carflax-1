@@ -303,6 +303,25 @@ const getOriginBadge = (origin?: string) => {
   return null;
 };
 
+/**
+ * Número do cliente a partir do remoteJid ("5511987654321@s.whatsapp.net").
+ * Devolve "" para grupo (@g.us) e para JID sem número reconhecível.
+ */
+function telefoneDoJid(jid?: string): string {
+  if (!jid || jid.includes("@g.us")) return "";
+  const digitos = jid.split("@")[0].replace(/\D/g, "");
+  if (!digitos) return "";
+  // Brasil: 55 + DDD + 8 ou 9 dígitos.
+  if (digitos.startsWith("55") && (digitos.length === 12 || digitos.length === 13)) {
+    const ddd = digitos.slice(2, 4);
+    const numero = digitos.slice(4);
+    const meio = numero.length === 9 ? numero.slice(0, 5) : numero.slice(0, 4);
+    const fim = numero.length === 9 ? numero.slice(5) : numero.slice(4);
+    return `(${ddd}) ${meio}-${fim}`;
+  }
+  return `+${digitos}`;
+}
+
 interface Chat {
   id: string;
   name: string;
@@ -4849,6 +4868,15 @@ export function WhatsappView({
                       <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-widest">
                         Online
                       </p>
+                    )}
+                    {/* Número do cliente: some em grupo, onde não existe um só. */}
+                    {telefoneDoJid(selectedChat.id) && (
+                      <>
+                        <span className="text-[10px] text-muted-foreground/50">•</span>
+                        <p className="text-[10px] text-muted-foreground font-medium tabular-nums select-all">
+                          {telefoneDoJid(selectedChat.id)}
+                        </p>
+                      </>
                     )}
                   </div>
                 </div>

@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex,nofollow">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Carflax</title>
+<style>
+  html,body{margin:0;height:100%;background:#0b1120;color:#e2e8f0;
+    font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  .c{height:100%;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px}
+  .s{width:26px;height:26px;border:3px solid #1e293b;border-top-color:#22c55e;border-radius:50%;
+    animation:g .8s linear infinite}
+  @keyframes g{to{transform:rotate(360deg)}}
+  p{font-size:13px;color:#64748b;margin:0}
+  a{color:#22c55e}
+</style>
+</head>
+<body>
+<div class="c">
+  <div class="s"></div>
+  <p>Abrindo o WhatsApp…</p>
+  <p><a id="manual" href="#" hidden>Toque aqui se não abrir</a></p>
+</div>
+
+<script>
+/* ---------------------------------------------------------------------------
+   Ponte de anúncio -> WhatsApp.
+   O cliente não interage com esta página: ela registra de qual anúncio veio o
+   clique e redireciona. O Google só entrega o gclid na página de destino — em
+   link wa.me direto ele se perde, e por isso não dá para saber a campanha.
+
+   Fluxo: lê os parâmetros -> grava a linha em ads_cliques -> manda pro WhatsApp
+   com um código curto na mensagem. O webhook casa esse código com o lead.
+
+   Uso nos anúncios (URL final):
+     https://SEU-DOMINIO/w?utm_source=google&utm_campaign={campaignid}
+   O Google acrescenta o gclid sozinho. Parâmetros aceitos: qualquer utm_*,
+   gclid/gbraid/wbraid (Google), fbclid (Meta), e `n` para trocar o número.
+--------------------------------------------------------------------------- */
+
+var NUMERO_PADRAO = "5511989669122";              // WhatsApp oficial da Carflax
+var TEXTO_PADRAO  = "Olá! Vim pelo anúncio.";
+var ESPERA_MAX_MS = 1200;                          // não trava o cliente esperando o banco
+
+var SB_URL = "https://zwfvrmqffxcqurxpfewi.supabase.co";
+var SB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp3ZnZybXFmZnhjcXVyeHBmZXdpIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0NDMwMzksImV4cCI6MjA5MjAxOTAzOX0.6Q02L0XYE7xWtn0AcCwN2KDTvRaYQgGwoTPLblR-VgE";
+
+var q = new URLSearchParams(location.search);
+var pegar = function (k) { return (q.get(k) || "").slice(0, 500) || null; };
+
+/* Código curto sem caracteres ambíguos (0/O, 1/I) — ele vai aparecer na
+   conversa e alguém pode acabar digitando à mão. */
+function gerarCodigo() {
+  var alfabeto = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789", s = "";
+  var buf = new Uint32Array(5);
+  (window.crypto || window.msCrypto).getRandomValues(buf);
+  for (var i = 0; i < 5; i++) s += alfabeto[buf[i] % alfabeto.length];
+  return s;
+}
+
+var codigo = gerarCodigo();
+
+var numero = (pegar("n") || NUMERO_PADRAO).replace(/\D/g, "");
+var texto  = (pegar("t") || TEXTO_PADRAO) + " [" + codigo + "]";
+var destino = "https://wa.me/" + numero + "?text=" + encodeURIComponent(texto);
+
+var registro = {
+  codigo: codigo,
+  gclid: pegar("gclid"),
+  gbraid: pegar("gbraid"),
+  wbraid: pegar("wbraid"),
+  fbclid: pegar("fbclid"),
+  utm_source: pegar("utm_source"),
+  utm_medium: pegar("utm_medium"),
+  utm_campaign: pegar("utm_campaign"),
+  utm_content: pegar("utm_content"),
+  utm_term: pegar("utm_term"),
+  campaign_id: pegar("campaignid") || pegar("campaign_id"),
+  adgroup_id: pegar("adgroupid") || pegar("adgroup_id"),
+  creative_id: pegar("creative"),
+  keyword: pegar("keyword"),
+  network: pegar("network"),
+  device: pegar("device"),
+  referrer: (document.referrer || "").slice(0, 500) || null,
+  user_agent: navigator.userAgent.slice(0, 500),
+  url_completa: location.href.slice(0, 1000)
+};
+
+var jaFoi = false;
+function irParaWhatsapp() {
+  if (jaFoi) return;
+  jaFoi = true;
+  location.replace(destino);
+}
+
+/* Rede lenta ou Supabase fora do ar não podem segurar o cliente: o redirect
+   acontece de qualquer jeito no limite do tempo. */
+setTimeout(irParaWhatsapp, ESPERA_MAX_MS);
+setTimeout(function () {
+  var a = document.getElementById("manual");
+  a.href = destino; a.hidden = false;
+}, 2500);
+
+fetch(SB_URL + "/rest/v1/ads_cliques", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    "apikey": SB_KEY,
+    "Authorization": "Bearer " + SB_KEY,
+    "Prefer": "return=minimal"
+  },
+  body: JSON.stringify(registro),
+  keepalive: true
+}).then(irParaWhatsapp).catch(irParaWhatsapp);
+</script>
+</body>
+</html>

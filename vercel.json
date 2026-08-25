@@ -1,5 +1,6 @@
 {
   "rewrites": [
+    { "source": "/w", "destination": "/w.html" },
     { "source": "/api-marketing/(.*)", "destination": "https://marketing-carflax.velbav.easypanel.host/$1" },
     { "source": "/api-campaign/(.*)", "destination": "https://marketing-gestao-de-tempo.velbav.easypanel.host/$1" },
     { "source": "/shopify-api/(.*)", "destination": "https://gfpdzv-y0.myshopify.com/$1" },
