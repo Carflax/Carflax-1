@@ -45,6 +45,7 @@ import { MarketingView } from "@/components/marketing/MarketingView";
 import { EsteiraView } from "@/components/marketing/EsteiraView";
 import { RhView } from "@/components/rh/RhView";
 import { ESTEIRA_SUBQUADRO_PREFIX, canAccessSection } from "@/lib/menu-config";
+import { getNotifPref } from "@/lib/notif-prefs";
 import { useNotification } from "@/hooks/useNotification";
 import { runAnnouncementAutomation } from "@/lib/announcement-automation";
 import { usePedidosParadosAlert } from "@/hooks/usePedidosParadosAlert";
@@ -74,6 +75,7 @@ export interface UserProfile {
   operatorCode?: string;
   permissions?: string[];
   is_admin?: boolean;
+  notification_prefs?: Record<string, Record<string, boolean>> | null;
   phone?: string;
   whatsapp?: string;
   ramal?: string;
@@ -111,7 +113,7 @@ function DashboardContent({
   useRetiradaAlert((cliente, pedido) => {
     setActiveRetiradaAlert({ cliente, pedido });
     startAlertSound();
-  });
+  }, userProfile);
 
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isChatPanelOpen, setIsChatPanelOpen] = useState(false);
@@ -482,6 +484,11 @@ function DashboardContent({
     };
   }, [userProfile?.id, podeReceberWhatsapp]);
 
+  // Toggle "Novos Comunicados no Geral" (Configurações > Notificações).
+  // Extraído aqui como boolean para o efeito abaixo não depender do objeto
+  // inteiro do perfil (o que reinscreveria o canal a cada refetch).
+  const receberComunicados = getNotifPref(userProfile, "equipe", "broadcast", true);
+
   // Notificação global de novos comunicados (Notificação do Chrome / Navegador para todos)
   useEffect(() => {
     if (!userProfile?.id) return;
@@ -510,14 +517,8 @@ function DashboardContent({
           // Emite evento para o feed de comunicados atualizar instantaneamente se estiver aberto
           window.dispatchEvent(new CustomEvent("carflax-novo-comunicado", { detail: row }));
 
-          // Verifica se o usuário tem a preferência ativada
-          try {
-            const raw = localStorage.getItem("carflax_notif_prefs");
-            const prefs = raw ? JSON.parse(raw)?.equipe : null;
-            if (prefs?.broadcast === false) return;
-          } catch {
-            /* segue */
-          }
+          // Verifica se o usuário tem a preferência ativada (banco > cache local)
+          if (!receberComunicados) return;
 
           // Notificação Nativa do Chrome / Navegador
           if ("Notification" in window && Notification.permission === "granted") {
@@ -562,7 +563,7 @@ function DashboardContent({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [userProfile?.id]);
+  }, [userProfile?.id, receberComunicados]);
 
   // ── Web Push — Service Worker + Subscrição persistente ──────────────
   const pushSetupDone = useRef(false);
@@ -1728,6 +1729,18 @@ function App() {
     return () => { clearTimeout(timer); clearTimeout(safety); };
   }, [loading, session]);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+
+  // Configurações > Notificações salva no banco; este evento mantém o perfil em
+  // memória em sincronia para os alertas reagirem na hora, sem precisar de F5.
+  useEffect(() => {
+    function onPrefsChange(e: Event) {
+      const prefs = (e as CustomEvent).detail as Record<string, Record<string, boolean>> | undefined;
+      if (!prefs) return;
+      setProfile((prev) => (prev ? { ...prev, notification_prefs: prefs } : prev));
+    }
+    window.addEventListener("carflax-notif-prefs", onPrefsChange);
+    return () => window.removeEventListener("carflax-notif-prefs", onPrefsChange);
+  }, []);
   const [vendedorMetrics, setVendedorMetrics] = useState<VendedorResumo | null>(
     null,
   );

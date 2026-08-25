@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { getNotifPref } from "@/lib/notif-prefs";
 import { supabase } from "@/lib/supabase";
 import { isBalcao2, parseOrderCreated, b2RemainingMs, B2_AVISO_MS, formatB2Remaining } from "@/lib/balcao2-prazo";
 
@@ -40,25 +41,12 @@ interface UP {
   operator_code?: string;
   operatorCode?: string;
   role?: string;
-  notification_prefs?: Record<string, Record<string, boolean>>;
+  notification_prefs?: Record<string, Record<string, boolean>> | null;
 }
 
 /** Master toggle do alerta de prazo B2 (padrão: ligado). */
 function masterEnabled(up?: UP | null): boolean {
-  try {
-    const raw = localStorage.getItem("carflax_notif_prefs");
-    if (raw) {
-      const s = JSON.parse(raw);
-      if (s?.alertas && s.alertas.balcao2Prazo !== undefined) return !!s.alertas.balcao2Prazo;
-    }
-    if (up?.notification_prefs) {
-      const prefs = up.notification_prefs;
-      if (prefs?.alertas && prefs.alertas.balcao2Prazo !== undefined) return !!prefs.alertas.balcao2Prazo;
-    }
-    return true;
-  } catch {
-    return true;
-  }
+  return getNotifPref(up, "alertas", "balcao2Prazo", true);
 }
 
 /** True quando o cargo do usuário é Gerente de Estoque. */

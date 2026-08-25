@@ -41,6 +41,7 @@ import {
 } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
+import { readCachedPrefs, writeCachedPrefs } from "@/lib/notif-prefs";
 import { useLossReasons, LOSS_REASON_ALL } from "@/lib/crm-service";
 
 interface UserProfile {
@@ -781,7 +782,8 @@ function NotificationsTab({ userProfile }: { userProfile?: UserProfile | null })
 
   // Cache local instantâneo + persistência por usuário no banco (debounced).
   useEffect(() => {
-    try { localStorage.setItem("carflax_notif_prefs", JSON.stringify(state)); } catch { /* ignore */ }
+    writeCachedPrefs(state);
+    window.dispatchEvent(new CustomEvent("carflax-notif-prefs", { detail: state }));
     if (!userId || !hydratedRef.current) return; // não salva antes de hidratar do banco
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
@@ -1191,9 +1193,9 @@ function mergeKnownPrefs(base: StateMap, saved: unknown): StateMap {
 function loadNotifState(): StateMap {
   const def = buildDefault();
   try {
-    const raw = localStorage.getItem("carflax_notif_prefs");
-    if (!raw) return def;
-    return mergeKnownPrefs(def, JSON.parse(raw));
+    const cached = readCachedPrefs();
+    if (!cached) return def;
+    return mergeKnownPrefs(def, cached);
   } catch { /* usa defaults */ }
   return def;
 }

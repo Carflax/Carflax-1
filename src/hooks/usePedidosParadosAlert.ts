@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { getNotifPref } from "@/lib/notif-prefs";
 import { supabase } from "@/lib/supabase";
 
 /**
@@ -32,25 +33,12 @@ interface UP {
   role?: string;
   is_admin?: boolean;
   is_leader?: boolean;
-  notification_prefs?: Record<string, Record<string, boolean>>;
+  notification_prefs?: Record<string, Record<string, boolean>> | null;
 }
 
 /** Lê o toggle das Notificações (padrão: desligado). */
 function alertEnabled(up?: UP | null): boolean {
-  try {
-    const raw = localStorage.getItem("carflax_notif_prefs");
-    if (raw) {
-      const s = JSON.parse(raw);
-      if (s?.alertas && s.alertas.stalePedidos !== undefined) return !!s.alertas.stalePedidos;
-    }
-    if (up?.notification_prefs) {
-      const prefs = up.notification_prefs;
-      if (prefs?.alertas && prefs.alertas.stalePedidos !== undefined) return !!prefs.alertas.stalePedidos;
-    }
-    return false;
-  } catch {
-    return false;
-  }
+  return getNotifPref(up, "alertas", "stalePedidos", false);
 }
 
 /** Retorna "BALCÃO 2" / "ENTREGA" se o pedido for de um desses tipos; senão null. */

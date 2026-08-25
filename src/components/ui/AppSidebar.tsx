@@ -351,9 +351,11 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
   };
 
   const isAllowed = (label: string) => {
-    // Admin e Gerente vê tudo
+    // Admin, Diretoria e Gerente vê tudo.
+    // Diretoria entra aqui (e não via permissão manual) para que todo módulo novo
+    // já apareça no menu deles sem ninguém precisar liberar item a item.
     const role = userProfile?.role?.toUpperCase() || "";
-    if (role === 'ADMIN' || role.includes('GERENTE')) return true;
+    if (userProfile?.is_admin || role === 'ADMIN' || role.includes('GERENTE') || role.includes('DIRETOR')) return true;
 
     // Subquadros da Esteira: apenas membros do próprio subquadro (via departamento) ou admin/gerente/diretor
     if (label.startsWith(ESTEIRA_SUBQUADRO_PREFIX)) {

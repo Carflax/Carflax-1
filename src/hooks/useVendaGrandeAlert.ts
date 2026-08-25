@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { getNotifPref } from "@/lib/notif-prefs";
 
 /**
  * Alerta de VENDA GRANDE para o time de Compras: quando sai uma venda de um item
@@ -6,7 +7,7 @@ import { useEffect, useRef } from "react";
  * notificação para avaliar recompra — especialmente se o estoque já está baixo.
  *
  * Destinatários: pessoas de COMPRAS (department/role) + admin/gerente/diretor.
- * Gated pelo toggle "Venda grande (Compras)" (localStorage: carflax_notif_prefs →
+ * Gated pelo toggle "Venda grande (Compras)" (usuarios.notification_prefs →
  * alertas.vendaGrande, padrão: ligado). Dispara uma vez por (documento+item).
  */
 
@@ -35,7 +36,7 @@ interface UP {
   department?: string;
   is_admin?: boolean;
   is_leader?: boolean;
-  notification_prefs?: Record<string, Record<string, boolean>>;
+  notification_prefs?: Record<string, Record<string, boolean>> | null;
 }
 
 interface VendaGrande {
@@ -62,20 +63,7 @@ function isPublicoCompras(up?: UP | null): boolean {
 }
 
 function masterEnabled(up?: UP | null): boolean {
-  try {
-    const raw = localStorage.getItem("carflax_notif_prefs");
-    if (raw) {
-      const s = JSON.parse(raw);
-      if (s?.alertas && s.alertas.vendaGrande !== undefined) return !!s.alertas.vendaGrande;
-    }
-    if (up?.notification_prefs) {
-      const prefs = up.notification_prefs;
-      if (prefs?.alertas && prefs.alertas.vendaGrande !== undefined) return !!prefs.alertas.vendaGrande;
-    }
-    return true;
-  } catch {
-    return true;
-  }
+  return getNotifPref(up, "alertas", "vendaGrande", true);
 }
 
 function loadAvisados(): Record<string, number> {

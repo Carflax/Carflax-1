@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
+import { getNotifPref, type NotifProfile } from "@/lib/notif-prefs";
 
 let audioCtx: AudioContext | null = null;
 let beepInterval: ReturnType<typeof setInterval> | null = null;
@@ -50,29 +51,26 @@ export function stopAlertSound() {
   }
 }
 
-function alertEnabled(): boolean {
-  try {
-    const raw = localStorage.getItem("carflax_notif_prefs");
-    if (!raw) return true; // Habilitado por padrão
-    const s = JSON.parse(raw);
-    if (s?.alertas && s.alertas.clienteRetira !== undefined) {
-      return !!s.alertas.clienteRetira;
-    }
-    return true;
-  } catch {
-    return true;
-  }
+function alertEnabled(up?: NotifProfile | null): boolean {
+  return getNotifPref(up, "alertas", "clienteRetira", true); // habilitado por padrão
 }
 
-export function useRetiradaAlert(onAlert: (cliente: string, pedido: string) => void) {
+export function useRetiradaAlert(
+  onAlert: (cliente: string, pedido: string) => void,
+  userProfile?: NotifProfile | null,
+) {
   const onAlertRef = useRef(onAlert);
   
   useEffect(() => {
     onAlertRef.current = onAlert;
   }, [onAlert]);
 
+  // `notification_prefs` na dep list: se o perfil chegar depois (ou o usuário
+  // mudar o toggle), o canal é reinscrito com a preferência atualizada.
+  const prefsKey = JSON.stringify(userProfile?.notification_prefs ?? null);
+
   useEffect(() => {
-    if (!alertEnabled()) return;
+    if (!alertEnabled(userProfile)) return;
 
     const channel = supabase
       .channel("realtime-retiradas-alerts")
@@ -84,7 +82,7 @@ export function useRetiradaAlert(onAlert: (cliente: string, pedido: string) => v
           table: "retiradas",
         },
         (payload) => {
-          if (!alertEnabled()) return;
+          if (!alertEnabled(userProfile)) return;
           const newRow = payload.new as Record<string, unknown> | null;
           if (newRow && newRow.status === "retirando") {
             onAlertRef.current(
@@ -99,5 +97,6 @@ export function useRetiradaAlert(onAlert: (cliente: string, pedido: string) => v
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefsKey]);
 }

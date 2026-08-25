@@ -14,6 +14,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import { getNotifSection } from "@/lib/notif-prefs";
 import { uploadImage } from "@/lib/uploadImage";
 import { Button } from "@/components/ui/button";
 import { TinyDropdown } from "@/components/ui/TinyDropdown";
@@ -79,6 +80,7 @@ export interface UserProfile {
   permissions?: string[];
   avatar?: string;
   is_leader?: boolean;
+  notification_prefs?: Record<string, Record<string, boolean>> | null;
 }
 
 /** Renderiza o conteúdo de comunicados de alteração de preço como linhas estruturadas */
@@ -1603,14 +1605,10 @@ export function CommunicationSection({
   };
 
   // Preferências de notificação do usuário (o que ele quer ver no feed).
-  const equipePrefs = useMemo<Record<string, boolean>>(() => {
-    try {
-      const raw = localStorage.getItem("carflax_notif_prefs");
-      return raw ? (JSON.parse(raw)?.equipe ?? {}) : {};
-    } catch {
-      return {};
-    }
-  }, []);
+  const equipePrefs = useMemo<Record<string, boolean>>(
+    () => getNotifSection(userProfile, "equipe"),
+    [userProfile],
+  );
 
   const filtered = (
     activeCategory === "Todos"
