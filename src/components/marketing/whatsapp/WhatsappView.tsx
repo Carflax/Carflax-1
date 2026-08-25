@@ -22,6 +22,7 @@ import {
   DollarSign,
   X,
   Bell,
+  UserRound,
   RefreshCw,
   Pin,
   PinOff,
@@ -43,7 +44,8 @@ import { evolutionApi } from "@/lib/evolution-v2";
 import { supabase } from "@/lib/supabase";
 import { marketingService } from "@/lib/marketing-service";
 import { cn, formatBrTime, formatBrDate } from "@/lib/utils";
-import { apiDashboardProdutos, apiGetLinkPreview, apiCrmOrcamentos } from "@/lib/api";
+import { apiDashboardProdutos, apiGetLinkPreview, apiCrmOrcamentos, apiClientePorTelefone } from "@/lib/api";
+import type { ClienteErp } from "@/lib/api";
 import { parseOrcamentoPdf } from "@/lib/pdf-orcamento";
 import { transcribeAudio, classifyByRules } from "@/lib/gemini-service";
 import { Package } from "lucide-react";
@@ -1118,6 +1120,10 @@ export function WhatsappView({
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const composerInputRef = useRef<HTMLInputElement | null>(null);
   const [loading, setLoading] = useState(true);
+  // Cadastro do cliente no ERP (casado pelo telefone da conversa).
+  const [showCadastroErp, setShowCadastroErp] = useState(false);
+  const [cadastroErp, setCadastroErp] = useState<ClienteErp | null>(null);
+  const [cadastroErpLoading, setCadastroErpLoading] = useState(false);
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
   const [followUpDateInput, setFollowUpDateInput] = useState("");
   const [showSaleModal, setShowSaleModal] = useState(false);
@@ -1779,6 +1785,25 @@ export function WhatsappView({
     marketingService
       .markAsUnread(targetId, newCount)
       .catch((err) => console.error("Erro ao marcar como não lido:", err));
+  };
+
+  /**
+   * Abre o cadastro do cliente no ERP. O vínculo é feito pelo telefone da
+   * conversa — não existe chave formal entre o WhatsApp e o CADCLI.
+   */
+  const abrirCadastroErp = async () => {
+    if (!selectedChat) return;
+    setShowCadastroErp(true);
+    setCadastroErp(null);
+    setCadastroErpLoading(true);
+    try {
+      const resposta = await apiClientePorTelefone(selectedChat.id);
+      setCadastroErp(resposta);
+    } catch {
+      setCadastroErp({ encontrado: false });
+    } finally {
+      setCadastroErpLoading(false);
+    }
   };
 
   const handleCloseArchiveModal = () => {
@@ -4193,6 +4218,165 @@ export function WhatsappView({
     <div className="flex h-full bg-background overflow-hidden border border-border/50 rounded-2xl shadow-2xl m-4 relative">
       {/* Modals */}
 
+      {/* Cadastro do cliente no ERP */}
+      {showCadastroErp && (
+        <div
+          className="absolute inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          onClick={() => setShowCadastroErp(false)}
+        >
+          <div
+            className="bg-card border border-border rounded-3xl shadow-2xl w-full max-w-md overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-5 border-b border-border/50 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <UserRound className="w-5 h-5 text-primary" />
+                <h3 className="font-black text-sm uppercase tracking-tighter text-card-foreground">
+                  Cadastro no ERP
+                </h3>
+              </div>
+              <button
+                onClick={() => setShowCadastroErp(false)}
+                className="p-1.5 hover:bg-secondary rounded-lg transition-colors text-muted-foreground"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-5">
+              {cadastroErpLoading ? (
+                <div className="space-y-3 animate-pulse">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className="h-3 bg-secondary dark:bg-slate-800 rounded" />
+                  ))}
+                </div>
+              ) : !cadastroErp?.encontrado || !cadastroErp.cliente ? (
+                <div className="text-center py-6">
+                  <p className="text-[13px] font-bold text-card-foreground mb-1">
+                    Nenhum cadastro encontrado
+                  </p>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    Não existe cliente no ERP com este telefone. O vínculo é feito
+                    pelo número da conversa — se o cadastro na Citel usa outro
+                    telefone, ele não é encontrado.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-[15px] font-black text-card-foreground leading-tight">
+                      {cadastroErp.cliente.nome}
+                    </p>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <span className="text-[10px] font-black text-primary tabular-nums">
+                        {cadastroErp.cliente.codigo}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">
+                        {cadastroErp.cliente.tipo}
+                      </span>
+                      {/* Vínculo por documento é exato; por telefone é inferido.
+                          Quem lê precisa saber a diferença antes de confiar. */}
+                      {cadastroErp.vinculo && (
+                        <span
+                          className={cn(
+                            "px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider leading-none border",
+                            cadastroErp.vinculo === "documento"
+                              ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400"
+                              : "bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400",
+                          )}
+                          title={
+                            cadastroErp.vinculo === "documento"
+                              ? "Identificado pelo número do orçamento enviado na conversa"
+                              : "Identificado pelo telefone da conversa — confira se é o cliente certo"
+                          }
+                        >
+                          {cadastroErp.vinculo === "documento" ? "Orçamento" : "Telefone"}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {[
+                    { r: "Documento", v: cadastroErp.cliente.documento },
+                    {
+                      r: "Endereço",
+                      v: [cadastroErp.cliente.endereco, cadastroErp.cliente.bairro]
+                        .filter(Boolean)
+                        .join(", "),
+                    },
+                    {
+                      r: "Cidade",
+                      v: cadastroErp.cliente.cidade
+                        ? `${cadastroErp.cliente.cidade}/${cadastroErp.cliente.uf || ""}`
+                        : null,
+                    },
+                    { r: "E-mail", v: cadastroErp.cliente.email },
+                    { r: "Telefone", v: cadastroErp.cliente.telefone },
+                    { r: "Vendedor", v: cadastroErp.cliente.cod_vendedor },
+                  ]
+                    .filter((l) => l.v)
+                    .map((l, i) => (
+                      <div key={i} className="flex justify-between items-start gap-4 text-[11px]">
+                        <span className="font-bold text-muted-foreground uppercase tracking-tight shrink-0">
+                          {l.r}
+                        </span>
+                        <span className="text-card-foreground text-right">{l.v}</span>
+                      </div>
+                    ))}
+
+                  <div className="pt-3 border-t border-border/50 grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
+                        Faturado 12 meses
+                      </p>
+                      <p className="text-[15px] font-black text-emerald-600 dark:text-emerald-400">
+                        {(cadastroErp.compras?.total || 0).toLocaleString("pt-BR", {
+                          style: "currency",
+                          currency: "BRL",
+                          maximumFractionDigits: 0,
+                        })}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest">
+                        Pedidos
+                      </p>
+                      <p className="text-[15px] font-black text-card-foreground">
+                        {cadastroErp.compras?.pedidos || 0}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Pedido fechado e ainda sem nota. Sem isto, quem comprou hoje
+                      aparecia zerado, como se nunca tivesse comprado. */}
+                  {(cadastroErp.compras?.em_aberto_total || 0) > 0 && (
+                    <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                      <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 uppercase tracking-widest">
+                        Em aberto · {cadastroErp.compras?.em_aberto_pedidos} pedido(s)
+                      </span>
+                      <span className="text-[13px] font-black text-amber-600 dark:text-amber-400">
+                        {(cadastroErp.compras?.em_aberto_total || 0).toLocaleString("pt-BR", {
+                          style: "currency", currency: "BRL", maximumFractionDigits: 0,
+                        })}
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Telefone repetido em mais de um cadastro: o mostrado é o de
+                      compra mais recente, mas o vendedor precisa saber que há outros. */}
+                  {(cadastroErp.outros_cadastros || 0) > 0 && (
+                    <p className="text-[10px] text-amber-500 font-bold">
+                      Atenção: mais {cadastroErp.outros_cadastros} cadastro(s) com este
+                      mesmo telefone no ERP.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {showFollowUpModal && (
         <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
           <div className="bg-card border border-border rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden transform transition-all duration-300">
@@ -4944,8 +5128,11 @@ export function WhatsappView({
               <div className="flex items-center gap-2">
                 {/* Atendente (vendedor_id) Estático */}
                 {selectedChat.vendedor_id ? (
-                  <div className="h-9 px-3 rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center gap-2">
-                    <div className="w-5 h-5 rounded-full overflow-hidden border border-emerald-500/30 flex items-center justify-center shrink-0">
+                  <div
+                    className="h-8 pl-1 pr-2.5 rounded-lg border border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5"
+                    title={`Atendido por ${operators.find((o) => o.id === selectedChat.vendedor_id)?.name || "atendente"}`}
+                  >
+                    <div className="w-6 h-6 rounded-full overflow-hidden border border-emerald-500/30 flex items-center justify-center shrink-0">
                       {(() => {
                         const op = operators.find(
                           (o) => o.id === selectedChat.vendedor_id,
@@ -4960,18 +5147,17 @@ export function WhatsappView({
                         );
                       })()}
                     </div>
-                    <span className="text-[10px] font-black uppercase">
-                      Atendido por:{" "}
+                    <span className="text-[10px] font-black uppercase whitespace-nowrap">
                       {operators
                         .find((o) => o.id === selectedChat.vendedor_id)
                         ?.name?.split(" ")[0] || "Atendente"}
                     </span>
                   </div>
                 ) : (
-                  <div className="h-9 px-3 rounded-xl border border-dashed border-border/80 bg-secondary/30 flex items-center justify-center gap-2 text-muted-foreground">
-                    <User className="w-4 h-4 shrink-0" />
-                    <span className="text-[10px] font-black uppercase">
-                      Aguardando Atendimento
+                  <div className="h-8 px-2.5 rounded-lg border border-dashed border-border/80 bg-secondary/30 flex items-center justify-center gap-1.5 text-muted-foreground">
+                    <User className="w-3.5 h-3.5 shrink-0" />
+                    <span className="text-[10px] font-black uppercase whitespace-nowrap">
+                      Aguardando
                     </span>
                   </div>
                 )}
@@ -5037,6 +5223,20 @@ export function WhatsappView({
                     </span>
                   </button>
                 )}
+                {/* Cadastro do cliente no ERP, casado pelo telefone da conversa. */}
+                <button
+                  onClick={abrirCadastroErp}
+                  className="p-2.5 hover:bg-secondary rounded-xl transition-all group"
+                  title="Ver cadastro do cliente no ERP"
+                >
+                  {/* Logo da Citel, servido junto com o app: link externo quebraria
+                      o ícone se a origem saísse do ar ou mudasse a URL. */}
+                  <img
+                    src="/citel.png"
+                    alt="Cadastro no ERP"
+                    className="w-4 h-4 object-contain opacity-70 group-hover:opacity-100 transition-opacity"
+                  />
+                </button>
                 <button
                   onClick={() => {
                     setFollowUpDateInput(
@@ -5087,10 +5287,10 @@ export function WhatsappView({
                 ) : (
                   <button
                     onClick={handleUnarchiveChat}
-                    className="p-2.5 hover:bg-secondary rounded-xl text-primary flex items-center gap-2 font-black text-[10px] uppercase tracking-widest px-4 transition-all"
+                    className="p-2.5 hover:bg-secondary rounded-xl text-primary transition-all"
                     title="Desarquivar Conversa"
                   >
-                    <RefreshCw className="w-4 h-4" /> Desarquivar
+                    <RefreshCw className="w-4 h-4" />
                   </button>
                 )}
               </div>

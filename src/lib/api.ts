@@ -449,6 +449,33 @@ export interface CrmOrcamento {
 export const apiCrmOrcamentos = (params: { vendedor?: string, inicio?: string, fim?: string, documento?: string }) =>
   get<CrmOrcamento[]>("/api/crm/orcamentos", params as Record<string, string>);
 
+export interface ClienteErp {
+  encontrado: boolean;
+  cliente?: {
+    codigo: string; nome: string; tipo: string;
+    documento?: string | null; endereco?: string | null; bairro?: string | null;
+    cidade?: string | null; uf?: string | null;
+    celular?: string | null; telefone?: string | null; email?: string | null;
+    cod_vendedor?: string | null; ultima_compra?: string | null;
+  };
+  compras?: {
+    pedidos: number; total: number; ultima: string | null;
+    /** Pedido já fechado no ERP e ainda sem nota — não entra no faturado. */
+    em_aberto_pedidos: number; em_aberto_total: number;
+  };
+  /** Como o cliente foi identificado: 'documento' (exato) ou 'telefone'. */
+  vinculo?: string | null;
+  outros_cadastros?: number;
+}
+
+/**
+ * Cadastro no ERP da conversa. Manda o remote_jid porque o vínculo gravado
+ * (vindo do número do orçamento) tem precedência sobre o telefone — o cadastro
+ * na Citel muitas vezes usa outro número.
+ */
+export const apiClientePorTelefone = (jid: string) =>
+  get<ClienteErp>("/api/crm/cliente-por-telefone", { jid });
+
 export const apiCrmOrcamentoItens = (documento: string, empresa?: string) =>
   get<CrmItem[]>(`/api/crm/orcamentos/${encodeURIComponent(documento)}/itens`, empresa ? { empresa } : {});
 
