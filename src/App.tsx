@@ -46,6 +46,7 @@ import { EsteiraView } from "@/components/marketing/EsteiraView";
 import { RhView } from "@/components/rh/RhView";
 import { ESTEIRA_SUBQUADRO_PREFIX, canAccessSection } from "@/lib/menu-config";
 import { getNotifPref } from "@/lib/notif-prefs";
+import type { ConversaoBase } from "@/lib/conversao-map";
 import { useNotification } from "@/hooks/useNotification";
 import { runAnnouncementAutomation } from "@/lib/announcement-automation";
 import { usePedidosParadosAlert } from "@/hooks/usePedidosParadosAlert";
@@ -87,7 +88,7 @@ interface DashboardContentProps {
   userProfile: UserProfile | null;
   vendedorMetrics: VendedorResumo | null;
   storeData: VendedorResumo | null;
-  perdidoMap: Map<string, number>;
+  perdidoMap: Map<string, import("@/lib/conversao-map").ConversaoBase>;
   geralLoading: boolean;
   onLogout: () => void;
 }
@@ -1745,7 +1746,9 @@ function App() {
     null,
   );
   const [storeData, setStoreData] = useState<VendedorResumo | null>(null);
-  const [perdidoMap, setPerdidoMap] = useState<Map<string, number>>(new Map());
+  const [perdidoMap, setPerdidoMap] = useState<Map<string, ConversaoBase>>(new Map());
+  /** Timestamp da última carga das métricas — usado para não revalidar em excesso. */
+  const ultimaMetricaRef = useRef(0);
 
   const fetchVendedorMetrics = useCallback(async (profile: UserProfile) => {
     try {
@@ -1757,20 +1760,37 @@ function App() {
       const primeiroDia = `${yyyy}-${mm}-01`;
 
       const { apiDashboardGeral } = await import("@/lib/api");
-      const { buildPerdidoMap } = await import("@/lib/perdido-map");
+      const { buildConversaoMap } = await import("@/lib/conversao-map");
 
       const role = profile.role?.toUpperCase() || "";
       const isManager = role.includes("GERENTE") || role === "ADMIN";
       const codVendedor =
         profile.operator_code || profile.operatorCode || "049";
 
-      // Calcula perdidoMap antes de setar qualquer estado, para evitar flash de 100%
-      // Para vendedor comum, busca também o total da loja em paralelo (sem filtro de cod)
-      const [response, newPerdidoMap, storeResponse] = await Promise.all([
-        apiDashboardGeral(isManager ? undefined : codVendedor, dataStr),
-        buildPerdidoMap(primeiroDia, dataStr).catch(() => new Map<string, number>()),
-        isManager ? Promise.resolve(null) : apiDashboardGeral(undefined, dataStr).catch(() => null),
+      // O mapa de conversão sai de /api/crm/orcamentos, que devolve ~2 MB e leva
+      // minutos. Antes ele vinha no mesmo Promise.all das métricas, então o painel
+      // inteiro ficava zerado esperando por ele (e zerava de vez se a chamada
+      // falhasse). Agora as métricas entram assim que chegam e o mapa se resolve
+      // depois, sozinho — a Tx de Conversão aparece como "—" nesse meio tempo.
+      // A API devolve 500 esporádico quando está sob carga. Uma tentativa extra
+      // evita que o painel fique zerado por uma falha momentânea.
+      const comRetry = async <T,>(fn: () => Promise<T>): Promise<T> => {
+        try {
+          return await fn();
+        } catch {
+          await new Promise((r) => setTimeout(r, 2500));
+          return fn();
+        }
+      };
+
+      const [response, storeResponse] = await Promise.all([
+        comRetry(() => apiDashboardGeral(isManager ? undefined : codVendedor, dataStr)),
+        isManager ? Promise.resolve(null) : comRetry(() => apiDashboardGeral(undefined, dataStr)).catch(() => null),
       ]);
+
+      buildConversaoMap(primeiroDia, dataStr)
+        .then((mapa) => { if (mapa.size > 0) setPerdidoMap(mapa); })
+        .catch((e) => console.error("[Conversão] Falha ao montar a base:", e));
 
       // Extrai linha MEDIA (total da loja) e salva
       const sourceForMedia = isManager ? response : storeResponse;
@@ -1816,11 +1836,38 @@ function App() {
           });
         }
       }
-      setPerdidoMap(newPerdidoMap);
+      ultimaMetricaRef.current = Date.now();
     } catch (error) {
       console.error("Erro ao buscar métricas:", error);
     }
   }, []);
+
+  // As métricas do painel eram buscadas só uma vez, no login. Como a tela de
+  // Orçamentos refaz o fetch sozinha ao ser aberta, o painel ia ficando para trás
+  // conforme entravam orçamentos durante o dia e as duas Tx de Conversão
+  // divergiam. Revalida a cada 30 min (só com a aba visível, para não bater na
+  // API à toa) e ao voltar o foco, respeitando o mesmo intervalo mínimo.
+  useEffect(() => {
+    if (!profile) return;
+    // 30 min: cada revalidação refaz /api/crm/orcamentos (~2 MB, minutos de
+    // resposta). Intervalo curto aqui derruba a API para todo mundo.
+    const INTERVALO_MS = 30 * 60 * 1000;
+
+    const revalidar = () => {
+      if (document.visibilityState !== "visible") return;
+      if (Date.now() - ultimaMetricaRef.current < INTERVALO_MS) return;
+      fetchVendedorMetrics(profile);
+    };
+
+    const timer = setInterval(revalidar, 60 * 1000);
+    window.addEventListener("focus", revalidar);
+    document.addEventListener("visibilitychange", revalidar);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", revalidar);
+      document.removeEventListener("visibilitychange", revalidar);
+    };
+  }, [profile, fetchVendedorMetrics]);
 
   const fetchProfile = useCallback(
     async (uid: string) => {

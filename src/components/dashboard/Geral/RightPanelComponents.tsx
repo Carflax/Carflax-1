@@ -36,6 +36,7 @@ import { apiDashboardGeral, type VendedorResumo, apiEntregasConcluidas, apiCampa
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { calculateMonthlyWinner } from "@/lib/highlights_automation";
 import { supabase } from "@/lib/supabase";
+import type { ConversaoBase } from "@/lib/conversao-map";
 
 interface UserProfileLite {
   id?: string;
@@ -368,19 +369,23 @@ const calcPercentVsEquilibrio = (row?: VendedorResumo | null, ref?: Date) => {
   return equilibrio > 0 ? (total / equilibrio) * 100 : 0;
 };
 
-// Tx de conversão de uma linha: vendido / (vendido + perdido).
+// Tx de conversão de uma linha — MESMA conta da tela Comercial > Orçamentos:
+//   (faturado + pedidos em aberto) ÷ (total orçado − desconsiderado)
+// O TOTAL da linha já é faturado + em aberto, então ele é o numerador.
 // Linhas agregadas (time do supervisor, ou subtotal "TEAM:") não têm código no
-// perdidoMap — nesses casos soma o perdido dos membros, em vez de cair no
-// default de perdido 0 (que renderizaria 100% de conversão).
-const calcTaxaConversao = (row: VendedorResumo, perdidoMap: Map<string, number>, teamCodes?: string[]) => {
+// mapa — nesses casos soma a base dos membros, em vez de cair no default zerado.
+const calcTaxaConversao = (row: VendedorResumo, perdidoMap: Map<string, ConversaoBase>, teamCodes?: string[]) => {
   const totalNum = typeof row.TOTAL === 'string' ? parseFloat(row.TOTAL) : (row.TOTAL || 0);
   const codesToSum = (teamCodes && teamCodes.length > 0 && row.COD_VENDEDOR === "MEDIA")
     ? teamCodes
     : (row.COD_VENDEDOR.startsWith("TEAM:") ? row.MEMBER_CODES : undefined);
-  const perdido = codesToSum
-    ? codesToSum.reduce((acc, c) => acc + (perdidoMap.get(String(c).trim()) || 0), 0)
-    : perdidoMap.get(String(row.COD_VENDEDOR || "").trim()) || 0;
-  return Number(totalNum) + perdido > 0 ? (Number(totalNum) / (Number(totalNum) + perdido)) * 100 : 0;
+  const bases = codesToSum
+    ? codesToSum.map((c) => perdidoMap.get(String(c).trim())).filter(Boolean) as ConversaoBase[]
+    : [perdidoMap.get(String(row.COD_VENDEDOR || "").trim())].filter(Boolean) as ConversaoBase[];
+  const orcado = bases.reduce((a, b) => a + b.orcado, 0);
+  const desconsiderado = bases.reduce((a, b) => a + b.desconsiderado, 0);
+  const base = orcado - desconsiderado;
+  return base > 0 ? (Number(totalNum) / base) * 100 : 0;
 };
 
 // Versão compacta do SalesMetricsCard, usada no modal "Todos os Vendedores".
@@ -388,7 +393,7 @@ const calcTaxaConversao = (row: VendedorResumo, perdidoMap: Map<string, number>,
 // barra de meta + indicadores), com os mesmos cálculos.
 function VendedorMiniCard({ row, perdidoMap, refDate, isActive, onSelect }: {
   row: VendedorResumo;
-  perdidoMap: Map<string, number> | null;
+  perdidoMap: Map<string, ConversaoBase> | null;
   refDate?: Date;
   isActive?: boolean;
   onSelect?: () => void;
@@ -420,7 +425,7 @@ function VendedorMiniCard({ row, perdidoMap, refDate, isActive, onSelect }: {
     { label: "Diário", value: formatBRL(calcDiarioNecessario(row, refDate)), icon: Zap, valueColor: "text-foreground", tooltip: "Faltante ÷ Dias úteis restantes" },
     { label: "Diária Realizada", value: formatBRL(calcDiariaPraticada(row, refDate)), icon: Zap, valueColor: "text-cyan-600", tooltip: "Total ÷ Dias úteis trabalhados" },
     { label: "Projeção", value: formatBRL(calcProjecao(row, refDate)), icon: TrendingUp, valueColor: calcProjecao(row, refDate) >= Number(row.META || 0) ? "text-emerald-600" : "text-rose-600", tooltip: "Diária realizada × Total dias úteis do mês" },
-    { label: "Tx Conversão", value: perdidoMap ? `${calcTaxaConversao(row, perdidoMap).toFixed(1)}%` : "—", icon: PieChart, valueColor: "text-blue-600", tooltip: "Vendas ÷ (Vendas + Perdidos)" },
+    { label: "Tx Conversão", value: perdidoMap ? `${calcTaxaConversao(row, perdidoMap).toFixed(2)}%` : "—", icon: PieChart, valueColor: "text-blue-600", tooltip: "(Faturado + Em Aberto) ÷ (Orçado − Desconsiderado)" },
     { label: "Ticket Médio", value: formatBRL(row.TICKET_MEDIO), icon: DollarSign, valueColor: "text-foreground", tooltip: "Faturado ÷ Quantidade de vendas" },
     { label: "Margem", value: `${Number(row.MARGEM_REAL_PERC || row.MARGEM_PCT || 0).toFixed(1)}%`, icon: TrendingUp, valueColor: "text-blue-600", tooltip: "Margem real sobre o faturado" },
   ];
@@ -524,7 +529,7 @@ function VendedorMiniCard({ row, perdidoMap, refDate, isActive, onSelect }: {
   );
 }
 
-export function SalesMetricsCard({ isCompact, userProfile, data: externalData, storeData, loading: externalLoading, perdidoMap: perdidoMapProp = new Map() }: { isCompact?: boolean, userProfile?: UserProfileLite, data?: VendedorResumo, storeData?: VendedorResumo, loading?: boolean, perdidoMap?: Map<string, number> }) {
+export function SalesMetricsCard({ isCompact, userProfile, data: externalData, storeData, loading: externalLoading, perdidoMap: perdidoMapProp = new Map() }: { isCompact?: boolean, userProfile?: UserProfileLite, data?: VendedorResumo, storeData?: VendedorResumo, loading?: boolean, perdidoMap?: Map<string, ConversaoBase> }) {
   // Diretor tem visão própria (Total geral); não deve semear o painel com a linha
   // individual vinda do App — senão pisca a linha do diretor antes do efeito ajustar.
   const isDirectorInit = (userProfile?.role?.toUpperCase() || "").includes("DIRETOR");
@@ -538,14 +543,14 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, s
   // Perdido do mês filtrado. O `perdidoMap` que vem do App é sempre do mês corrente;
   // ao escolher outro mês precisamos do perdido daquele período, senão a Tx Conversão
   // divide o TOTAL do mês filtrado pelo perdido do mês atual.
-  const [perdidoMapMes, setPerdidoMapMes] = useState<Map<string, number> | null>(null);
+  const [perdidoMapMes, setPerdidoMapMes] = useState<Map<string, ConversaoBase> | null>(null);
   const isMesCorrente = (() => {
     const h = new Date();
     return refDate.getFullYear() === h.getFullYear() && refDate.getMonth() === h.getMonth();
   })();
   // `null` = perdido do mês filtrado ainda carregando → a Tx Conversão sai como "—"
   // em vez de 100% (que é o que um mapa vazio produziria).
-  const perdidoMap: Map<string, number> | null = isMesCorrente ? perdidoMapProp : perdidoMapMes;
+  const perdidoMap: Map<string, ConversaoBase> | null = isMesCorrente ? perdidoMapProp : perdidoMapMes;
   const [selectedCod, setSelectedCod] = useState<string>("TOTAL");
   // Códigos dos vendedores do time (quando supervisor) — usado para agregar o "perdido"
   // do time na Tx Conversão em vez de pegar o total da loja (chave "MEDIA").
@@ -1062,8 +1067,8 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, s
     setPerdidoMapMes(null);
     (async () => {
       try {
-        const { buildPerdidoMap } = await import("@/lib/perdido-map");
-        const map = await buildPerdidoMap(inicio, fim);
+        const { buildConversaoMap } = await import("@/lib/conversao-map");
+        const map = await buildConversaoMap(inicio, fim);
         if (!cancelled) setPerdidoMapMes(map);
       } catch (err) {
         console.error("Erro ao carregar perdido do mês:", err);
