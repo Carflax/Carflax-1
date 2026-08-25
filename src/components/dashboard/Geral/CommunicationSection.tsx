@@ -33,6 +33,10 @@ export interface CommunicationPost {
   image: string;
   likes: number;
   likedBy: string[];
+  /** ID do usuário homenageado no comunicado (ex.: Isabela) */
+  taggedUserId?: string | null;
+  /** ID do usuário que criou o comunicado */
+  postUserId?: string | null;
 }
 
 interface ComunicadoComment {
@@ -60,6 +64,8 @@ interface DbComunicado {
   created_at: string;
   likes: number | null;
   liked_by: string[] | null;
+  user_id: string | null;
+  tagged_user_id: string | null;
   usuarios: {
     name: string;
     avatar: string | null;
@@ -425,6 +431,43 @@ function getUserCache(): Record<string, { id: string; name: string; avatar: stri
   return (window as unknown as { _carflaxUserCache?: Record<string, { id: string; name: string; avatar: string | null }> })._carflaxUserCache || {};
 }
 
+async function resolveTaggedUserId(post: CommunicationPost): Promise<string | null> {
+  if (post.taggedUserId) return post.taggedUserId;
+  try {
+    const postTitle = (post.title || "").toUpperCase();
+    const { data: users } = await supabase
+      .from("usuarios")
+      .select("id, name");
+    if (users && users.length > 0) {
+      for (const u of users) {
+        if (!u.name) continue;
+        const uName = u.name.toUpperCase().trim();
+        if (uName.length > 3 && postTitle.includes(uName)) {
+          supabase.from("comunicados").update({ tagged_user_id: u.id }).eq("id", post.dbId).then();
+          post.taggedUserId = u.id;
+          return u.id;
+        }
+      }
+      for (const u of users) {
+        if (!u.name) continue;
+        const parts = u.name.toUpperCase().trim().split(/\s+/);
+        if (parts.length >= 2) {
+          const pair = `${parts[0]} ${parts[1]}`;
+          if (postTitle.includes(pair)) {
+            supabase.from("comunicados").update({ tagged_user_id: u.id }).eq("id", post.dbId).then();
+            post.taggedUserId = u.id;
+            return u.id;
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Erro ao resolver homenageado:", err);
+  }
+  return null;
+}
+
+
 export function CommunicationCard({
   data,
   onEdit,
@@ -432,6 +475,7 @@ export function CommunicationCard({
   userProfile,
   initialCommentCount = 0,
   onCommentCountChange,
+  openRequest,
 }: {
   data: CommunicationPost;
   onEdit: (d: CommunicationPost) => void;
@@ -439,6 +483,7 @@ export function CommunicationCard({
   userProfile?: UserProfile;
   initialCommentCount?: number;
   onCommentCountChange?: (dbId: string | number, count: number) => void;
+  openRequest?: { id: string; openComments: boolean; token: number } | null;
 }) {
   const currentUserId = userProfile?.id;
   const canManage =
@@ -472,6 +517,10 @@ export function CommunicationCard({
     author: string;
   } | null>(null);
   const replyInputRef = useRef<HTMLTextAreaElement>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const lastProcessedTokenRef = useRef<number | null>(null);
+  const onCommentCountChangeRef = useRef(onCommentCountChange);
+  onCommentCountChangeRef.current = onCommentCountChange;
 
   const EMOJIS = [
     "😀",
@@ -572,34 +621,6 @@ export function CommunicationCard({
     setCommentCount(initialCommentCount);
   }, [initialCommentCount]);
 
-  useEffect(() => {
-    if (!showEmojiPicker) return;
-    const handler = (e: MouseEvent) => {
-      if (
-        emojiPickerRef.current &&
-        !emojiPickerRef.current.contains(e.target as Node)
-      ) {
-        setShowEmojiPicker(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [showEmojiPicker]);
-
-  useEffect(() => {
-    if (openReactionPicker === null) return;
-    const handler = (e: MouseEvent) => {
-      if (
-        reactionPickerRef.current &&
-        !reactionPickerRef.current.contains(e.target as Node)
-      ) {
-        setOpenReactionPicker(null);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [openReactionPicker]);
-
   const fetchComments = useCallback(async () => {
     setLoadingComments(true);
     const { data: rows } = await supabase
@@ -672,14 +693,33 @@ export function CommunicationCard({
       setComments(topLevel);
       const newCount = mapped.length;
       setCommentCount(newCount);
-      onCommentCountChange?.(data.dbId, newCount);
+      onCommentCountChangeRef.current?.(data.dbId, newCount);
     } else {
       setComments([]);
       setCommentCount(0);
-      onCommentCountChange?.(data.dbId, 0);
+      onCommentCountChangeRef.current?.(data.dbId, 0);
     }
     setLoadingComments(false);
-  }, [data.dbId, onCommentCountChange]);
+  }, [data.dbId]);
+
+  // Abre comentários, busca do Supabase e foca input quando chegou via notificação (executa uma única vez por clique)
+  useEffect(() => {
+    if (!openRequest) return;
+    if (openRequest.token === lastProcessedTokenRef.current) return;
+    lastProcessedTokenRef.current = openRequest.token;
+
+    setTimeout(() => {
+      cardRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 150);
+
+    if (openRequest.openComments) {
+      setShowComments(true);
+      fetchComments();
+      setTimeout(() => {
+        commentInputRef.current?.focus();
+      }, 350);
+    }
+  }, [openRequest, fetchComments]);
 
   const handleToggleComments = () => {
     if (!showComments) fetchComments();
@@ -703,9 +743,49 @@ export function CommunicationCard({
       setNewComment("");
       setReplyingTo(null);
       await fetchComments();
+
+      // ── Notificações ──────────────────────────────────────────────────────
+      const commenterName = userProfile?.name || "Alguém";
+      const commenterAvatar = userProfile?.avatar ||
+        `https://api.dicebear.com/7.x/avataaars/svg?seed=${commenterName}`;
+      const postTitle = data.title.length > 40
+        ? data.title.slice(0, 40) + "..."
+        : data.title;
+
+      // Resolve o homenageado (inclusive por busca automática no título se nulo)
+      const targetUserId = await resolveTaggedUserId(data);
+
+      // Destinatários únicos: homenageado + autor + autor do comentário pai (se reply), excluindo o próprio autor da ação
+      const recipients = new Set<string>();
+      if (targetUserId && targetUserId !== currentUserId)
+        recipients.add(targetUserId);
+      if (data.postUserId && data.postUserId !== currentUserId)
+        recipients.add(data.postUserId);
+
+
+      if (recipients.size > 0) {
+        const notifRows = Array.from(recipients).map((uid) => ({
+          user_id: uid,
+          type: "comment",
+          title: "💬 Novo comentário no seu comunicado",
+          message: `${commenterName} comentou em "${postTitle}"`,
+          data: {
+            comunicado_id: data.dbId,
+            commenter_name: commenterName,
+            commenter_avatar: commenterAvatar,
+          },
+        }));
+        try {
+          await supabase.from("notificacoes").insert(notifRows);
+        } catch {
+          /* ignora — não bloqueia o fluxo principal */
+        }
+      }
     }
     setSubmittingComment(false);
   };
+
+
 
   const findComment = (list: ComunicadoComment[], id: string | number): ComunicadoComment | undefined => {
     for (const c of list) {
@@ -868,10 +948,53 @@ export function CommunicationCard({
         .from("comunicados")
         .update({ likes: newLikedBy.length, liked_by: newLikedBy })
         .eq("id", data.dbId);
+
+      // ── Notificação de curtida ────────────────────────────────────────────
+      // Notifica: homenageado (taggedUserId) + autor (postUserId), excluindo o próprio liker
+      if (isLiking) {
+        const likerName = userProfile?.name || "Alguém";
+        const likerAvatar = userProfile?.avatar ||
+          `https://api.dicebear.com/7.x/avataaars/svg?seed=${likerName}`;
+        const postTitle = data.title.length > 40
+          ? data.title.slice(0, 40) + "..."
+          : data.title;
+
+        // Resolve homenageado
+        const targetUserId = await resolveTaggedUserId(data);
+
+        const recipients = new Set<string>();
+        if (targetUserId && targetUserId !== currentUserId)
+          recipients.add(targetUserId);
+        if (data.postUserId && data.postUserId !== currentUserId)
+          recipients.add(data.postUserId);
+
+        if (recipients.size > 0) {
+          try {
+            await supabase.from("notificacoes").insert(
+              Array.from(recipients).map((uid) => ({
+                user_id: uid,
+                type: "like",
+                title: "👍 Curtida no seu comunicado",
+                message: `${likerName} curtiu "${postTitle}"`,
+                data: {
+                  comunicado_id: data.dbId,
+                  commenter_name: likerName,
+                  commenter_avatar: likerAvatar,
+                },
+              }))
+            );
+          } catch {
+            /* ignora — não bloqueia o fluxo principal */
+          }
+        }
+      }
+
+
     } catch (error) {
       console.error("Erro ao sincronizar curtida:", error);
     }
   };
+
 
   const handleHide = () => {
     if (
@@ -884,7 +1007,7 @@ export function CommunicationCard({
   };
 
   return (
-    <div className="bg-card border border-border rounded-2xl overflow-hidden transition-all duration-300 hover:shadow-lg group">
+    <div ref={cardRef} className="bg-card border border-border rounded-2xl overflow-hidden transition-all duration-300 hover:shadow-lg group">
       <div className="flex flex-col sm:flex-row items-stretch sm:items-start p-2.5 sm:p-3 gap-2.5">
         <div
           onClick={() => setShowImageModal(true)}
@@ -1225,6 +1348,13 @@ export function CommunicationSection({
   const [internalLoading, setInternalLoading] = useState(true);
   const [commentCounts, setCommentCounts] = useState<Record<string, number>>({});
 
+  const handleCommentCountChange = useCallback((dbId: string | number, count: number) => {
+    setCommentCounts((prev) => {
+      if (prev[String(dbId)] === count) return prev;
+      return { ...prev, [String(dbId)]: count };
+    });
+  }, []);
+
   const canManage =
     userProfile?.is_leader ||
     userProfile?.role === "admin";
@@ -1291,6 +1421,8 @@ export function CommunicationSection({
             `https://api.dicebear.com/7.x/shapes/svg?seed=${c.id}`,
           likes: c.likes || 0,
           likedBy: c.liked_by || [],
+          taggedUserId: c.tagged_user_id || null,
+          postUserId: c.user_id || null,
         };
       });
       setComms(posts);
@@ -1318,12 +1450,34 @@ export function CommunicationSection({
     category: string;
     image: string;
     _imageFile?: File;
+    tagged_user_id?: string | null;
   }>(() => ({
     title: "",
     content: "",
     category: "Empresa",
     image: "",
+    tagged_user_id: null,
   }));
+
+  // Estado para busca de homenageado no modal
+  const [userSearchQuery, setUserSearchQuery] = useState("");
+  const [userSearchResults, setUserSearchResults] = useState<{ id: string; name: string; avatar: string | null }[]>([]);
+  const [selectedTaggedUser, setSelectedTaggedUser] = useState<{ id: string; name: string; avatar: string | null } | null>(null);
+  const userSearchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleUserSearch = (query: string) => {
+    setUserSearchQuery(query);
+    if (userSearchTimeoutRef.current) clearTimeout(userSearchTimeoutRef.current);
+    if (!query.trim()) { setUserSearchResults([]); return; }
+    userSearchTimeoutRef.current = setTimeout(async () => {
+      const { data: users } = await supabase
+        .from("usuarios")
+        .select("id, name, avatar")
+        .ilike("name", `%${query}%`)
+        .limit(6);
+      setUserSearchResults(users || []);
+    }, 300);
+  };
 
   const handleAddPost = async () => {
     if (!newPost.title || !newPost.content) return;
@@ -1345,6 +1499,7 @@ export function CommunicationSection({
         image_url: finalImageUrl,
         tag: userProfile?.name || "Danilo",
         user_id: userProfile?.id,
+        tagged_user_id: selectedTaggedUser?.id || null,
       };
 
       if (editingId) {
@@ -1373,7 +1528,10 @@ export function CommunicationSection({
       await fetchComunicados(true);
       setIsModalOpen(false);
       setEditingId(null);
-      setNewPost({ title: "", content: "", category: "Empresa", image: "" });
+      setNewPost({ title: "", content: "", category: "Empresa", image: "", tagged_user_id: null });
+      setSelectedTaggedUser(null);
+      setUserSearchQuery("");
+      setUserSearchResults([]);
     } catch (err) {
       console.error(err);
       showNotification(
@@ -1461,6 +1619,20 @@ export function CommunicationSection({
   )
     .filter((c) => !hiddenPosts.includes(String(c.dbId)))
     .filter((c) => isCommVisibleForPrefs(c, equipePrefs));
+
+  const [openRequest, setOpenRequest] = useState<{ id: string; openComments: boolean; token: number } | null>(null);
+
+  // Listener: navega ao card quando notificação é clicada
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ id: string; openComments: boolean }>).detail;
+      if (!detail) return;
+      setActiveCategory("Todos");
+      setOpenRequest({ id: String(detail.id), openComments: !!detail.openComments, token: Date.now() });
+    };
+    window.addEventListener("carflax-open-comunicado", handler);
+    return () => window.removeEventListener("carflax-open-comunicado", handler);
+  }, []);
 
   return (
     <div className="flex flex-col relative">
@@ -1570,7 +1742,66 @@ export function CommunicationSection({
                     disabled={saving}
                   />
                 </div>
+                {/* Campo de homenageado */}
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest ml-1 flex items-center gap-1.5">
+                    🎯 Homenageado <span className="text-muted-foreground/50 normal-case font-medium">(opcional)</span>
+                  </label>
+                  {selectedTaggedUser ? (
+                    <div className="flex items-center gap-3 px-3 py-2.5 bg-blue-500/10 border border-blue-500/30 rounded-xl">
+                      <img
+                        src={selectedTaggedUser.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${selectedTaggedUser.name}`}
+                        className="w-8 h-8 rounded-full object-cover"
+                        alt={selectedTaggedUser.name}
+                      />
+                      <span className="text-sm font-bold text-foreground flex-1">{selectedTaggedUser.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => { setSelectedTaggedUser(null); setUserSearchQuery(""); setUserSearchResults([]); }}
+                        className="p-1 hover:bg-red-500/10 rounded-lg text-muted-foreground hover:text-red-500 transition-colors"
+                        disabled={saving}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={userSearchQuery}
+                        onChange={(e) => handleUserSearch(e.target.value)}
+                        className="w-full px-4 py-3 bg-secondary/20 border border-border rounded-xl text-sm font-bold text-foreground outline-none focus:ring-1 focus:ring-blue-500 placeholder:text-muted-foreground/30"
+                        placeholder="Buscar colaborador homenageado..."
+                        disabled={saving}
+                      />
+                      {userSearchResults.length > 0 && (
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden">
+                          {userSearchResults.map((u) => (
+                            <button
+                              key={u.id}
+                              type="button"
+                              onClick={() => {
+                                setSelectedTaggedUser(u);
+                                setUserSearchQuery("");
+                                setUserSearchResults([]);
+                              }}
+                              className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-secondary/50 transition-colors text-left"
+                            >
+                              <img
+                                src={u.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${u.name}`}
+                                className="w-7 h-7 rounded-full object-cover"
+                                alt={u.name}
+                              />
+                              <span className="text-sm font-bold text-foreground">{u.name}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
+
               <div className="p-8 bg-secondary/50 border-t border-border flex items-center justify-between gap-3 shrink-0">
                 <div className="flex items-center gap-3">
                   {editingId && (
@@ -1645,7 +1876,11 @@ export function CommunicationSection({
                 content: "",
                 category: "Empresa",
                 image: "",
+                tagged_user_id: null,
               });
+              setSelectedTaggedUser(null);
+              setUserSearchQuery("");
+              setUserSearchResults([]);
               setIsModalOpen(true);
             }}
             className="gap-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md h-9 px-4 text-[11px] font-bold shadow-sm group"
@@ -1703,17 +1938,21 @@ export function CommunicationSection({
         )}
         {!loading &&
           filtered.map((item) => (
-            <CommunicationCard
-              key={item.id}
-              data={item}
-              onEdit={handleEdit}
-              onHide={handleHidePost}
-              userProfile={userProfile}
-              initialCommentCount={commentCounts[String(item.dbId)] ?? 0}
-              onCommentCountChange={(dbId, count) =>
-                setCommentCounts((prev) => ({ ...prev, [String(dbId)]: count }))
-              }
-            />
+            <div key={item.id} data-comunicado-id={String(item.dbId)}>
+              <CommunicationCard
+                data={item}
+                onEdit={handleEdit}
+                onHide={handleHidePost}
+                userProfile={userProfile}
+                initialCommentCount={commentCounts[String(item.dbId)] ?? 0}
+                onCommentCountChange={handleCommentCountChange}
+                openRequest={
+                  openRequest?.id === String(item.dbId) || openRequest?.id === String(item.id)
+                    ? openRequest
+                    : null
+                }
+              />
+            </div>
           ))}
       </div>
     </div>

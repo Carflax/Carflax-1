@@ -48,6 +48,8 @@ import { ESTEIRA_SUBQUADRO_PREFIX, canAccessSection } from "@/lib/menu-config";
 import { useNotification } from "@/hooks/useNotification";
 import { runAnnouncementAutomation } from "@/lib/announcement-automation";
 import { usePedidosParadosAlert } from "@/hooks/usePedidosParadosAlert";
+import { useCommunicadoNotifications } from "@/hooks/useCommunicadoNotifications";
+
 import { useBalcao2PrazoAlert } from "@/hooks/useBalcao2PrazoAlert";
 import { useVendaGrandeAlert } from "@/hooks/useVendaGrandeAlert";
 import { useTrafegoSemRespostaAlert } from "@/hooks/useTrafegoSemRespostaAlert";
@@ -101,6 +103,8 @@ function DashboardContent({
   useBalcao2PrazoAlert(showNotification, userProfile);
   useVendaGrandeAlert(showNotification, userProfile);
   useTrafegoSemRespostaAlert(showNotification, userProfile);
+  useCommunicadoNotifications(userProfile);
+
 
   const [activeRetiradaAlert, setActiveRetiradaAlert] = useState<{ cliente: string; pedido: string } | null>(null);
 

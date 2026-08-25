@@ -68,9 +68,10 @@ async function checkAndPostGoalAchievements() {
 
       if (existing && existing.length > 0) continue;
 
+      // Busca avatar E id do usuário pelo operator_code
       const { data: userData } = await supabase
         .from("usuarios")
-        .select("avatar")
+        .select("id, avatar")
         .eq("operator_code", String(winner.COD_VENDEDOR))
         .maybeSingle();
 
@@ -81,7 +82,9 @@ async function checkAndPostGoalAchievements() {
         image_url: userData?.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${winner.NOME_VENDEDOR}`,
         tag: "Carflax",
         likes: 0,
-        liked_by: []
+        liked_by: [],
+        // Vincula o vendedor homenageado para que ele receba notificações de likes e comentários
+        tagged_user_id: userData?.id || null,
       }]);
       postsCreated++;
     }
