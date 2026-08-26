@@ -44,8 +44,8 @@ import { evolutionApi } from "@/lib/evolution-v2";
 import { supabase } from "@/lib/supabase";
 import { marketingService } from "@/lib/marketing-service";
 import { cn, formatBrTime, formatBrDate } from "@/lib/utils";
-import { apiDashboardProdutos, apiGetLinkPreview, apiCrmOrcamentos, apiClientePorTelefone } from "@/lib/api";
-import type { ClienteErp } from "@/lib/api";
+import { apiDashboardProdutos, apiGetLinkPreview, apiCrmOrcamentos, apiClientePorTelefone, apiBuscarClientesErp } from "@/lib/api";
+import type { ClienteErp, ClienteErpBusca } from "@/lib/api";
 import { parseOrcamentoPdf } from "@/lib/pdf-orcamento";
 import { transcribeAudio, classifyByRules } from "@/lib/gemini-service";
 import { Package } from "lucide-react";
@@ -1161,6 +1161,12 @@ export function WhatsappView({
   const [showCadastroErp, setShowCadastroErp] = useState(false);
   const [cadastroErp, setCadastroErp] = useState<ClienteErp | null>(null);
   const [cadastroErpLoading, setCadastroErpLoading] = useState(false);
+  // Vínculo manual: busca de cadastro no ERP por nome/CNPJ, para os casos em que
+  // o telefone da conversa não bate com nenhum cadastro.
+  const [vinculoBusca, setVinculoBusca] = useState("");
+  const [vinculoResultados, setVinculoResultados] = useState<ClienteErpBusca[]>([]);
+  const [vinculoBuscando, setVinculoBuscando] = useState(false);
+  const [vinculoAberto, setVinculoAberto] = useState(false);
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
   const [followUpDateInput, setFollowUpDateInput] = useState("");
   const [showArchiveModal, setShowArchiveModal] = useState(false);
@@ -1881,6 +1887,44 @@ export function WhatsappView({
     };
   }, [podeAprovar]);
 
+  const buscarCadastroErp = async () => {
+    const termo = vinculoBusca.trim();
+    if (termo.length < 3) return;
+    setVinculoBuscando(true);
+    try {
+      setVinculoResultados(await apiBuscarClientesErp(termo));
+    } catch (err) {
+      console.error("Erro ao buscar cadastros no ERP:", err);
+      setVinculoResultados([]);
+    } finally {
+      setVinculoBuscando(false);
+    }
+  };
+
+  /**
+   * Amarra a conversa ao cadastro escolhido. A partir daí o orçamento e a venda
+   * daquele cliente passam a ser puxados pela varredura do ERP, que até então
+   * não achava ninguém pelo telefone.
+   */
+  const vincularCadastroErp = async (codigo: string, nome: string) => {
+    if (!selectedChat) return;
+    try {
+      await marketingService.vincularClienteErp(selectedChat.id, codigo, "manual");
+      setVinculoAberto(false);
+      setVinculoBusca("");
+      setVinculoResultados([]);
+      await abrirCadastroErp();
+      showNotification(
+        "success",
+        "Cadastro vinculado",
+        `${nome} agora está ligado a esta conversa. O orçamento e a venda passam a vir da Citel na próxima sincronização.`,
+      );
+    } catch (err) {
+      console.error("Erro ao vincular cadastro do ERP:", err);
+      showNotification("error", "Não foi possível vincular", "Tente novamente.");
+    }
+  };
+
   const handleCloseArchiveModal = () => {
     setShowArchiveModal(false);
     setIsEnteringMaterial(false);
@@ -2047,6 +2091,7 @@ export function WhatsappView({
     try {
       const fileName = typeof fileOrName === "string" ? fileOrName : fileOrName.name;
       let total: number | null = null;
+      let numeroDoc: string | null = null;
 
       if (typeof fileOrName !== "string" && (fileOrName.type === "application/pdf" || fileName.toLowerCase().endsWith(".pdf"))) {
         // Leitura direta do PDF usando pdfjs-dist
@@ -2054,17 +2099,35 @@ export function WhatsappView({
         if (extracted.valor && extracted.valor > 0) {
           total = extracted.valor;
         }
+        if (extracted.numero) numeroDoc = extracted.numero;
       }
 
-      // Se não obteve o total pelo PDF diretamente, tenta via número no ERP
-      if (!total || total <= 0) {
+      if (!numeroDoc) {
         const m = fileName.match(/^OR[_-](\d{4,})/i) || fileName.match(/(\d{6,})/);
-        if (m) {
-          const list = await apiCrmOrcamentos({ documento: m[1] });
+        if (m) numeroDoc = m[1];
+      }
+
+      // O documento é consultado no ERP mesmo quando o PDF já deu o valor: é dele
+      // que sai o CÓDIGO DO CLIENTE, o único vínculo exato entre a conversa e o
+      // cadastro da Citel. O casamento por telefone falha justamente quando quem
+      // conversa é a pessoa física e o cadastro está no CNPJ da empresa dela.
+      if (numeroDoc) {
+        const list = await apiCrmOrcamentos({ documento: numeroDoc });
+
+        if (!total || total <= 0) {
           total = (list || []).reduce(
             (max, o) => Math.max(max, parseFloat(String(o.VALOR_TOTAL_ORCAMENTO)) || 0),
             0,
           );
+        }
+
+        const codCliente = (list || [])
+          .map((o) => (o.COD_CLIENTE || "").trim())
+          .find(Boolean);
+        if (codCliente) {
+          marketingService
+            .vincularClienteErp(remoteJid, codCliente, "documento")
+            .catch((err) => console.error("[ORCAMENTO] Erro ao vincular cliente do ERP:", err));
         }
       }
 
@@ -4318,6 +4381,67 @@ export function WhatsappView({
                     pelo número da conversa — se o cadastro na Citel usa outro
                     telefone, ele não é encontrado.
                   </p>
+                  {/* Vínculo manual. Sem isto, comprador pessoa física com o
+                      cadastro no CNPJ da empresa fica para sempre sem orçamento e
+                      sem venda no HUB — e some dos relatórios de conversão. */}
+                  <div className="mt-5 pt-4 border-t border-border/50 text-left">
+                    {!vinculoAberto ? (
+                      <button
+                        onClick={() => setVinculoAberto(true)}
+                        className="w-full px-4 py-2.5 rounded-xl border border-primary/30 text-primary text-[11px] font-black uppercase tracking-widest hover:bg-primary/10 transition-all"
+                      >
+                        Vincular cadastro manualmente
+                      </button>
+                    ) : (
+                      <div className="space-y-3">
+                        <div className="flex gap-2">
+                          <input
+                            value={vinculoBusca}
+                            onChange={(e) => setVinculoBusca(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") buscarCadastroErp();
+                            }}
+                            autoFocus
+                            placeholder="Nome, CNPJ/CPF ou código"
+                            className="flex-1 min-w-0 bg-secondary/50 border border-border rounded-xl px-3 py-2 text-[11px] font-bold text-foreground outline-none focus:border-primary/50"
+                          />
+                          <button
+                            onClick={buscarCadastroErp}
+                            disabled={vinculoBusca.trim().length < 3 || vinculoBuscando}
+                            className="px-3 py-2 rounded-xl bg-primary text-primary-foreground text-[10px] font-black uppercase disabled:opacity-50"
+                          >
+                            {vinculoBuscando ? "..." : "Buscar"}
+                          </button>
+                        </div>
+
+                        {vinculoResultados.length === 0 && !vinculoBuscando && (
+                          <p className="text-[10px] text-muted-foreground">
+                            Busque pelo nome do cadastro na Citel — costuma ser a
+                            razão social da empresa, não o nome de quem conversa.
+                          </p>
+                        )}
+
+                        <div className="space-y-1.5 max-h-52 overflow-y-auto">
+                          {vinculoResultados.map((c) => (
+                            <button
+                              key={c.codigo}
+                              onClick={() => vincularCadastroErp(c.codigo, c.nome)}
+                              className="w-full text-left px-3 py-2 rounded-xl border border-border/60 hover:border-primary/40 hover:bg-primary/5 transition-all"
+                            >
+                              <p className="text-[11px] font-black text-card-foreground truncate">
+                                {c.nome}
+                              </p>
+                              <p className="text-[10px] text-muted-foreground truncate">
+                                {[c.codigo, c.documento, c.cidade && `${c.cidade}/${c.uf || ""}`, c.telefone]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                              </p>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-4">

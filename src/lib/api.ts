@@ -439,6 +439,8 @@ export interface CrmOrcamento {
   DATA_VENDA?: string | null;
   MOTIVO_CANCELAMENTO: string;
   TELEFONE_CLIENTE?: string;
+  /** Código do cliente no ERP — vínculo exato entre a conversa e o cadastro. */
+  COD_CLIENTE?: string | null;
   PRODUTOS: CrmItem[];
   // Raw fields
   FDO_NUMDOC?: string;
@@ -470,6 +472,24 @@ export interface ClienteErp {
   vinculo?: string | null;
   outros_cadastros?: number;
 }
+
+export interface ClienteErpBusca {
+  codigo: string;
+  nome: string;
+  documento?: string | null;
+  cidade?: string | null;
+  uf?: string | null;
+  telefone?: string | null;
+  ultima_compra?: string | null;
+}
+
+/**
+ * Busca cadastros do ERP por nome, CNPJ/CPF ou código. Serve para amarrar a
+ * conversa ao cliente na mão quando o telefone não casa — comprador pessoa
+ * física com o cadastro no CNPJ da empresa, por exemplo.
+ */
+export const apiBuscarClientesErp = (q: string) =>
+  get<ClienteErpBusca[]>("/api/crm/cliente-por-telefone/buscar", { q });
 
 /**
  * Cadastro no ERP da conversa. Manda o remote_jid porque o vínculo gravado

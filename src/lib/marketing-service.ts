@@ -46,6 +46,10 @@ export interface MarketingCliente {
   /** erp = lido dos orçamentos da Citel; pdf/carrinho = veio pela conversa. */
   orcamento_origem?: string | null;
   orcamento_documento?: string | null;
+  /** Cadastro do cliente no ERP casado com esta conversa. */
+  cod_cliente_erp?: string | null;
+  vinculo_origem?: string | null;
+  vinculado_em?: string | null;
   origem?: string;
   campanha?: string;
   forma_pagamento?: string;
@@ -734,6 +738,55 @@ export const marketingService = {
   // registerSale/deleteSale foram removidos: a venda do lead não é mais digitada.
   // O valor vem dos pedidos da Citel (db/src/lib/leadErpSyncScheduler.js), que
   // grava em marketing_vendas com o número do pedido e recalcula valor_venda.
+
+  /**
+   * Amarra a conversa ao cadastro do cliente no ERP.
+   *
+   * Existe porque o vínculo por telefone falha exatamente no caso mais comum de
+   * PJ: quem conversa é a pessoa física (celular dela) e o cadastro na Citel está
+   * no CNPJ da empresa, com outro telefone. Sem vínculo, orçamento e venda nunca
+   * são puxados e o lead some dos relatórios de conversão.
+   *
+   * `origem`: 'documento' (código lido do orçamento — exato), 'manual' (alguém
+   * amarrou na tela) ou 'telefone' (casamento automático).
+   *
+   * Um vínculo mais forte nunca é rebaixado: 'documento' e 'manual' não são
+   * sobrescritos por um casamento por telefone.
+   */
+  async vincularClienteErp(
+    remoteJid: string,
+    codCliente: string,
+    origem: "documento" | "manual" | "telefone" = "documento",
+  ) {
+    const codigo = String(codCliente || "").trim();
+    if (!codigo) return false;
+
+    const { data: atual } = await supabase
+      .from("marketing_clientes")
+      .select("cod_cliente_erp, vinculo_origem")
+      .eq("remote_jid", remoteJid)
+      .maybeSingle();
+
+    const jaForte = atual?.vinculo_origem === "documento" || atual?.vinculo_origem === "manual";
+    if (jaForte && origem === "telefone") return false;
+    if (atual?.cod_cliente_erp === codigo && atual?.vinculo_origem === origem) return false;
+
+    const { error } = await supabase
+      .from("marketing_clientes")
+      .update({
+        cod_cliente_erp: codigo,
+        vinculo_origem: origem,
+        vinculado_em: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("remote_jid", remoteJid);
+
+    if (error) {
+      console.error("[MarketingService] Erro ao vincular cliente do ERP:", error.message);
+      return false;
+    }
+    return true;
+  },
 
   // Marca no lead que houve orçamento e guarda o valor total (à vista/PIX),
   // espelhando registerSale/valor_venda.
