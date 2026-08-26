@@ -47,7 +47,6 @@ import { RhView } from "@/components/rh/RhView";
 import { ESTEIRA_SUBQUADRO_PREFIX, canAccessSection } from "@/lib/menu-config";
 import { getNotifPref } from "@/lib/notif-prefs";
 import { useNotification } from "@/hooks/useNotification";
-import { runAnnouncementAutomation } from "@/lib/announcement-automation";
 import { usePedidosParadosAlert } from "@/hooks/usePedidosParadosAlert";
 import { useCommunicadoNotifications } from "@/hooks/useCommunicadoNotifications";
 
@@ -650,9 +649,11 @@ function DashboardContent({
   useEffect(() => {
     const role = userProfile?.role?.toUpperCase() || "";
     const isAdminGerente = role === "ADMIN" || role.includes("GERENTE");
-    if (isAdminGerente) {
-      runAnnouncementAutomation();
-    }
+    // O comunicado de META BATIDA saiu daqui: agora quem publica é o agendador do
+    // servidor (db/src/lib/metaBatidaScheduler.js), que verifica de 5 em 5 min e
+    // não depende de alguém abrir o HUB. Manter as duas rotinas só criaria corrida
+    // entre dois inserts do mesmo comunicado.
+
     // Comunicado de recebimento de material: dispara também quando um líder/gestor
     // abre a página (além do agendador de 10 min). Throttle de ~10 min para não
     // bater no ERP a cada refresh. A rotina no servidor é idempotente (dedup/atualiza).
