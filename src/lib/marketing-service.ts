@@ -43,6 +43,9 @@ export interface MarketingCliente {
   venda_origem?: string | null;
   valor_orcamento?: number | null;
   data_orcamento?: string | null;
+  /** erp = lido dos orçamentos da Citel; pdf/carrinho = veio pela conversa. */
+  orcamento_origem?: string | null;
+  orcamento_documento?: string | null;
   origem?: string;
   campanha?: string;
   forma_pagamento?: string;
@@ -753,6 +756,21 @@ export const marketingService = {
    * senão a próxima varredura sobrescreveria a correção do vendedor.
    */
   async registerSale(remoteJid: string, value: number) {
+    // O modal chama isto tanto para registrar quanto para ATUALIZAR a venda. Antes
+    // ele só inseria e somava tudo de novo, então cada correção do vendedor era
+    // somada à anterior (três edições de R$ 1.532 viravam R$ 4.596). A linha
+    // manual agora é substituída; as linhas vindas do ERP não são tocadas.
+    const { error: limpezaError } = await supabase
+      .from("marketing_vendas")
+      .delete()
+      .eq("remote_jid", remoteJid)
+      .is("documento", null);
+
+    if (limpezaError) {
+      console.error("[MarketingService] Erro ao limpar venda manual anterior:", limpezaError);
+      throw limpezaError;
+    }
+
     const { error: vendaError } = await supabase
       .from("marketing_vendas")
       .insert({ remote_jid: remoteJid, valor: value, origem: "manual" });
@@ -802,6 +820,11 @@ export const marketingService = {
       .update({
         valor_orcamento: value,
         data_orcamento: when || new Date().toISOString(),
+        // Veio pela conversa (PDF enviado ou carrinho do chat), não do documento
+        // gerado na Citel — senão o selo "ERP" na tela mentiria. A varredura do
+        // ERP reassume o valor no ciclo seguinte, se houver orçamento lá.
+        orcamento_origem: "conversa",
+        orcamento_documento: null,
         updated_at: new Date().toISOString()
       })
       .eq("remote_jid", remoteJid);

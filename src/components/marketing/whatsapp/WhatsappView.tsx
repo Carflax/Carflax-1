@@ -145,6 +145,10 @@ interface LeadMetadata {
   /** Valor da venda veio dos pedidos do ERP, não foi digitado pelo vendedor. */
   saleFromErp?: boolean;
   quoteValue?: string;
+  /** Valor do orçamento veio do ERP (documento gerado na Citel). */
+  quoteFromErp?: boolean;
+  /** Número do orçamento no ERP que originou o valor. */
+  quoteDocument?: string;
   city?: string;
   followUpDate?: string;
   numeroDocumento?: string;
@@ -1491,6 +1495,8 @@ export function WhatsappView({
                   })
                 : undefined,
             saleFromErp: item.venda_origem === "erp",
+            quoteFromErp: item.orcamento_origem === "erp",
+            quoteDocument: item.orcamento_documento || undefined,
             quoteValue:
               (item.valor_orcamento ?? 0) > 0
                 ? item.valor_orcamento!.toLocaleString("pt-BR", {
@@ -1624,6 +1630,8 @@ export function WhatsappView({
                 })
               : undefined,
           saleFromErp: item.venda_origem === "erp",
+          quoteFromErp: item.orcamento_origem === "erp",
+          quoteDocument: item.orcamento_documento || undefined,
           quoteValue:
             (item.valor_orcamento ?? 0) > 0
               ? item.valor_orcamento!.toLocaleString("pt-BR", {
@@ -2549,6 +2557,8 @@ export function WhatsappView({
                         })
                       : undefined,
                   saleFromErp: dbCliente?.venda_origem === "erp",
+                  quoteFromErp: dbCliente?.orcamento_origem === "erp",
+                  quoteDocument: dbCliente?.orcamento_documento || undefined,
                   quoteValue:
                     (dbCliente?.valor_orcamento ?? 0) > 0
                       ? dbCliente!.valor_orcamento!.toLocaleString("pt-BR", {
@@ -4051,6 +4061,8 @@ export function WhatsappView({
                 })
               : undefined,
           saleFromErp: item?.venda_origem === "erp",
+          quoteFromErp: item?.orcamento_origem === "erp",
+          quoteDocument: item?.orcamento_documento || undefined,
           quoteValue:
             (item?.valor_orcamento ?? 0) > 0
               ? item?.valor_orcamento!.toLocaleString("pt-BR", {
@@ -4592,8 +4604,8 @@ export function WhatsappView({
               {selectedChat?.leadInfo?.saleFromErp && (
                 <p className="text-[10px] font-bold text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-3 py-2 leading-relaxed">
                   Valor puxado automaticamente dos pedidos da Citel. Não precisa
-                  lançar à mão — só edite se o ERP estiver errado. Ao editar, esta
-                  venda deixa de ser sincronizada.
+                  lançar à mão. Se você editar, o número vale até o ERP registrar
+                  um pedido novo para este cliente.
                 </p>
               )}
               <div className="space-y-1">
@@ -5359,12 +5371,21 @@ export function WhatsappView({
                 {selectedChat.leadInfo?.quoteValue && (
                   <div
                     className="flex items-center justify-center gap-1.5 h-9 px-3 bg-blue-500/10 border border-blue-500/30 rounded-xl text-blue-500"
-                    title={`Orçamento enviado — R$ ${selectedChat.leadInfo.quoteValue} (à vista)`}
+                    title={
+                      selectedChat.leadInfo.quoteFromErp
+                        ? `Orçamento ${selectedChat.leadInfo.quoteDocument || ""} da Citel — R$ ${selectedChat.leadInfo.quoteValue}`
+                        : `Orçamento enviado — R$ ${selectedChat.leadInfo.quoteValue} (à vista)`
+                    }
                   >
                     <ShoppingBag className="w-3.5 h-3.5" />
                     <span className="text-[11px] font-black">
                       R$ {selectedChat.leadInfo.quoteValue}
                     </span>
+                    {selectedChat.leadInfo.quoteFromErp && (
+                      <span className="text-[7px] font-black px-1 rounded-full bg-blue-500 text-white leading-[10px]">
+                        ERP
+                      </span>
+                    )}
                   </div>
                 )}
                 {selectedChat.leadInfo?.saleValue && (

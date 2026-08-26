@@ -34,3 +34,14 @@ alter table public.marketing_clientes
 
 comment on column public.marketing_clientes.venda_origem  is 'erp = valor_venda veio dos pedidos da Citel; manual = lançado pelo vendedor.';
 comment on column public.marketing_clientes.venda_sync_em is 'Última sincronização de vendas com o ERP.';
+
+-- Orçamento também deixa de ser digitado: quando o vendedor gera o orçamento na
+-- Citel no nome do cliente, o HUB passa a ler direto do ERP (FATGOR, ESPDOC='OR').
+-- Antes isso só era capturado quando o PDF passava pela conversa.
+alter table public.marketing_clientes
+  add column if not exists orcamento_origem    text,
+  add column if not exists orcamento_documento text,
+  add column if not exists orcamento_sync_em   timestamptz;
+
+comment on column public.marketing_clientes.orcamento_origem    is 'erp = lido dos orçamentos da Citel; pdf/carrinho/manual = veio pela conversa.';
+comment on column public.marketing_clientes.orcamento_documento is 'Número do orçamento no ERP (FGO_NUMDOC) que originou o valor.';
