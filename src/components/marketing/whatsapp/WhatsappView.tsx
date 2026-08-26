@@ -5478,6 +5478,15 @@ export function WhatsappView({
                         Online
                       </p>
                     )}
+                    {/* Número da conversa. Some em grupo, onde não existe um só. */}
+                    {telefoneDoJid(selectedChat.id) && (
+                      <>
+                        <span className="text-[10px] text-muted-foreground/50">•</span>
+                        <p className="text-[10px] text-muted-foreground font-medium tabular-nums select-all">
+                          {telefoneDoJid(selectedChat.id)}
+                        </p>
+                      </>
+                    )}
                   </div>
                 </div>
               </div>
