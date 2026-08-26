@@ -248,6 +248,157 @@ const detectOrigin = (text: string): string | null => {
   return null;
 };
 
+interface CliqueAnuncio {
+  codigo: string;
+  utm_source?: string | null;
+  utm_campaign?: string | null;
+  utm_medium?: string | null;
+  utm_term?: string | null;
+  campaign_id?: string | null;
+  adgroup_id?: string | null;
+  keyword?: string | null;
+  network?: string | null;
+  device?: string | null;
+  gclid?: string | null;
+  fbclid?: string | null;
+  confianca?: string | null;
+  created_at?: string | null;
+}
+
+const CONFIANCA_LABEL: Record<string, string> = {
+  codigo: "Exata — código veio na mensagem",
+  janela: "Provável — único clique no período",
+  janela_mesma_campanha: "Provável — vários cliques, mesma campanha",
+};
+
+const REDE_LABEL: Record<string, string> = {
+  g: "Pesquisa Google",
+  s: "Parceiro de pesquisa",
+  d: "Rede de Display",
+  u: "Google Shopping",
+  ytv: "YouTube",
+};
+
+/**
+ * Etiqueta da campanha no cabeçalho. Clicar abre o detalhe do clique que trouxe
+ * o cliente — o nome curto sozinho não diz palavra-chave, dispositivo nem quando
+ * o clique aconteceu, que é o que ajuda o vendedor a entender quem está do outro
+ * lado antes de responder.
+ */
+function CampanhaBadge({ chat }: { chat: Chat }) {
+  const [aberto, setAberto] = useState(false);
+  const [clique, setClique] = useState<CliqueAnuncio | null>(null);
+  const [buscado, setBuscado] = useState(false);
+  const caixaRef = useRef<HTMLDivElement>(null);
+  // Derivado em vez de estado: setar "carregando" dentro do efeito dispara um
+  // render extra à toa (e o eslint reclama, com razão).
+  const carregando = aberto && !buscado;
+
+  // `abreviarCampanha` continua decidindo SE mostra (ela descarta "Geral",
+  // "Manual" e vazio); o texto exibido é o nome completo da campanha.
+  const temCampanha = !!abreviarCampanha(chat.leadInfo?.campaign);
+  const rotulo = nomeCampanhaCompleto(chat.leadInfo?.campaign);
+
+  // Fecha ao clicar fora.
+  useEffect(() => {
+    if (!aberto) return;
+    const fora = (e: MouseEvent) => {
+      if (caixaRef.current && !caixaRef.current.contains(e.target as Node)) setAberto(false);
+    };
+    document.addEventListener("mousedown", fora);
+    return () => document.removeEventListener("mousedown", fora);
+  }, [aberto]);
+
+  // Busca só quando abre, e uma vez por conversa.
+  useEffect(() => {
+    if (!aberto || buscado || !chat.id) return;
+    let cancelado = false;
+    supabase
+      .from("ads_cliques")
+      .select("codigo,utm_source,utm_campaign,utm_medium,utm_term,campaign_id,adgroup_id,keyword,network,device,gclid,fbclid,confianca,created_at")
+      .eq("remote_jid", chat.id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelado) {
+          setClique((data as CliqueAnuncio) || null);
+          setBuscado(true);
+        }
+      });
+    return () => { cancelado = true; };
+  }, [aberto, buscado, chat.id]);
+
+  if (!temCampanha) return null;
+
+  const linhas: [string, string][] = [];
+  const campanhaCompleta = clique?.utm_campaign || chat.leadInfo?.campaign;
+  if (campanhaCompleta) linhas.push(["Campanha", campanhaCompleta]);
+  if (chat.leadInfo?.source) linhas.push(["Origem", chat.leadInfo.source]);
+  if (clique?.keyword) linhas.push(["Palavra-chave", clique.keyword]);
+  if (clique?.utm_term) linhas.push(["Termo", clique.utm_term]);
+  if (clique?.network) linhas.push(["Rede", REDE_LABEL[clique.network] || clique.network]);
+  if (clique?.device) linhas.push(["Dispositivo", clique.device]);
+  if (clique?.campaign_id) linhas.push(["ID da campanha", clique.campaign_id]);
+  if (clique?.created_at) {
+    linhas.push([
+      "Clique em",
+      new Date(clique.created_at).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }),
+    ]);
+  }
+  if (clique?.confianca) {
+    linhas.push(["Atribuição", CONFIANCA_LABEL[clique.confianca] || clique.confianca]);
+  }
+
+  return (
+    <div className="relative" ref={caixaRef}>
+      <button
+        type="button"
+        onClick={() => setAberto((v) => !v)}
+        className="px-2 py-0.5 rounded-md bg-primary/10 border border-primary/20 text-primary text-[9px] font-black tracking-wide leading-none hover:bg-primary/20 transition-colors max-w-[340px] truncate"
+        title={`${rotulo} — clique para ver os detalhes`}
+      >
+        {rotulo}
+      </button>
+
+      {aberto && (
+        <div className="absolute left-0 top-full mt-2 z-50 w-[300px] bg-card border border-border rounded-xl shadow-2xl p-3 space-y-2 animate-in fade-in zoom-in-95 duration-150">
+          <p className="text-[9px] font-black text-muted-foreground uppercase tracking-widest">
+            De onde veio este cliente
+          </p>
+
+          {carregando && <p className="text-[10px] text-muted-foreground">Carregando…</p>}
+
+          {linhas.map(([rotulo, valor]) => (
+            <div key={rotulo} className="flex gap-2 items-start">
+              <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight w-[92px] shrink-0 pt-0.5">
+                {rotulo}
+              </span>
+              <span className="text-[10px] font-bold text-foreground break-words flex-1">{valor}</span>
+            </div>
+          ))}
+
+          {!carregando && !clique && (
+            <p className="text-[10px] text-muted-foreground leading-relaxed">
+              Sem o registro do clique. A campanha veio do próprio anúncio (Meta) ou o
+              clique foi anterior à ponte de atribuição.
+            </p>
+          )}
+
+          {clique?.gclid && (
+            <div className="pt-1.5 border-t border-border/60">
+              <span className="text-[9px] font-bold text-muted-foreground uppercase tracking-tight">Google Click ID</span>
+              <p className="text-[9px] font-mono text-muted-foreground/80 break-all select-all mt-0.5">
+                {clique.gclid}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const getOriginBadge = (origin?: string) => {
   if (!origin) return null;
   const o = origin.toLowerCase();
@@ -363,6 +514,16 @@ function nomeESobrenome(bruto?: string): string {
   const uteis = partes.filter((t) => !PARTICULAS.includes(t.toLowerCase()));
   if (uteis.length === 0) return cap(partes[0]);
   return uteis.slice(0, 2).map(cap).join(" ");
+}
+
+/**
+ * Nome da campanha como veio do anúncio. Quando a URL trouxe só o
+ * {campaignid} (número puro), prefixa com # para não parecer um valor solto.
+ */
+function nomeCampanhaCompleto(campanha?: string): string {
+  const bruto = String(campanha || "").trim();
+  if (/^\d+$/.test(bruto)) return `#${bruto}`;
+  return bruto;
 }
 
 /**
@@ -5295,15 +5456,10 @@ export function WhatsappView({
                     <h4 className="font-bold text-base tracking-tight font-inter">
                       {nomeESobrenome(selectedChat.name)}
                     </h4>
-                    {/* Campanha que trouxe o cliente — some quando não há atribuição. */}
-                    {abreviarCampanha(selectedChat.leadInfo?.campaign) && (
-                      <span
-                        className="px-1.5 py-0.5 rounded-md bg-primary/10 border border-primary/20 text-primary text-[9px] font-black uppercase tracking-wider leading-none"
-                        title={selectedChat.leadInfo?.campaign}
-                      >
-                        {abreviarCampanha(selectedChat.leadInfo?.campaign)}
-                      </span>
-                    )}
+                    {/* Campanha que trouxe o cliente — clicar abre o detalhe do clique. */}
+                    {/* key: troca de conversa remonta o componente, zerando o
+                        detalhe carregado sem precisar de efeito de reset. */}
+                    <CampanhaBadge key={selectedChat.id} chat={selectedChat} />
                   </div>
                   <div className="flex items-center gap-2">
                     {presenceChats.has(selectedChat.id) ? (
