@@ -23,8 +23,9 @@ import {
   Check,
   Phone,
   Building2,
+  Search,
 } from "lucide-react";
-import { marketingService, type ReportsAnalytics, type EvolutionData, type EvolutionClient, type VerbasData } from "@/lib/marketing-service";
+import { marketingService, type ReportsAnalytics, type EvolutionData, type EvolutionClient, type VerbasData, type PesquisasData } from "@/lib/marketing-service";
 import { apiAdsSpend, apiAdsSendReport, apiCustosFixos, apiRentabilidade, type AdsSpendResponse, type CustosFixosPeriodo, type RentabilidadeResponse } from "@/lib/api";
 import { CustosFixosSection } from "./CustosFixosSection";
 import { RentabilidadeSection } from "./RentabilidadeSection";
@@ -45,11 +46,12 @@ const EMPTY_ANALYTICS: ReportsAnalytics = {
   dailySeries: [],
 };
 
-type TabId = "overview" | "sellers" | "sources" | "trend" | "evolution" | "verbas" | "gastos" | "rentabilidade";
+type TabId = "overview" | "sellers" | "sources" | "pesquisas" | "trend" | "evolution" | "verbas" | "gastos" | "rentabilidade";
 const TABS: { id: TabId; label: string }[] = [
   { id: "overview", label: "Visão Geral" },
   { id: "sellers", label: "Atendentes" },
   { id: "sources", label: "Origem & Campanha" },
+  { id: "pesquisas", label: "Pesquisas" },
   { id: "trend", label: "Tendência" },
   { id: "evolution", label: "Evolução" },
   { id: "verbas", label: "Verbas" },
@@ -98,6 +100,8 @@ export function ReportsView() {
   const [isDateModalOpen, setIsDateModalOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>("overview");
+  const [pesquisas, setPesquisas] = useState<PesquisasData | null>(null);
+  const [pesquisasLoading, setPesquisasLoading] = useState(false);
 
   const [hourlyData, setHourlyData] = useState<number[]>(new Array(24).fill(0));
   const [analytics, setAnalytics] = useState<ReportsAnalytics>(EMPTY_ANALYTICS);
@@ -148,6 +152,18 @@ export function ReportsView() {
     if (!startDate || !endDate) return;
     loadData();
   }, [startDate, endDate]);
+
+  // Pesquisas: carrega só ao abrir a aba — a consulta varre a tabela de cliques
+  // e não faz sentido pagar por ela em quem nunca abre esse relatório.
+  useEffect(() => {
+    if (activeTab !== "pesquisas" || !startDate || !endDate) return;
+    setPesquisas(null);
+    setPesquisasLoading(true);
+    marketingService.getPesquisas(startDate, endDate)
+      .then(setPesquisas)
+      .catch((err) => console.error("Erro ao carregar pesquisas:", err))
+      .finally(() => setPesquisasLoading(false));
+  }, [activeTab, startDate, endDate]);
 
   useEffect(() => {
     if (activeTab !== "verbas" || !startDate || !endDate) return;
@@ -534,6 +550,80 @@ export function ReportsView() {
                   })}
                 </div>
               </section>
+            </div>
+          ) : activeTab === "pesquisas" ? (
+            <div className="space-y-5">
+              {pesquisasLoading ? (
+                <div className="h-40 flex items-center justify-center gap-3">
+                  <div className="w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+                  <span className="text-xs font-black uppercase tracking-widest text-primary">Carregando pesquisas...</span>
+                </div>
+              ) : !pesquisas || pesquisas.termos.length === 0 ? (
+                <div className="py-16 text-center space-y-2">
+                  <div className="w-16 h-16 rounded-3xl bg-secondary flex items-center justify-center mx-auto">
+                    <Search className="w-7 h-7 text-muted-foreground" />
+                  </div>
+                  <p className="text-sm font-black uppercase tracking-tight">Nenhuma pesquisa no período</p>
+                  <p className="text-xs text-muted-foreground max-w-sm mx-auto leading-relaxed">
+                    O termo pesquisado só existe para quem chegou clicando num anúncio.
+                    Contato direto, indicação e busca orgânica não têm essa informação.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <KpiCard label="Termos Distintos" value={pesquisas.termos.length.toLocaleString("pt-BR")} icon={<Search className="w-5 h-5" />} accent="text-blue-500 bg-blue-500/10" />
+                    <KpiCard label="Cliques com Termo" value={pesquisas.termos.reduce((a, t) => a + t.cliques, 0).toLocaleString("pt-BR")} icon={<Megaphone className="w-5 h-5" />} accent="text-violet-500 bg-violet-500/10" />
+                    <KpiCard label="Viraram Conversa" value={pesquisas.termos.reduce((a, t) => a + t.conversas, 0).toLocaleString("pt-BR")} icon={<Users className="w-5 h-5" />} accent="text-emerald-500 bg-emerald-500/10" />
+                    <KpiCard label="Cliques sem Termo" value={pesquisas.cliquesSemTermo.toLocaleString("pt-BR")} hint="anúncio sem o parâmetro na URL" icon={<Target className="w-5 h-5" />} accent="text-amber-500 bg-amber-500/10" />
+                  </div>
+
+                  <section className="bg-card border border-border rounded-3xl p-6 shadow-sm">
+                    <h2 className="text-sm font-black uppercase tracking-tight flex items-center gap-2 mb-1">
+                      <Search className="w-4 h-4 text-primary" /> O que os clientes pesquisaram
+                    </h2>
+                    <p className="text-[11px] text-muted-foreground mb-5">
+                      Termo digitado no Google antes de clicar no anúncio, do mais buscado para o menos.
+                    </p>
+
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse min-w-[640px]">
+                        <thead>
+                          <tr className="border-b border-border">
+                            <th className="pb-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground">Termo pesquisado</th>
+                            <th className="pb-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground text-right w-[90px]">Cliques</th>
+                            <th className="pb-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground text-right w-[110px]">Conversas</th>
+                            <th className="pb-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground text-right w-[90px]">Taxa</th>
+                            <th className="pb-2 text-[10px] font-black uppercase tracking-widest text-muted-foreground w-[220px]">Campanha</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pesquisas.termos.map((t) => {
+                            const taxa = t.cliques > 0 ? (t.conversas / t.cliques) * 100 : 0;
+                            return (
+                              <tr key={t.termo} className="border-b border-border/50 last:border-0 hover:bg-secondary/40 transition-colors">
+                                <td className="py-2.5 pr-3">
+                                  <span className="text-xs font-bold text-foreground">{t.termo}</span>
+                                </td>
+                                <td className="py-2.5 text-right text-xs font-black text-foreground tabular-nums">{t.cliques}</td>
+                                <td className="py-2.5 text-right text-xs font-black tabular-nums text-emerald-500">{t.conversas}</td>
+                                <td className={cn("py-2.5 text-right text-xs font-bold tabular-nums", taxa >= 50 ? "text-emerald-500" : taxa > 0 ? "text-amber-500" : "text-muted-foreground")}>
+                                  {taxa.toFixed(0)}%
+                                </td>
+                                <td className="py-2.5">
+                                  <span className="text-[10px] text-muted-foreground truncate block max-w-[220px]" title={t.campanhas.join(" · ")}>
+                                    {t.campanhas.join(" · ") || "—"}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </section>
+                </>
+              )}
             </div>
           ) : activeTab === "trend" ? (
             <div className="space-y-6">

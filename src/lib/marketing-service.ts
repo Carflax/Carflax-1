@@ -149,6 +149,26 @@ export interface VerbasFornecedor {
   valorRestante: number;
 }
 
+// ─── Pesquisas dos anúncios ───────────────────────────────────────────────────
+// O que a pessoa digitou no Google antes de clicar. Vem do utm_term gravado pela
+// ponte de atribuição (public/w.html), então só existe para quem chegou por
+// anúncio — busca orgânica e contato direto não têm termo.
+export interface TermoPesquisado {
+  termo: string;
+  cliques: number;
+  /** Cliques que viraram conversa no WhatsApp. */
+  conversas: number;
+  campanhas: string[];
+  ultimoEm: string;
+}
+
+export interface PesquisasData {
+  termos: TermoPesquisado[];
+  totalCliques: number;
+  /** Cliques do período sem termo — anúncio sem o parâmetro na URL. */
+  cliquesSemTermo: number;
+}
+
 export interface VerbasData {
   fornecedores: VerbasFornecedor[];
   totalGeral: number;
@@ -1606,6 +1626,69 @@ export const marketingService = {
     const fileName = `Leads_Carflax_${start.toISOString().slice(0, 10)}_${end.toISOString().slice(0, 10)}.xlsx`;
     XLSX.writeFile(wb, fileName);
     return fileName;
+  },
+
+  /**
+   * O que os clientes pesquisaram antes de clicar no anúncio.
+   *
+   * Fonte: `ads_cliques.utm_term`, gravado pela ponte de atribuição. Agrupa por
+   * termo normalizado (minúsculo, sem espaço sobrando) porque o Google devolve
+   * o mesmo termo com caixa diferente conforme o usuário digitou.
+   */
+  async getPesquisas(startDate?: Date, endDate?: Date): Promise<PesquisasData> {
+    let query = supabase
+      .from("ads_cliques")
+      .select("utm_term, utm_campaign, remote_jid, created_at")
+      .order("created_at", { ascending: false });
+
+    if (startDate) query = query.gte("created_at", startDate.toISOString());
+    if (endDate) {
+      const fim = new Date(endDate);
+      fim.setHours(23, 59, 59, 999);
+      query = query.lte("created_at", fim.toISOString());
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      console.error("[Pesquisas] erro ao carregar:", error.message);
+      return { termos: [], totalCliques: 0, cliquesSemTermo: 0 };
+    }
+
+    const linhas = data || [];
+    const mapa = new Map<string, TermoPesquisado & { campanhasSet: Set<string> }>();
+    let semTermo = 0;
+
+    for (const linha of linhas) {
+      const bruto = String(linha.utm_term || "").trim();
+      if (!bruto) {
+        semTermo++;
+        continue;
+      }
+      const chave = bruto.toLowerCase();
+      const atual =
+        mapa.get(chave) ||
+        {
+          termo: bruto,
+          cliques: 0,
+          conversas: 0,
+          campanhas: [] as string[],
+          ultimoEm: linha.created_at,
+          campanhasSet: new Set<string>(),
+        };
+
+      atual.cliques++;
+      if (linha.remote_jid) atual.conversas++;
+      if (linha.utm_campaign) atual.campanhasSet.add(String(linha.utm_campaign));
+      // A consulta vem em ordem decrescente, então o primeiro visto é o mais recente.
+      if (linha.created_at > atual.ultimoEm) atual.ultimoEm = linha.created_at;
+      mapa.set(chave, atual);
+    }
+
+    const termos = Array.from(mapa.values())
+      .map(({ campanhasSet, ...t }) => ({ ...t, campanhas: Array.from(campanhasSet) }))
+      .sort((a, b) => b.cliques - a.cliques || b.conversas - a.conversas);
+
+    return { termos, totalCliques: linhas.length, cliquesSemTermo: semTermo };
   },
 
   async getVerbasData(startDate?: Date, endDate?: Date): Promise<VerbasData> {
