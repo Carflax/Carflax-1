@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
+import { getNotifPref } from "@/lib/notif-prefs";
 
 const CHECK_INTERVAL_MS = 15 * 1000;
 const SLA_LIMIT_MS = 60 * 1000;
@@ -23,6 +24,12 @@ interface UP {
   is_leader?: boolean;
   operator_code?: string;
   operatorCode?: string;
+  notification_prefs?: Record<string, Record<string, boolean>> | null;
+}
+
+/** Mesmo toggle do escalador do servidor: silenciar SLA silencia os dois. */
+function slaAtivo(up?: UP | null): boolean {
+  return getNotifPref(up, "alertas", "whatsappSla", true);
 }
 
 function isSupervisorTrafego(up?: UP | null): boolean {
@@ -67,15 +74,19 @@ export function useTrafegoSemRespostaAlert(
 
   const notifiedJidsRef = useRef<Map<string, number>>(new Map());
 
+  // Muda quando o usuário mexe nos toggles — entra na dep list do efeito para
+  // ele parar (ou voltar) na hora, sem depender de recarregar a página.
+  const prefsKey = JSON.stringify(userProfile?.notification_prefs ?? null);
+
   useEffect(() => {
-    if (!isSupervisorTrafego(userProfile)) return;
+    if (!isSupervisorTrafego(userProfile) || !slaAtivo(userProfile)) return;
 
     requestBrowserPermission();
 
     let cancelled = false;
 
     async function checkUnansweredLeads() {
-      if (cancelled || !isSupervisorTrafego(userProfile)) return;
+      if (cancelled || !isSupervisorTrafego(userProfile) || !slaAtivo(userProfile)) return;
 
       try {
         const now = Date.now();
@@ -197,5 +208,7 @@ export function useTrafegoSemRespostaAlert(
       clearTimeout(timeout);
       clearInterval(interval);
     };
-  }, [userProfile]);
+    // `notification_prefs` na dep list: sem ele o efeito não reavalia quando o
+    // usuário mexe no toggle, e o intervalo antigo continuaria disparando.
+  }, [userProfile, prefsKey]);
 }

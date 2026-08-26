@@ -595,6 +595,7 @@ const notifSections = [
       { key: "clienteRetira", label: "Cliente veio retirar (Balcão 2)" },
       { key: "balcao2Prazo", label: "Prazo de retirada 72h (Balcão 2)" },
       { key: "vendaGrande", label: "Venda grande (Compras)" },
+      { key: "whatsappSla", label: "SLA do WhatsApp sem resposta" },
     ],
   },
   {

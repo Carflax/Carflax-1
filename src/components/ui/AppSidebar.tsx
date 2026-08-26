@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import {
   LayoutGrid,
   Settings,
@@ -46,6 +46,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/context/theme-provider";
 import { supabase } from "@/lib/supabase";
+import { getNotifPref } from "@/lib/notif-prefs";
 import { useNotification } from "@/hooks/useNotification";
 import { NAV_SECTIONS, ESTEIRA_SUBQUADRO_PREFIX } from "@/lib/menu-config";
 
@@ -166,6 +167,7 @@ interface AppSidebarProps {
     permissions?: string[];
     is_leader?: boolean;
     is_admin?: boolean;
+    notification_prefs?: Record<string, Record<string, boolean>> | null;
   };
   isCollapsed: boolean;
   onToggle: () => void;
@@ -182,6 +184,16 @@ interface AppSidebarProps {
 
 export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, onMobileClose, activeItem, onActiveItemChange, onLogout, loading, isChatOpen, onToggleChat, chatUnreadCount = 0 }: AppSidebarProps) {
   const { theme } = useTheme();
+
+  // Toggle "SLA do WhatsApp sem resposta" (Configurações > Notificações).
+  // Lido por ref, e não direto do perfil: o handler do realtime é criado uma vez
+  // só (o efeito depende apenas do id do usuário), então uma leitura no closure
+  // congelaria o valor e desligar o alerta só valeria depois de um F5.
+  const slaWhatsappAtivoRef = useRef(true);
+  useEffect(() => {
+    slaWhatsappAtivoRef.current = getNotifPref(userProfile, "alertas", "whatsappSla", true);
+  }, [userProfile]);
+
   const [openMenus, setOpenMenus] = useState<string[]>(["Dashboard"]);
   const [subquadros, setSubquadros] = useState<{ id: string; name: string }[]>([]);
 
@@ -289,6 +301,12 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
     const showHubNotification = (n: { id: string; titulo: string; descricao: string; tipo: string; metadata: Record<string, unknown> }) => {
       // Alertas do WhatsApp (SLA estourado e arquivamento aguardando aprovação):
       // ambos levam para a tela do WhatsApp, onde a ação é resolvida.
+      // Alerta de SLA desligado nas configurações: não mostra nada, mas mantém a
+      // linha em hub_notificacoes como NÃO LIDA de propósito — a escalada segue
+      // registrada para auditoria e reaparece se o usuário religar o toggle.
+      // O arquivamento aguardando aprovação continua passando: é outro assunto.
+      if (n.tipo === "whatsapp_sla" && !slaWhatsappAtivoRef.current) return;
+
       if (n.tipo === "whatsapp_sla" || n.tipo === "arquivamento_aprovacao") {
         const markAsRead = () => {
           supabase.from("hub_notificacoes").update({ lida: true }).eq("id", n.id).then(() => {});
