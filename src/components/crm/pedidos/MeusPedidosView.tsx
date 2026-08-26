@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import { authHeaders } from "@/lib/api";
 import {
   Search,
   Package,
@@ -249,9 +250,9 @@ export function MeusPedidosView({ userProfile }: Props) {
   const fetchData = useCallback(async () => {
     try {
       const [erpRes, conferenciaRes, faturamentoRes, supabaseRes, usersRes, faltasRes] = await Promise.all([
-        fetch(`${API_SERVER}/api/pedidos-separacao`).then((r) => r.json()),
-        fetch(`${API_SERVER}/api/pedidos-conferencia`).then((r) => r.json()),
-        fetch(`${API_SERVER}/api/pedidos-faturamento`).then((r) => r.json()),
+        fetch(`${API_SERVER}/api/pedidos-separacao`, { headers: await authHeaders() }).then((r) => r.json()),
+        fetch(`${API_SERVER}/api/pedidos-conferencia`, { headers: await authHeaders() }).then((r) => r.json()),
+        fetch(`${API_SERVER}/api/pedidos-faturamento`, { headers: await authHeaders() }).then((r) => r.json()),
         supabase.from("coletor_separacao").select("*"),
         supabase.from("usuarios").select("operator_code,name,avatar"),
         supabase.from("coletor_faltas")
@@ -689,7 +690,14 @@ function ItemsModal({ target, onClose }: { target: ItemsModalTarget; onClose: ()
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${API_SERVER}/api/coletor/separacao?pedido=${encodeURIComponent(target.pedido)}&empresa=${encodeURIComponent(target.empresa)}&tipo=conferencia`)
+    // O efeito não é async, então o cabeçalho é resolvido antes do fetch.
+    authHeaders()
+      .then((headers) =>
+        fetch(
+          `${API_SERVER}/api/coletor/separacao?pedido=${encodeURIComponent(target.pedido)}&empresa=${encodeURIComponent(target.empresa)}&tipo=conferencia`,
+          { headers },
+        ),
+      )
       .then((r) => r.json())
       .then((res) => {
         if (cancelled) return;

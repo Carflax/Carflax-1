@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { getNotifPref } from "@/lib/notif-prefs";
+import { authHeaders } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 
 /**
@@ -74,7 +75,7 @@ export function usePedidosParadosAlert(
       if (cancelled || !alertEnabled(userProfile)) return;
       try {
         const [erpRes, locksRes] = await Promise.all([
-          fetch(`${API_SERVER}/api/pedidos-separacao`).then((r) => r.json()),
+          fetch(`${API_SERVER}/api/pedidos-separacao`, { headers: await authHeaders() }).then((r) => r.json()),
           supabase.from("coletor_separacao").select("pedido_id, operador_nome, locked_at"),
         ]);
         if (cancelled || !erpRes?.success || !Array.isArray(erpRes.data)) return;

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { getNotifPref } from "@/lib/notif-prefs";
+import { authHeaders } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { isBalcao2, parseOrderCreated, b2RemainingMs, B2_AVISO_MS, formatB2Remaining } from "@/lib/balcao2-prazo";
 
@@ -179,7 +180,7 @@ export function useBalcao2PrazoAlert(showNotification: ShowNotification, userPro
     async function check() {
       if (cancelled || !masterEnabled(userProfile)) return;
       try {
-        const erpRes = await fetch(`${API_SERVER}/api/pedidos-separacao`).then((r) => r.json());
+        const erpRes = await fetch(`${API_SERVER}/api/pedidos-separacao`, { headers: await authHeaders() }).then((r) => r.json());
         if (cancelled || !erpRes?.success || !Array.isArray(erpRes.data)) return;
 
         const meuCodigo = String(userProfile?.operator_code || userProfile?.operatorCode || "").trim();

@@ -1,3 +1,5 @@
+import { supabase } from "@/lib/supabase";
+
 const isLocal = typeof window !== "undefined" && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
 
 const API_BASE = "/api-marketing";
@@ -5,17 +7,38 @@ const API_CAMPAIGN = "/api-campaign";
 
 
 
+/**
+ * Cabeçalho de autenticação da API.
+ *
+ * Reaproveita o JWT da sessão do Supabase, que o usuário já tem por estar
+ * logado no HUB — não existe um segundo login. O `getSession()` lê da memória e
+ * renova o token sozinho quando está perto de expirar, então dá para chamar a
+ * cada requisição sem custo de rede.
+ *
+ * Devolve vazio quando não há sessão (páginas públicas como a de avaliação);
+ * essas rotas ficam de fora da exigência no servidor.
+ */
+export async function authHeaders(): Promise<Record<string, string>> {
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data.session?.access_token;
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  } catch {
+    return {};
+  }
+}
+
 async function get<T>(path: string, params?: Record<string, string>, base: string = API_BASE): Promise<T> {
   // Se base for um caminho relativo, usamos o origin do navegador
   const baseUrl = base.startsWith("http") ? base : window.location.origin + base;
-  
+
   // CORREÇÃO: Evitar que o path com '/' resete a baseUrl
   const cleanPath = path.startsWith("/") ? path.slice(1) : path;
   const fullUrl = baseUrl.endsWith("/") ? `${baseUrl}${cleanPath}` : `${baseUrl}/${cleanPath}`;
-  
+
   const url = new URL(fullUrl);
   if (params) Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  const res = await fetch(url.toString());
+  const res = await fetch(url.toString(), { headers: await authHeaders() });
   if (!res.ok) throw new Error(`API ${res.status}: ${path}`);
   return res.json();
 }
@@ -27,9 +50,14 @@ async function post<T>(path: string, body: unknown, options?: RequestInit): Prom
 
   const res = await fetch(fullUrl, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify(body),
-    ...options
+    ...options,
+    // `options` pode trazer headers próprios; mesclamos para o Authorization não
+    // ser descartado por um spread que sobrescreve o objeto inteiro.
+    ...(options?.headers
+      ? { headers: { "Content-Type": "application/json", ...(await authHeaders()), ...options.headers } }
+      : {}),
   });
   if (!res.ok) throw new Error(`API ${res.status}: ${path}`);
   return res.json();

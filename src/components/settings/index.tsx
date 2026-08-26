@@ -42,6 +42,7 @@ import {
 import { useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { readCachedPrefs, writeCachedPrefs } from "@/lib/notif-prefs";
+import { authHeaders } from "@/lib/api";
 import { useLossReasons, LOSS_REASON_ALL } from "@/lib/crm-service";
 
 interface UserProfile {
@@ -691,7 +692,7 @@ function NotificationsTab({ userProfile }: { userProfile?: UserProfile | null })
 
       await fetch(`${BACKEND_URL}/api/whatsapp/send-test`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify({ to: phone, text: msg }),
       });
     } catch (err) {
@@ -733,7 +734,7 @@ function NotificationsTab({ userProfile }: { userProfile?: UserProfile | null })
 
       const res = await fetch(`${BACKEND_URL}/api/whatsapp/send-test`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify({ to: phone, text: msg }),
       });
 

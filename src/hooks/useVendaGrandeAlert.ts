@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { getNotifPref } from "@/lib/notif-prefs";
+import { authHeaders } from "@/lib/api";
 
 /**
  * Alerta de VENDA GRANDE para o time de Compras: quando sai uma venda de um item
@@ -112,7 +113,7 @@ export function useVendaGrandeAlert(showNotification: ShowNotification, userProf
       if (cancelled || !masterEnabled(userProfile) || !isPublicoCompras(userProfile)) return;
       try {
         const url = `${API_SERVER}/api/compras/vendas-grandes?dias=${JANELA_DIAS}&fator=${FATOR}&piso=${PISO}`;
-        const res = await fetch(url).then((r) => r.json());
+        const res = await fetch(url, { headers: await authHeaders() }).then((r) => r.json());
         if (cancelled || !res?.success || !Array.isArray(res.data)) return;
 
         const avisados = loadAvisados();

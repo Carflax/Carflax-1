@@ -1,4 +1,5 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { authHeaders } from "@/lib/api";
 
 const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_IA || "");
 
@@ -35,7 +36,8 @@ export interface ItemOrcamento {
 
 export async function fetchProdutosAPI(): Promise<ProdutoAPI[]> {
   if (catalogoCache) return catalogoCache;
-  const res = await fetch(PRODUTOS_API_URL);
+  // Catálogo com preço, estoque e fornecedor: é o endpoint mais sensível da API.
+  const res = await fetch(PRODUTOS_API_URL, { headers: await authHeaders() });
   if (!res.ok) throw new Error("Falha ao buscar catálogo de produtos");
   catalogoCache = await res.json();
   return catalogoCache!;
