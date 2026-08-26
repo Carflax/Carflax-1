@@ -44,7 +44,7 @@ import { evolutionApi } from "@/lib/evolution-v2";
 import { supabase } from "@/lib/supabase";
 import { marketingService } from "@/lib/marketing-service";
 import { cn, formatBrTime, formatBrDate } from "@/lib/utils";
-import { apiDashboardProdutos, apiGetLinkPreview, apiCrmOrcamentos, apiClientePorTelefone, apiBuscarClientesErp } from "@/lib/api";
+import { apiDashboardProdutos, apiGetLinkPreview, apiCrmOrcamentos, apiClientePorTelefone, apiBuscarClientesErp, apiSincronizarLeadErp } from "@/lib/api";
 import type { ClienteErp, ClienteErpBusca } from "@/lib/api";
 import { parseOrcamentoPdf } from "@/lib/pdf-orcamento";
 import { transcribeAudio, classifyByRules } from "@/lib/gemini-service";
@@ -1913,11 +1913,33 @@ export function WhatsappView({
       setVinculoAberto(false);
       setVinculoBusca("");
       setVinculoResultados([]);
+
+      // Puxa na hora. Sem isso o vendedor vincula e não vê nada mudar por até 5
+      // min — e, quando o ERP não tem documento na janela do lead, nunca saberia
+      // o motivo de os valores continuarem os antigos.
+      const sync = await apiSincronizarLeadErp(selectedChat.id).catch(() => null);
       await abrirCadastroErp();
+      await loadChats();
+
+      const achou = sync && (sync.orcamento || sync.venda);
+      const brl = (v: number) =>
+        v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
       showNotification(
-        "success",
+        achou ? "success" : "info",
         "Cadastro vinculado",
-        `${nome} agora está ligado a esta conversa. O orçamento e a venda passam a vir da Citel na próxima sincronização.`,
+        achou
+          ? `${nome} ligado à conversa. Importado da Citel: ` +
+            [
+              sync?.orcamento ? `orçamento ${brl(sync.orcamento)}` : null,
+              sync?.venda ? `venda ${brl(sync.venda)}` : null,
+            ]
+              .filter(Boolean)
+              .join(" e ") +
+            "."
+          : `${nome} ligado à conversa, mas a Citel não tem orçamento nem pedido deste cliente emitido depois do início desta conversa. Os valores na tela continuam sendo os que vieram pelo chat.`,
+        true,
+        `vinculo-erp-${selectedChat.id}`,
       );
     } catch (err) {
       console.error("Erro ao vincular cadastro do ERP:", err);

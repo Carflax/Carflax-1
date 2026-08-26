@@ -491,6 +491,19 @@ export interface ClienteErpBusca {
 export const apiBuscarClientesErp = (q: string) =>
   get<ClienteErpBusca[]>("/api/crm/cliente-por-telefone/buscar", { q });
 
+export interface SyncLeadErp {
+  /** Valor do orçamento encontrado na Citel dentro da janela do lead, ou null. */
+  orcamento: number | null;
+  /** Total dos pedidos encontrados, ou null. */
+  venda: number | null;
+  /** false quando a conversa ainda não tem cadastro do ERP amarrado. */
+  vinculado: boolean;
+}
+
+/** Puxa orçamento e venda desta conversa do ERP na hora, sem esperar a varredura. */
+export const apiSincronizarLeadErp = (jid: string) =>
+  post<SyncLeadErp>("/api/crm/cliente-por-telefone/sincronizar", { jid });
+
 /**
  * Cadastro no ERP da conversa. Manda o remote_jid porque o vínculo gravado
  * (vindo do número do orçamento) tem precedência sobre o telefone — o cadastro
