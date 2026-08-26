@@ -37,6 +37,7 @@ import {
   Smile,
   Printer,
   FolderDown,
+  ShieldAlert,
   CornerUpLeft,
   Eye,
 } from "lucide-react";
@@ -50,6 +51,14 @@ import { parseOrcamentoPdf } from "@/lib/pdf-orcamento";
 import { transcribeAudio, classifyByRules } from "@/lib/gemini-service";
 import { Package } from "lucide-react";
 import { useNotification } from "@/hooks/useNotification";
+import { ArchiveApprovalModal } from "./ArchiveApprovalModal";
+import {
+  cancelarPedidoPendente,
+  podeAprovarArquivamento,
+  solicitarAprovacaoArquivamento,
+  verificarDebitoAberto,
+  type DebtSnapshot,
+} from "@/lib/archive-approval";
 
 interface NormalizedProduct {
   cod: string;
@@ -1083,6 +1092,9 @@ interface UserProfile {
   avatar?: string;
   operator_code?: string;
   operatorCode?: string;
+  // Usados só para decidir quem aprova arquivamento com o cliente esperando.
+  is_admin?: boolean;
+  is_leader?: boolean;
 }
 
 // Interface mínima do provider de WhatsApp (só o que esta tela consome). Permite
@@ -1128,6 +1140,10 @@ export function WhatsappView({
   const [followUpDateInput, setFollowUpDateInput] = useState("");
   const [showSaleModal, setShowSaleModal] = useState(false);
   const [showArchiveModal, setShowArchiveModal] = useState(false);
+  // Fila de arquivamentos aguardando o supervisor (só aparece para quem aprova).
+  const [showApprovalModal, setShowApprovalModal] = useState(false);
+  const [pendingApprovals, setPendingApprovals] = useState(0);
+  const podeAprovar = useMemo(() => podeAprovarArquivamento(userProfile), [userProfile]);
   const [customArchiveReason, setCustomArchiveReason] = useState("");
   const [isEnteringCustomReason, setIsEnteringCustomReason] = useState(false);
   const [materialInput, setMaterialInput] = useState("");
@@ -1806,6 +1822,36 @@ export function WhatsappView({
     }
   };
 
+  // Fila de aprovação: contador ao vivo no ícone do supervisor. Não roda para
+  // quem não aprova, para não consultar/assinar realtime à toa.
+  useEffect(() => {
+    if (!podeAprovar) return;
+    let cancelado = false;
+
+    const atualizar = async () => {
+      const { count } = await supabase
+        .from("marketing_arquivamento_aprovacoes")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "pendente");
+      if (!cancelado) setPendingApprovals(count || 0);
+    };
+
+    atualizar();
+    const canal = supabase
+      .channel("whatsapp-archive-approvals-count")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "marketing_arquivamento_aprovacoes" },
+        () => atualizar(),
+      )
+      .subscribe();
+
+    return () => {
+      cancelado = true;
+      supabase.removeChannel(canal);
+    };
+  }, [podeAprovar]);
+
   const handleCloseArchiveModal = () => {
     setShowArchiveModal(false);
     setIsEnteringMaterial(false);
@@ -1831,6 +1877,52 @@ export function WhatsappView({
     const finalReason = reasonText || selectedReason;
     const finalPayment = finalReason === "Convertido" ? paymentMethod : "";
     const finalObs = finalReason === "Convertido" ? archiveObservation : "";
+
+    // ── Dívida aberta: arquivar não pode apagar o cliente esperando ───────────
+    // Se a última mensagem é do cliente (ou há não lidas), o atendente não arquiva:
+    // o clique vira um pedido na fila do supervisor e a conversa CONTINUA ativa,
+    // sendo cobrada pelo escalador de SLA até alguém decidir.
+    let debito: DebtSnapshot | null = null;
+    try {
+      debito = await verificarDebitoAberto(targetId);
+    } catch (err) {
+      // Sem conseguir checar, o caminho seguro é seguir com o arquivamento
+      // normal — a conversa continua auditada por `arquivado_por`.
+      console.error("Erro ao verificar dívida da conversa:", err);
+    }
+
+    if (debito?.temDebito && !podeAprovar) {
+      handleCloseArchiveModal();
+      setContextMenu(null);
+      try {
+        const { criado } = await solicitarAprovacaoArquivamento({
+          remoteJid: targetId,
+          clienteNome: chatToArchive.name,
+          motivo: finalReason || "Sem motivo informado",
+          formaPagamento: finalPayment,
+          observacao: finalObs,
+          solicitante: userProfile,
+          debito,
+        });
+        showNotification(
+          "info",
+          criado ? "Pedido enviado ao supervisor" : "Pedido já está na fila",
+          criado
+            ? `${chatToArchive.name} está aguardando resposta há ${debito.minutosEspera ?? 0} min. O arquivamento precisa da aprovação do supervisor de vendas — a conversa continua ativa até lá.`
+            : "Esta conversa já tem um pedido de arquivamento aguardando aprovação.",
+          true,
+          `arq-aprov-${targetId}`,
+        );
+      } catch (err) {
+        console.error("Erro ao solicitar aprovação de arquivamento:", err);
+        showNotification(
+          "error",
+          "Não foi possível pedir a aprovação",
+          "Tente novamente. A conversa continua ativa.",
+        );
+      }
+      return;
+    }
 
     // Finalizou: grava o desfecho (Convertido se houve venda, senão Perdido) e limpa
     // o guard, para o lead deixar de constar como Quente e poder ser reclassificado do
@@ -1867,7 +1959,7 @@ export function WhatsappView({
     setContextMenu(null);
 
     marketingService
-      .toggleArchived(targetId, true, finalReason, finalPayment, finalObs)
+      .toggleArchived(targetId, true, finalReason, finalPayment, finalObs, userProfile?.id)
       .catch((err) => console.error("Erro ao arquivar chat:", err));
   };
 
@@ -1884,7 +1976,7 @@ export function WhatsappView({
     setContextMenu(null);
 
     marketingService
-      .toggleArchived(chatToUnarchive.id, false)
+      .toggleArchived(chatToUnarchive.id, false, undefined, undefined, undefined, userProfile?.id)
       .catch((err) => console.error("Erro ao desarquivar chat:", err));
   };
 
@@ -3099,6 +3191,10 @@ export function WhatsappView({
 
     const textToSend = inputText;
     setInputText("");
+
+    // Respondeu: se havia pedido de arquivamento na fila do supervisor, ele perde
+    // o motivo de existir e sai da fila sozinho.
+    cancelarPedidoPendente(selectedChat.id);
 
     // Se o chat estiver arquivado, desarquiva imediatamente ao responder
     if (selectedChat.arquivado) {
@@ -4532,6 +4628,35 @@ export function WhatsappView({
         </div>
       )}
 
+      {podeAprovar && (
+        <ArchiveApprovalModal
+          open={showApprovalModal}
+          onClose={() => setShowApprovalModal(false)}
+          aprovador={{
+            id: userProfile?.id,
+            name: userProfile?.name,
+            role: userProfile?.role,
+            is_admin: userProfile?.is_admin,
+            is_leader: userProfile?.is_leader,
+          }}
+          onDecidido={(pedido, aprovado) => {
+            if (!aprovado) return;
+            // Aprovado: a conversa saiu dos ativos (o arquivamento já foi feito
+            // no banco pelo decidirAprovacao).
+            setChats((prev) =>
+              prev.map((c) =>
+                c.id === pedido.remote_jid ? { ...c, arquivado: true } : c,
+              ),
+            );
+            if (selectedChatRef.current?.id === pedido.remote_jid) setSelectedChat(null);
+          }}
+          onAbrirConversa={(remoteJid) => {
+            const alvo = chats.find((c) => c.id === remoteJid);
+            if (alvo) handleSelectChat(alvo);
+          }}
+        />
+      )}
+
       {showArchiveModal && (
         <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
           <div className="bg-card border border-border rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden transform transition-all duration-300">
@@ -4807,6 +4932,25 @@ export function WhatsappView({
               )}
             </div>
             <div className="flex gap-1">
+              {podeAprovar && (
+                <button
+                  onClick={() => setShowApprovalModal(true)}
+                  className="p-2 hover:bg-secondary rounded-xl text-muted-foreground hover:text-primary transition-colors relative"
+                  title="Arquivamentos aguardando aprovação"
+                >
+                  <ShieldAlert
+                    className={cn(
+                      "w-4 h-4",
+                      pendingApprovals > 0 ? "text-rose-500" : "text-muted-foreground",
+                    )}
+                  />
+                  {pendingApprovals > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-rose-500 text-white text-[9px] font-black flex items-center justify-center">
+                      {pendingApprovals > 9 ? "9+" : pendingApprovals}
+                    </span>
+                  )}
+                </button>
+              )}
               {viewMode === "active" && (
                 <button
                   onClick={handleArchiveInactive}

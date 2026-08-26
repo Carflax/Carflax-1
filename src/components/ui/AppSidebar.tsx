@@ -287,6 +287,34 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
     };
 
     const showHubNotification = (n: { id: string; titulo: string; descricao: string; tipo: string; metadata: Record<string, unknown> }) => {
+      // Alertas do WhatsApp (SLA estourado e arquivamento aguardando aprovação):
+      // ambos levam para a tela do WhatsApp, onde a ação é resolvida.
+      if (n.tipo === "whatsapp_sla" || n.tipo === "arquivamento_aprovacao") {
+        const markAsRead = () => {
+          supabase.from("hub_notificacoes").update({ lida: true }).eq("id", n.id).then(() => {});
+        };
+
+        showNotification(
+          n.tipo === "whatsapp_sla" ? "error" : "info",
+          n.titulo,
+          n.descricao,
+          true,
+          `hub-notif-${n.id}`,
+          undefined,
+          undefined,
+          {
+            label: "Abrir WhatsApp",
+            onClick: async () => {
+              await supabase.from("hub_notificacoes").update({ lida: true }).eq("id", n.id);
+              localStorage.setItem("carflax-active-section", "WhatsApp");
+              window.dispatchEvent(new CustomEvent("carflax-navigate-tab", { detail: "WhatsApp" }));
+            },
+          },
+          markAsRead,
+        );
+        return;
+      }
+
       if (n.tipo === "venda_casada") {
         const pedidos = (n.metadata?.pedidos as Array<{ pedido: string; numPedido: number; empresa: string; futura: boolean }>) || [];
         const pedidosFuturos = pedidos.filter((p) => p.futura);

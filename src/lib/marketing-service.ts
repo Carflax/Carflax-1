@@ -581,17 +581,40 @@ export const marketingService = {
     }
   },
 
+  /**
+   * Arquiva/desarquiva a conversa deixando rastro de QUEM e QUANDO.
+   *
+   * `actorId` é quem efetivou a ação (o aprovador, quando o arquivamento passou
+   * pela fila de aprovação). Ao arquivar, carimba `sla_silenciado_em`: é o que
+   * faz o escalador de SLA parar de cobrar a conversa — arquivar sozinho não
+   * silencia mais nada, já que o escalador ignora `arquivado`. Ao desarquivar,
+   * limpa o carimbo e o degrau de escalonamento, e a cobrança volta do zero.
+   */
   async toggleArchived(
     remoteJid: string,
     archived: boolean,
     motivo?: string,
     formaPagamento?: string,
-    observacao?: string
+    observacao?: string,
+    actorId?: string
   ) {
+    const nowIso = new Date().toISOString();
     const updatePayload: Record<string, unknown> = {
       arquivado: archived,
-      updated_at: new Date().toISOString()
+      updated_at: nowIso
     };
+
+    if (archived) {
+      updatePayload.arquivado_por = actorId || null;
+      updatePayload.arquivado_em = nowIso;
+      updatePayload.sla_silenciado_em = nowIso;
+    } else {
+      updatePayload.arquivado_por = null;
+      updatePayload.arquivado_em = null;
+      updatePayload.sla_silenciado_em = null;
+      updatePayload.sla_nivel_alertado = 0;
+      updatePayload.sla_alerta_ref = null;
+    }
 
     // Ao finalizar/arquivar, o lead deixa de ser oportunidade "aberta": marca o desfecho
     // na temperatura — "Convertido" se houve venda, senão "Perdido" — para não continuar
@@ -625,6 +648,13 @@ export const marketingService = {
     if (missingColumn) {
       delete updatePayload.forma_pagamento;
       delete updatePayload.observacao;
+      // Colunas de auditoria/SLA (migration 20260826140000): se ainda não foram
+      // aplicadas no banco, o arquivamento não pode quebrar por causa delas.
+      delete updatePayload.arquivado_por;
+      delete updatePayload.arquivado_em;
+      delete updatePayload.sla_silenciado_em;
+      delete updatePayload.sla_nivel_alertado;
+      delete updatePayload.sla_alerta_ref;
       ({ error } = await supabase
         .from("marketing_clientes")
         .update(updatePayload)
