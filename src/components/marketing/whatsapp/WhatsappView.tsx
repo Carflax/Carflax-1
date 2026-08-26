@@ -36,7 +36,6 @@ import {
   Video,
   Smile,
   Printer,
-  FolderDown,
   ShieldAlert,
   CornerUpLeft,
   Eye,
@@ -540,6 +539,26 @@ const getTempColor = (temp?: string) => {
       return "text-slate-400 bg-slate-500/10 border-slate-500/20";
     default:
       return "text-muted-foreground bg-secondary/50 border-border";
+  }
+};
+
+/**
+ * Só a cor do texto, para o ícone solto da lista de conversas. Existe para a
+ * lista não ter a sua própria escala: antes ela só conhecia Quente e Morno e
+ * pintava todo o resto de azul, então lead Convertido aparecia igual a Frio.
+ */
+const getTempIconColor = (temp?: string) => {
+  switch (temp) {
+    case "Quente":
+      return "text-rose-500";
+    case "Morno":
+      return "text-amber-500";
+    case "Convertido":
+      return "text-emerald-500";
+    case "Perdido":
+      return "text-slate-400";
+    default:
+      return "text-blue-500";
   }
 };
 
@@ -1144,7 +1163,6 @@ export function WhatsappView({
   const [cadastroErpLoading, setCadastroErpLoading] = useState(false);
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
   const [followUpDateInput, setFollowUpDateInput] = useState("");
-  const [showSaleModal, setShowSaleModal] = useState(false);
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   // Fila de arquivamentos aguardando o supervisor (só aparece para quem aprova).
   const [showApprovalModal, setShowApprovalModal] = useState(false);
@@ -1168,7 +1186,6 @@ export function WhatsappView({
 
   // ERP Autcom Required Fields
 
-  const [saleValue, setSaleValue] = useState("");
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showProductSelector, setShowProductSelector] = useState(false);
@@ -1936,6 +1953,19 @@ export function WhatsappView({
       return;
     }
 
+    // Aprovador arquivando com o cliente esperando: passa direto (é ele quem
+    // decidiria de qualquer forma), mas o aviso deixa claro que houve dívida —
+    // sem isso o bypass é silencioso e parece que a trava não existe.
+    if (debito?.temDebito && podeAprovar) {
+      showNotification(
+        "info",
+        "Arquivado com o cliente aguardando",
+        `${chatToArchive.name} está sem resposta há ${debito.minutosEspera ?? 0} min. Como você aprova arquivamentos, foi arquivado direto — para o atendente, isso viraria um pedido de aprovação.`,
+        true,
+        `arq-bypass-${targetId}`,
+      );
+    }
+
     // Finalizou: grava o desfecho (Convertido se houve venda, senão Perdido) e limpa
     // o guard, para o lead deixar de constar como Quente e poder ser reclassificado do
     // zero caso o cliente volte a conversar.
@@ -1992,38 +2022,6 @@ export function WhatsappView({
       .catch((err) => console.error("Erro ao desarquivar chat:", err));
   };
 
-  const handleArchiveInactive = async () => {
-    if (
-      !confirm(
-        "Deseja realmente arquivar todas as conversas sem interação há mais de 2 dias?",
-      )
-    )
-      return;
-
-    try {
-      setLoading(true);
-      await marketingService.archiveInactiveClientes(
-        2,
-        "Inatividade (> 2 dias)",
-      );
-      await loadChats();
-      setSelectedChat(null);
-      showNotification(
-        "success",
-        "Conversas Arquivadas",
-        "As conversas inativas há mais de 2 dias foram arquivadas.",
-      );
-    } catch (err) {
-      console.error("Erro ao arquivar inativos:", err);
-      showNotification(
-        "error",
-        "Erro ao arquivar",
-        "Ocorreu um erro ao arquivar as conversas inativas.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // Marca origem/campanha a partir do anúncio Meta (Click-to-WhatsApp). É autoritativo:
   // sobrescreve a origem genérica, pois vem do metadado do anúncio, não de texto do cliente.
@@ -3893,7 +3891,6 @@ export function WhatsappView({
       marketingService.markAsRead(chat.id);
     }
     setLoadingMessages(true);
-    setSaleValue("");
     api.subscribePresence(chat.id);
 
     setHasMoreMessages(false);
@@ -4235,61 +4232,6 @@ export function WhatsappView({
     triggerTempClassifyRef.current = triggerTemperatureClassification;
   }, [triggerTemperatureClassification]);
 
-  const handleDeleteSale = async () => {
-    if (!selectedChat) return;
-    try {
-      await marketingService.deleteSale(selectedChat.id);
-      const updatedLeadInfo = {
-        ...(selectedChat.leadInfo || {}),
-        saleValue: undefined,
-        saleFromErp: false,
-      };
-      setSelectedChat({ ...selectedChat, leadInfo: updatedLeadInfo });
-      setChats((prev) =>
-        prev.map((c) =>
-          c.id === selectedChat.id ? { ...c, leadInfo: updatedLeadInfo } : c,
-        ),
-      );
-      setShowSaleModal(false);
-      setSaleValue("");
-    } catch (error) {
-      console.error("Erro ao remover venda:", error);
-    }
-  };
-
-  const handleConfirmSale = async () => {
-    if (!selectedChat || !saleValue) return;
-
-    try {
-      const val = parseFloat(saleValue.replace(/\./g, "").replace(",", "."));
-      if (isNaN(val)) return;
-
-      await marketingService.registerSale(selectedChat.id, val);
-
-      const formatted = val.toLocaleString("pt-BR", {
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      });
-
-      // Atualiza o valor fixado no chat
-      const updatedLeadInfo = {
-        ...(selectedChat.leadInfo || {}),
-        saleValue: formatted,
-        saleFromErp: false,
-      };
-      setSelectedChat({ ...selectedChat, leadInfo: updatedLeadInfo });
-      setChats((prev) =>
-        prev.map((c) =>
-          c.id === selectedChat.id ? { ...c, leadInfo: updatedLeadInfo } : c,
-        ),
-      );
-
-      setShowSaleModal(false);
-      setSaleValue("");
-    } catch (error) {
-      console.error("Erro ao registrar venda:", error);
-    }
-  };
   const handleSendInternalNote = async () => {
     if (!inputText.trim() || !selectedChat) return;
     const noteText = inputText.trim();
@@ -4427,7 +4369,27 @@ export function WhatsappView({
                         : null,
                     },
                     { r: "E-mail", v: cadastroErp.cliente.email },
-                    { r: "Telefone", v: cadastroErp.cliente.telefone },
+                    // Número da conversa. Fica aqui porque o cabeçalho do chat
+                    // deixou de mostrá-lo — e é o único sempre conhecido: o
+                    // cadastro da Citel muitas vezes tem outro telefone (ou
+                    // nenhum), que só aparece na linha seguinte quando difere.
+                    {
+                      r: "WhatsApp",
+                      v: selectedChat ? telefoneDoJid(selectedChat.id) : null,
+                    },
+                    {
+                      r: "Telefone no ERP",
+                      v: (() => {
+                        const doErp =
+                          cadastroErp.cliente.celular || cadastroErp.cliente.telefone;
+                        if (!doErp) return null;
+                        const soDigitos = (t: string) => t.replace(/\D/g, "").slice(-8);
+                        const daConversa = selectedChat
+                          ? telefoneDoJid(selectedChat.id) || ""
+                          : "";
+                        return soDigitos(doErp) === soDigitos(daConversa) ? null : doErp;
+                      })(),
+                    },
                     { r: "Vendedor", v: cadastroErp.cliente.cod_vendedor },
                   ]
                     .filter((l) => l.v)
@@ -4462,6 +4424,25 @@ export function WhatsappView({
                       </p>
                     </div>
                   </div>
+
+                  {/* Orçamentos da Citel. O card mostrava só faturamento e pedido,
+                      e por isso aparecia vazio justamente quando havia orçamento.
+                      Inclui o que já virou pedido: some-lo era esconder o documento
+                      do atendimento no exato momento em que a venda fechou. */}
+                  {(cadastroErp.compras?.orcamentos_total || 0) > 0 && (
+                    <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-xl bg-blue-500/10 border border-blue-500/20">
+                      <span className="text-[9px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest">
+                        Orçamento · {cadastroErp.compras?.orcamentos_qtd} doc(s)
+                        {(cadastroErp.compras?.orcamentos_fechados || 0) > 0 &&
+                          ` · ${cadastroErp.compras?.orcamentos_fechados} virou pedido`}
+                      </span>
+                      <span className="text-[13px] font-black text-blue-600 dark:text-blue-400">
+                        {(cadastroErp.compras?.orcamentos_total || 0).toLocaleString("pt-BR", {
+                          style: "currency", currency: "BRL", maximumFractionDigits: 2,
+                        })}
+                      </span>
+                    </div>
+                  )}
 
                   {/* Pedido fechado e ainda sem nota. Sem isto, quem comprou hoje
                       aparecia zerado, como se nunca tivesse comprado. */}
@@ -4576,80 +4557,6 @@ export function WhatsappView({
               >
                 Confirmar
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showSaleModal && (
-        <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-          <div className="bg-card border border-border rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden">
-            <div className="p-6 border-b border-border/50 flex items-center justify-between">
-              <DollarSign className="w-5 h-5 text-emerald-500" />
-              <h3 className="font-black text-sm uppercase tracking-tighter">
-                {selectedChat?.leadInfo?.saleValue
-                  ? "Editar Venda"
-                  : "Registrar Venda"}
-              </h3>
-              <button
-                onClick={() => {
-                  setShowSaleModal(false);
-                  setSaleValue("");
-                }}
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              {selectedChat?.leadInfo?.saleFromErp && (
-                <p className="text-[10px] font-bold text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-3 py-2 leading-relaxed">
-                  Valor puxado automaticamente dos pedidos da Citel. Não precisa
-                  lançar à mão. Se você editar, o número vale até o ERP registrar
-                  um pedido novo para este cliente.
-                </p>
-              )}
-              <div className="space-y-1">
-                <p className="text-[10px] font-black text-muted-foreground uppercase">
-                  Valor da Venda
-                </p>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  placeholder="R$ 0,00"
-                  value={saleValue ? `R$ ${saleValue}` : ""}
-                  onChange={(e) => {
-                    const digits = e.target.value.replace(/\D/g, "");
-                    if (!digits) {
-                      setSaleValue("");
-                      return;
-                    }
-                    const cents = parseInt(digits, 10);
-                    setSaleValue(
-                      (cents / 100).toLocaleString("pt-BR", {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      }),
-                    );
-                  }}
-                  className="w-full p-4 bg-secondary/50 border border-border rounded-2xl text-lg font-black text-primary outline-none focus:border-primary/50 transition-colors"
-                />
-              </div>
-              <button
-                onClick={handleConfirmSale}
-                className="w-full p-5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-emerald-500/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
-              >
-                {selectedChat?.leadInfo?.saleValue
-                  ? "Atualizar Venda"
-                  : "Confirmar Venda"}
-              </button>
-              {selectedChat?.leadInfo?.saleValue && (
-                <button
-                  onClick={handleDeleteSale}
-                  className="w-full p-4 border border-rose-500/30 text-rose-500 hover:bg-rose-500/10 rounded-2xl font-black text-xs uppercase tracking-widest transition-all"
-                >
-                  Excluir Venda
-                </button>
-              )}
             </div>
           </div>
         </div>
@@ -4978,15 +4885,6 @@ export function WhatsappView({
                   )}
                 </button>
               )}
-              {viewMode === "active" && (
-                <button
-                  onClick={handleArchiveInactive}
-                  className="p-2 hover:bg-secondary rounded-xl text-muted-foreground hover:text-primary transition-colors"
-                  title="Arquivar conversas inativas (+2 dias)"
-                >
-                  <FolderDown className="w-4 h-4 text-amber-500" />
-                </button>
-              )}
               <button
                 onClick={() =>
                   setViewMode(viewMode === "archived" ? "active" : "archived")
@@ -5079,12 +4977,7 @@ export function WhatsappView({
                         <Flame
                           className={cn(
                             "w-3.5 h-3.5 shrink-0",
-                            (chat.leadInfo?.temperature || "Frio") === "Quente"
-                              ? "text-rose-500"
-                              : (chat.leadInfo?.temperature || "Frio") ===
-                                  "Morno"
-                                ? "text-amber-500"
-                                : "text-blue-500",
+                            getTempIconColor(chat.leadInfo?.temperature),
                           )}
                         />
                       </span>
@@ -5283,15 +5176,6 @@ export function WhatsappView({
                         Online
                       </p>
                     )}
-                    {/* Número do cliente: some em grupo, onde não existe um só. */}
-                    {telefoneDoJid(selectedChat.id) && (
-                      <>
-                        <span className="text-[10px] text-muted-foreground/50">•</span>
-                        <p className="text-[10px] text-muted-foreground font-medium tabular-nums select-all">
-                          {telefoneDoJid(selectedChat.id)}
-                        </p>
-                      </>
-                    )}
                   </div>
                 </div>
               </div>
@@ -5369,12 +5253,13 @@ export function WhatsappView({
                   )}
                 </div>
                 {selectedChat.leadInfo?.quoteValue && (
-                  <div
-                    className="flex items-center justify-center gap-1.5 h-9 px-3 bg-blue-500/10 border border-blue-500/30 rounded-xl text-blue-500"
+                  <button
+                    onClick={abrirCadastroErp}
+                    className="flex items-center justify-center gap-1.5 h-9 px-3 bg-blue-500/10 border border-blue-500/30 rounded-xl text-blue-500 hover:bg-blue-500/20 transition-colors"
                     title={
                       selectedChat.leadInfo.quoteFromErp
-                        ? `Orçamento ${selectedChat.leadInfo.quoteDocument || ""} da Citel — R$ ${selectedChat.leadInfo.quoteValue}`
-                        : `Orçamento enviado — R$ ${selectedChat.leadInfo.quoteValue} (à vista)`
+                        ? `Orçamento ${selectedChat.leadInfo.quoteDocument || ""} da Citel — R$ ${selectedChat.leadInfo.quoteValue}. Clique para ver o cadastro no ERP.`
+                        : `Orçamento enviado — R$ ${selectedChat.leadInfo.quoteValue} (à vista). Clique para ver o cadastro no ERP.`
                     }
                   >
                     <ShoppingBag className="w-3.5 h-3.5" />
@@ -5382,28 +5267,39 @@ export function WhatsappView({
                       R$ {selectedChat.leadInfo.quoteValue}
                     </span>
                     {selectedChat.leadInfo.quoteFromErp && (
-                      <span className="text-[7px] font-black px-1 rounded-full bg-blue-500 text-white leading-[10px]">
-                        ERP
-                      </span>
+                      <img
+                        src="/citel.png"
+                        alt="Documento gerado na Citel"
+                        className="w-3 h-3 object-contain shrink-0"
+                      />
                     )}
-                  </div>
+                  </button>
                 )}
                 {selectedChat.leadInfo?.saleValue && (
                   <button
-                    onClick={() => {
-                      setSaleValue(selectedChat.leadInfo!.saleValue!);
-                      setShowSaleModal(true);
-                    }}
+                    onClick={abrirCadastroErp}
                     className="flex items-center justify-center gap-1.5 h-9 px-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-500 hover:bg-emerald-500/20 transition-colors"
-                    title="Venda registrada — clique para editar"
+                    title={`Venda de R$ ${selectedChat.leadInfo.saleValue} lida dos pedidos da Citel. Clique para ver o cadastro no ERP.`}
                   >
                     <DollarSign className="w-3.5 h-3.5" />
                     <span className="text-[11px] font-black">
                       R$ {selectedChat.leadInfo.saleValue}
                     </span>
+                    {selectedChat.leadInfo.saleFromErp && (
+                      <img
+                        src="/citel.png"
+                        alt="Pedido gerado na Citel"
+                        className="w-3 h-3 object-contain shrink-0"
+                      />
+                    )}
                   </button>
                 )}
-                {/* Cadastro do cliente no ERP, casado pelo telefone da conversa. */}
+                {/* Cadastro do cliente no ERP, casado pelo telefone da conversa.
+                    Com orçamento ou venda na tela, o atalho é o próprio valor —
+                    o ícone solto só aparece quando não há nenhum dos dois, senão
+                    o lead sem documento ficaria sem como abrir o cadastro. */}
+                {!selectedChat.leadInfo?.quoteValue &&
+                  !selectedChat.leadInfo?.saleValue && (
                 <button
                   onClick={abrirCadastroErp}
                   className="p-2.5 hover:bg-secondary rounded-xl transition-all group"
@@ -5417,6 +5313,7 @@ export function WhatsappView({
                     className="w-4 h-4 object-contain opacity-70 group-hover:opacity-100 transition-opacity"
                   />
                 </button>
+                )}
                 <button
                   onClick={() => {
                     setFollowUpDateInput(
@@ -5439,29 +5336,6 @@ export function WhatsappView({
                   <Bell className="w-4 h-4" />
                   {selectedChat.leadInfo?.followUpDate && (
                     <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-yellow-500 rounded-full animate-pulse" />
-                  )}
-                </button>
-                <button
-                  onClick={() => setShowSaleModal(true)}
-                  className={cn(
-                    "p-2.5 hover:bg-secondary rounded-xl transition-colors relative",
-                    selectedChat.leadInfo?.saleValue
-                      ? "text-emerald-500"
-                      : "text-muted-foreground",
-                  )}
-                  title={
-                    selectedChat.leadInfo?.saleFromErp
-                      ? `Venda de R$ ${selectedChat.leadInfo.saleValue} puxada do ERP`
-                      : selectedChat.leadInfo?.saleValue
-                        ? `Venda de R$ ${selectedChat.leadInfo.saleValue} (lançada à mão)`
-                        : "Registrar venda"
-                  }
-                >
-                  <DollarSign className="w-4 h-4" />
-                  {selectedChat.leadInfo?.saleFromErp && (
-                    <span className="absolute -top-0.5 -right-0.5 px-1 rounded-full bg-emerald-500 text-white text-[7px] font-black leading-[10px]">
-                      ERP
-                    </span>
                   )}
                 </button>
 

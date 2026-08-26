@@ -462,6 +462,9 @@ export interface ClienteErp {
     pedidos: number; total: number; ultima: string | null;
     /** Pedido já fechado no ERP e ainda sem nota — não entra no faturado. */
     em_aberto_pedidos: number; em_aberto_total: number;
+    /** Orçamentos da Citel nos últimos 12 meses (cancelados fora). `fechados` = já viraram pedido. */
+    orcamentos_qtd?: number; orcamentos_total?: number;
+    orcamentos_fechados?: number; orcamento_ultimo?: string | null;
   };
   /** Como o cliente foi identificado: 'documento' (exato) ou 'telefone'. */
   vinculo?: string | null;

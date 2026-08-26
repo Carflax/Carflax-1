@@ -678,28 +678,10 @@ export const marketingService = {
     }
   },
 
-  async archiveInactiveClientes(days = 2, motivo = "Inatividade") {
-    const cutoffDate = new Date();
-    cutoffDate.setDate(cutoffDate.getDate() - days);
-    
-    const { error } = await supabase
-      .from("marketing_clientes")
-      .update({
-        arquivado: true,
-        status: motivo,
-        temperatura: "Perdido",
-        updated_at: new Date().toISOString()
-      })
-      .or("arquivado.eq.false,arquivado.is.null")
-      .like('remote_jid', '%@s.whatsapp.net')
-      .lt("ultima_conversa_em", cutoffDate.toISOString());
-
-    if (error) {
-      console.error("[MarketingService] Erro ao arquivar inativos:", error.message);
-      throw error;
-    }
-    return true;
-  },
+  // archiveInactiveClientes foi removido: o arquivamento em massa por inatividade
+  // marcava as conversas como "Perdido" sem ninguém olhar, e servia de álibi para
+  // conversa deixada sem resposta. Arquivar é sempre uma decisão por conversa —
+  // e, com dívida aberta, passa pela aprovação do supervisor (archive-approval.ts).
 
   /**
    * Busca leads de forma paginada com filtros aplicados diretamente no Supabase
@@ -749,68 +731,9 @@ export const marketingService = {
     return { data: (data || []) as MarketingCliente[], count: count || 0 };
   },
 
-  /**
-   * Venda lançada à mão. O valor normalmente vem sozinho do ERP
-   * (vendaLeadSyncScheduler), então lançar/editar aqui marca o lead como
-   * `venda_origem = manual` e a sincronização passa a respeitar esse número —
-   * senão a próxima varredura sobrescreveria a correção do vendedor.
-   */
-  async registerSale(remoteJid: string, value: number) {
-    // O modal chama isto tanto para registrar quanto para ATUALIZAR a venda. Antes
-    // ele só inseria e somava tudo de novo, então cada correção do vendedor era
-    // somada à anterior (três edições de R$ 1.532 viravam R$ 4.596). A linha
-    // manual agora é substituída; as linhas vindas do ERP não são tocadas.
-    const { error: limpezaError } = await supabase
-      .from("marketing_vendas")
-      .delete()
-      .eq("remote_jid", remoteJid)
-      .is("documento", null);
-
-    if (limpezaError) {
-      console.error("[MarketingService] Erro ao limpar venda manual anterior:", limpezaError);
-      throw limpezaError;
-    }
-
-    const { error: vendaError } = await supabase
-      .from("marketing_vendas")
-      .insert({ remote_jid: remoteJid, valor: value, origem: "manual" });
-
-    if (vendaError) {
-      console.error("[MarketingService] Erro ao inserir venda:", vendaError);
-      throw vendaError;
-    }
-
-    const { data: vendas } = await supabase
-      .from("marketing_vendas")
-      .select("valor")
-      .eq("remote_jid", remoteJid);
-
-    const totalVendas = (vendas || []).reduce((acc, v) => acc + (Number(v.valor) || 0), 0);
-
-    await supabase
-      .from("marketing_clientes")
-      .update({
-        valor_venda: totalVendas,
-        data_venda: new Date().toISOString(),
-        venda_origem: "manual",
-        updated_at: new Date().toISOString()
-      })
-      .eq("remote_jid", remoteJid);
-  },
-
-  async deleteSale(remoteJid: string) {
-    await supabase
-      .from("marketing_vendas")
-      .delete()
-      .eq("remote_jid", remoteJid);
-
-    await supabase
-      .from("marketing_clientes")
-      // `manual` também na exclusão: sem isso, uma venda excluída de propósito
-      // voltaria na varredura seguinte do ERP.
-      .update({ valor_venda: null, data_venda: null, venda_origem: "manual", updated_at: new Date().toISOString() })
-      .eq("remote_jid", remoteJid);
-  },
+  // registerSale/deleteSale foram removidos: a venda do lead não é mais digitada.
+  // O valor vem dos pedidos da Citel (db/src/lib/leadErpSyncScheduler.js), que
+  // grava em marketing_vendas com o número do pedido e recalcula valor_venda.
 
   // Marca no lead que houve orçamento e guarda o valor total (à vista/PIX),
   // espelhando registerSale/valor_venda.
