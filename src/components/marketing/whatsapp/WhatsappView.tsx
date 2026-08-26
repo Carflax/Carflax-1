@@ -142,6 +142,8 @@ interface LeadMetadata {
   temperature?: Temperature;
   budgetId?: string;
   saleValue?: string;
+  /** Valor da venda veio dos pedidos do ERP, não foi digitado pelo vendedor. */
+  saleFromErp?: boolean;
   quoteValue?: string;
   city?: string;
   followUpDate?: string;
@@ -1488,6 +1490,7 @@ export function WhatsappView({
                     maximumFractionDigits: 2,
                   })
                 : undefined,
+            saleFromErp: item.venda_origem === "erp",
             quoteValue:
               (item.valor_orcamento ?? 0) > 0
                 ? item.valor_orcamento!.toLocaleString("pt-BR", {
@@ -1620,6 +1623,7 @@ export function WhatsappView({
                   maximumFractionDigits: 2,
                 })
               : undefined,
+          saleFromErp: item.venda_origem === "erp",
           quoteValue:
             (item.valor_orcamento ?? 0) > 0
               ? item.valor_orcamento!.toLocaleString("pt-BR", {
@@ -2544,6 +2548,7 @@ export function WhatsappView({
                           maximumFractionDigits: 2,
                         })
                       : undefined,
+                  saleFromErp: dbCliente?.venda_origem === "erp",
                   quoteValue:
                     (dbCliente?.valor_orcamento ?? 0) > 0
                       ? dbCliente!.valor_orcamento!.toLocaleString("pt-BR", {
@@ -4045,6 +4050,7 @@ export function WhatsappView({
                   maximumFractionDigits: 2,
                 })
               : undefined,
+          saleFromErp: item?.venda_origem === "erp",
           quoteValue:
             (item?.valor_orcamento ?? 0) > 0
               ? item?.valor_orcamento!.toLocaleString("pt-BR", {
@@ -4224,6 +4230,7 @@ export function WhatsappView({
       const updatedLeadInfo = {
         ...(selectedChat.leadInfo || {}),
         saleValue: undefined,
+        saleFromErp: false,
       };
       setSelectedChat({ ...selectedChat, leadInfo: updatedLeadInfo });
       setChats((prev) =>
@@ -4256,6 +4263,7 @@ export function WhatsappView({
       const updatedLeadInfo = {
         ...(selectedChat.leadInfo || {}),
         saleValue: formatted,
+        saleFromErp: false,
       };
       setSelectedChat({ ...selectedChat, leadInfo: updatedLeadInfo });
       setChats((prev) =>
@@ -4581,6 +4589,13 @@ export function WhatsappView({
               </button>
             </div>
             <div className="p-6 space-y-4">
+              {selectedChat?.leadInfo?.saleFromErp && (
+                <p className="text-[10px] font-bold text-emerald-500 bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-3 py-2 leading-relaxed">
+                  Valor puxado automaticamente dos pedidos da Citel. Não precisa
+                  lançar à mão — só edite se o ERP estiver errado. Ao editar, esta
+                  venda deixa de ser sincronizada.
+                </p>
+              )}
               <div className="space-y-1">
                 <p className="text-[10px] font-black text-muted-foreground uppercase">
                   Valor da Venda
@@ -5408,13 +5423,25 @@ export function WhatsappView({
                 <button
                   onClick={() => setShowSaleModal(true)}
                   className={cn(
-                    "p-2.5 hover:bg-secondary rounded-xl transition-colors",
+                    "p-2.5 hover:bg-secondary rounded-xl transition-colors relative",
                     selectedChat.leadInfo?.saleValue
                       ? "text-emerald-500"
                       : "text-muted-foreground",
                   )}
+                  title={
+                    selectedChat.leadInfo?.saleFromErp
+                      ? `Venda de R$ ${selectedChat.leadInfo.saleValue} puxada do ERP`
+                      : selectedChat.leadInfo?.saleValue
+                        ? `Venda de R$ ${selectedChat.leadInfo.saleValue} (lançada à mão)`
+                        : "Registrar venda"
+                  }
                 >
                   <DollarSign className="w-4 h-4" />
+                  {selectedChat.leadInfo?.saleFromErp && (
+                    <span className="absolute -top-0.5 -right-0.5 px-1 rounded-full bg-emerald-500 text-white text-[7px] font-black leading-[10px]">
+                      ERP
+                    </span>
+                  )}
                 </button>
 
                 {viewMode === "active" ? (

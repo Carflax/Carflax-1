@@ -39,6 +39,8 @@ export interface MarketingCliente {
   mensagens_nao_lidas?: number;
   valor_venda?: number | null;
   data_venda?: string | null;
+  /** erp = valor sincronizado da Citel; manual = lançado/corrigido pelo vendedor. */
+  venda_origem?: string | null;
   valor_orcamento?: number | null;
   data_orcamento?: string | null;
   origem?: string;
@@ -744,10 +746,16 @@ export const marketingService = {
     return { data: (data || []) as MarketingCliente[], count: count || 0 };
   },
 
+  /**
+   * Venda lançada à mão. O valor normalmente vem sozinho do ERP
+   * (vendaLeadSyncScheduler), então lançar/editar aqui marca o lead como
+   * `venda_origem = manual` e a sincronização passa a respeitar esse número —
+   * senão a próxima varredura sobrescreveria a correção do vendedor.
+   */
   async registerSale(remoteJid: string, value: number) {
     const { error: vendaError } = await supabase
       .from("marketing_vendas")
-      .insert({ remote_jid: remoteJid, valor: value });
+      .insert({ remote_jid: remoteJid, valor: value, origem: "manual" });
 
     if (vendaError) {
       console.error("[MarketingService] Erro ao inserir venda:", vendaError);
@@ -766,6 +774,7 @@ export const marketingService = {
       .update({
         valor_venda: totalVendas,
         data_venda: new Date().toISOString(),
+        venda_origem: "manual",
         updated_at: new Date().toISOString()
       })
       .eq("remote_jid", remoteJid);
@@ -779,7 +788,9 @@ export const marketingService = {
 
     await supabase
       .from("marketing_clientes")
-      .update({ valor_venda: null, data_venda: null, updated_at: new Date().toISOString() })
+      // `manual` também na exclusão: sem isso, uma venda excluída de propósito
+      // voltaria na varredura seguinte do ERP.
+      .update({ valor_venda: null, data_venda: null, venda_origem: "manual", updated_at: new Date().toISOString() })
       .eq("remote_jid", remoteJid);
   },
 
