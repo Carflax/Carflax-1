@@ -1014,17 +1014,26 @@ function DashboardContent({
     // Listener de Mensagens
     const channelName = `global_crm_${myId}`;
     const channel = supabase.channel(channelName);
-    let lastSeenTimestamp = new Date().toISOString();
-    const seenMsgIds = new Set<string>();
+    // A reconexão troca o canal; o cleanup precisa remover o que estiver valendo,
+    // senão o canal antigo da retry ficava vivo depois do unmount.
+    let canalAtual = channel;
+    // `removeChannel` no cleanup faz o canal reportar "CLOSED", o que cairia no
+    // ramo de reconexão abaixo e criaria um canal novo depois do unmount.
+    let desmontado = false;
+    // id → `obs` já processado. Map, e não Set de ids: a divergência de separação
+    // é EDITADA no mesmo registro a cada item conferido (mesmo id, mesmo
+    // timestamp, obs novo). Com o Set, a edição era descartada como repetida e o
+    // vendedor não via a mensagem atualizada — só depois de um F5.
+    const seenMsgs = new Map<string, string>();
 
     const processRealtimeMessage = (newMsg: CrmConversa) => {
       if (newMsg.enviado_por === myId) return;
-      if (newMsg.id && seenMsgIds.has(newMsg.id)) return;
       if (newMsg.id) {
-        seenMsgIds.add(newMsg.id);
-        if (seenMsgIds.size > 500) {
-          const arr = Array.from(seenMsgIds);
-          arr.splice(0, 250).forEach(id => seenMsgIds.delete(id));
+        const obsAtual = newMsg.obs || "";
+        if (seenMsgs.get(newMsg.id) === obsAtual) return; // nada mudou de fato
+        seenMsgs.set(newMsg.id, obsAtual);
+        if (seenMsgs.size > 500) {
+          Array.from(seenMsgs.keys()).slice(0, 250).forEach((id) => seenMsgs.delete(id));
         }
       }
 
@@ -1155,83 +1164,92 @@ function DashboardContent({
           }
     };
 
+    // INSERT **e** UPDATE: mensagem nova e mensagem editada. A divergência de
+    // separação chega ao vendedor como UPDATE do registro que já existe naquele
+    // pedido — escutando só INSERT, ela nunca chegava em tempo real.
+    const aoReceber = (payload: { new: unknown }) => {
+      const newMsg = payload.new as CrmConversa;
+      if (newMsg.enviado_por === myId) return;
+      processRealtimeMessage(newMsg);
+    };
+
     channel
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "crm_conversas" },
-        (payload) => {
-          const newMsg = payload.new as CrmConversa;
-          if (newMsg.enviado_por === myId) return;
-          if (newMsg.timestamp) lastSeenTimestamp = newMsg.timestamp;
-          processRealtimeMessage(newMsg);
-        },
-      )
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "crm_conversas" }, aoReceber)
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "crm_conversas" }, aoReceber)
       .subscribe((status) => {
-        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") {
-          console.warn("[CRM] Realtime desconectado, tentando reconectar...");
+        // "CLOSED" entra na lista: quando o socket cai (troca de rede, aba
+        // suspensa, servidor derrubando a conexão), o canal encerra sem nunca
+        // passar por CHANNEL_ERROR. Sem tratar, ele ficava morto em silêncio e o
+        // usuário só descobria ao recarregar a página.
+        if (desmontado) return;
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+          console.warn(`[CRM] Realtime ${status}, tentando reconectar...`);
           setTimeout(() => {
+            if (desmontado) return;
             supabase.removeChannel(channel);
-            const retryChannel = supabase.channel(channelName);
+            const retryChannel = supabase.channel(`${channelName}_${Date.now()}`);
             retryChannel
-              .on("postgres_changes", { event: "INSERT", schema: "public", table: "crm_conversas" },
-                (payload) => {
-                  const newMsg = payload.new as CrmConversa;
-                  if (newMsg.enviado_por === myId) return;
-                  if (newMsg.timestamp) lastSeenTimestamp = newMsg.timestamp;
-                  processRealtimeMessage(newMsg);
-                })
+              .on("postgres_changes", { event: "INSERT", schema: "public", table: "crm_conversas" }, aoReceber)
+              .on("postgres_changes", { event: "UPDATE", schema: "public", table: "crm_conversas" }, aoReceber)
               .subscribe();
+            canalAtual = retryChannel;
           }, 2000);
         }
       });
 
-    // Fallback: poll para mensagens perdidas a cada 15s.
-    // Só roda com a aba visível — quando oculta, o handleVisibilityChange faz o
-    // catch-up ao voltar. Evita egress contínuo com o app em segundo plano.
-    const pollInterval = setInterval(async () => {
-      if (document.visibilityState !== "visible") return;
+    // Rede de segurança do realtime — por ESTADO, não por relógio.
+    //
+    // O cursor anterior era `timestamp > lastSeenTimestamp` e tinha dois furos:
+    //   1. a divergência editada mantém o timestamp original, então jamais
+    //      entrava no filtro — era exatamente o caso que só aparecia com F5;
+    //   2. o corte usava o relógio DESTA máquina contra um timestamp gravado
+    //      pela máquina de quem enviou. Relógios diferentes entre os dois PCs
+    //      escondiam a mensagem para sempre.
+    // "Não lidas endereçadas a mim nas últimas 24h" não depende de relógio e
+    // enxerga edição de registro que já existia.
+    let primeiraVarredura = true;
+    const buscarPendentes = async () => {
       try {
+        const desde = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
         const { data } = await supabase
           .from("crm_conversas")
           .select("id, documento, empresa, obs, enviado_por, enviado_por_nome, timestamp, lida, fechada, destino, created_at, entregue_em, lida_em")
-          .gt("timestamp", lastSeenTimestamp)
           .or(`destino.eq.${myId},destino.eq.todos`)
+          .eq("lida", false)
           .neq("enviado_por", myId)
-          .order("timestamp", { ascending: true })
+          .gt("created_at", desde)
+          .order("created_at", { ascending: true })
           .limit(50);
-        if (data && data.length > 0) {
+        if (data) {
           for (const msg of data) {
-            if (msg.timestamp) lastSeenTimestamp = msg.timestamp;
+            // A primeira passada só registra o que a carga inicial já colocou na
+            // tela. Sem isso, tudo que estava não lido no login notificaria de
+            // novo 15s depois de entrar.
+            if (primeiraVarredura) {
+              if (msg.id) seenMsgs.set(msg.id, msg.obs || "");
+              continue;
+            }
             processRealtimeMessage(msg as CrmConversa);
           }
         }
       } catch {
         /* silêncio */
+      } finally {
+        primeiraVarredura = false;
       }
-    }, 15000);
+    };
 
-    // Fallback: ao voltar à aba, busca mensagens perdidas
-    const handleVisibilityChange = async () => {
-      if (document.visibilityState === "visible") {
-        try {
-          const { data } = await supabase
-            .from("crm_conversas")
-            .select("id, documento, empresa, obs, enviado_por, enviado_por_nome, timestamp, lida, fechada, destino, created_at, entregue_em, lida_em")
-            .gt("timestamp", lastSeenTimestamp)
-            .or(`destino.eq.${myId},destino.eq.todos`)
-            .neq("enviado_por", myId)
-            .order("timestamp", { ascending: true })
-            .limit(50);
-          if (data && data.length > 0) {
-            for (const msg of data) {
-              if (msg.timestamp) lastSeenTimestamp = msg.timestamp;
-              processRealtimeMessage(msg as CrmConversa);
-            }
-          }
-        } catch {
-          /* silêncio */
-        }
-      }
+    // Só roda com a aba visível — quando oculta, o handleVisibilityChange faz o
+    // catch-up ao voltar. Evita egress contínuo com o app em segundo plano.
+    const pollInterval = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
+      buscarPendentes();
+    }, 15000);
+    buscarPendentes(); // prime imediato, para a varredura seguinte já valer
+
+    // Fallback: ao voltar à aba, busca o que chegou enquanto ela estava oculta.
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") buscarPendentes();
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
@@ -1296,7 +1314,8 @@ function DashboardContent({
     window.addEventListener("carflax-open-chat", handlePushOpenChat);
 
     return () => {
-      supabase.removeChannel(channel);
+      desmontado = true;
+      supabase.removeChannel(canalAtual);
       clearInterval(pollInterval);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("open-crm-chat", handleOpenChat);
