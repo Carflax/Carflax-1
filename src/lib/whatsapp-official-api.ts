@@ -11,7 +11,7 @@
 
 import { supabase } from "./supabase";
 import { marketingService } from "./marketing-service";
-import { API_BASE } from "./api";
+import { API_BASE, authHeaders } from "./api";
 
 // Identidade do número oficial (público, não é segredo). Usado só no cabeçalho da
 // tela. Evita consultar a tabela `whatsapp_official_config` (que não existe) — o
@@ -36,7 +36,7 @@ async function sendOfficial(
   const base = API_BASE.startsWith("http") ? API_BASE : window.location.origin + API_BASE;
   const response = await fetch(`${base}/api/whatsapp/send`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify(body),
   });
   if (!response.ok) {

@@ -8,7 +8,7 @@
 
 import { marketingService } from "./marketing-service";
 import { supabase } from "./supabase";
-import { API_BASE } from "./api";
+import { API_BASE, authHeaders } from "./api";
 
 // Filtro do realtime GO: só emite eventos das mensagens deste vendedor (a
 // instância GO grava no Supabase marcada com vendedor_id). A tela GO define isso
@@ -140,7 +140,7 @@ async function sendViaOfficial(
   const base = API_BASE.startsWith('http') ? API_BASE : window.location.origin + API_BASE;
   const response = await fetch(`${base}/api/whatsapp/send`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify(body),
   });
   if (!response.ok) {
