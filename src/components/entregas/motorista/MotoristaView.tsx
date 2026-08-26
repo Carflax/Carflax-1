@@ -9,6 +9,8 @@ import {
   X,
   Package,
   AlertCircle,
+  AlertTriangle,
+  Send,
   Sun,
   Moon
 } from "lucide-react";
@@ -17,6 +19,7 @@ import { supabase } from "@/lib/supabase";
 import { uploadImage } from "@/lib/uploadImage";
 import { useTheme } from "@/context/theme-provider";
 import { motion, AnimatePresence } from "framer-motion";
+import { TIPOS_OCORRENCIA } from "@/lib/ocorrencias";
 
 interface Delivery {
   id: string;
@@ -29,6 +32,7 @@ interface Delivery {
   image?: string;
   instructions?: string;
   romCode: string;
+  romDate?: string;
 }
 
 export function MotoristaView() {
@@ -42,6 +46,12 @@ export function MotoristaView() {
   const [selectedDelivery, setSelectedDelivery] = useState<Delivery | null>(null);
   const [uploading, setUploading] = useState(false);
   const [activeTab, setActiveTab] = useState<"pending" | "history">("pending");
+  const [isOcorrenciaModalOpen, setIsOcorrenciaModalOpen] = useState(false);
+  const [ocorrenciaTipo, setOcorrenciaTipo] = useState("");
+  const [ocorrenciaDescricao, setOcorrenciaDescricao] = useState("");
+  const [ocorrenciaFoto, setOcorrenciaFoto] = useState<File | null>(null);
+  const [ocorrenciaBloqueia, setOcorrenciaBloqueia] = useState(false);
+  const [enviandoOcorrencia, setEnviandoOcorrencia] = useState(false);
 
   const searchParams = new URLSearchParams(window.location.search);
   const driverCode = searchParams.get("v") || "geral";
@@ -80,7 +90,8 @@ export function MotoristaView() {
           value: `R$ ${Number(d.value || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
           image: d.image,
           instructions: d.instructions,
-          romCode: d.rom_code
+          romCode: d.rom_code,
+          romDate: d.rom_date
         })));
       } else {
         setEntregas([]);
@@ -144,6 +155,75 @@ export function MotoristaView() {
       alert("Erro ao finalizar entrega.");
     } finally {
       setUploading(false);
+    }
+  };
+
+  const abrirOcorrencia = (delivery: Delivery) => {
+    setSelectedDelivery(delivery);
+    setOcorrenciaTipo("");
+    setOcorrenciaDescricao("");
+    setOcorrenciaFoto(null);
+    setOcorrenciaBloqueia(false);
+    setIsOcorrenciaModalOpen(true);
+  };
+
+  const handleRegistrarOcorrencia = async () => {
+    if (!selectedDelivery || !ocorrenciaTipo) return;
+    try {
+      setEnviandoOcorrencia(true);
+
+      let publicUrl: string | null = null;
+      if (ocorrenciaFoto) {
+        publicUrl = await uploadImage(ocorrenciaFoto, "entregas", false, true);
+        if (!publicUrl) {
+          alert("Erro ao enviar a foto da ocorrência. Tente novamente ou envie sem foto.");
+          return;
+        }
+      }
+
+      const { error } = await supabase.from("entregas_ocorrencias").insert({
+        entrega_id: selectedDelivery.id,
+        rom_code: selectedDelivery.romCode,
+        rom_date: selectedDelivery.romDate || hoje,
+        nf: selectedDelivery.nf,
+        client: selectedDelivery.client,
+        address: selectedDelivery.address,
+        driver_cod: driverCode,
+        driver_name: driverName || null,
+        tipo: ocorrenciaTipo,
+        descricao: ocorrenciaDescricao.trim() || null,
+        image: publicUrl,
+        bloqueou_entrega: ocorrenciaBloqueia,
+        status: "aberta"
+      });
+      if (error) throw error;
+
+      // Ocorrência que impede a entrega marca a parada como não realizada, para
+      // ela sair das pendências do motorista e o romaneio poder ser encerrado.
+      if (ocorrenciaBloqueia) {
+        const nowTime = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        await supabase.from("entregas").update({ status: "failed", time: nowTime }).eq("id", selectedDelivery.id);
+
+        const { data: allEntregas } = await supabase
+          .from("entregas")
+          .select("status")
+          .eq("rom_code", selectedDelivery.romCode);
+        if (allEntregas && !allEntregas.some(e => e.status === "pending")) {
+          await supabase
+            .from("entregas")
+            .update({ rom_status: "concluido" })
+            .eq("rom_code", selectedDelivery.romCode);
+        }
+      }
+
+      setIsOcorrenciaModalOpen(false);
+      setSelectedDelivery(null);
+      fetchData();
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao registrar a ocorrência.");
+    } finally {
+      setEnviandoOcorrencia(false);
     }
   };
 
@@ -279,7 +359,9 @@ export function MotoristaView() {
               key={e.id} 
               className={cn(
                 "bg-white dark:bg-slate-900 rounded-[32px] p-6 border-2 transition-all relative overflow-hidden shadow-[0_8px_30px_rgb(0,0,0,0.04)]",
-                e.status === "completed" ? "border-emerald-100 dark:border-emerald-900/40 bg-emerald-50/10 dark:bg-emerald-950/20 grayscale-[0.5] opacity-80" : "border-slate-50 dark:border-slate-800"
+                e.status === "completed" ? "border-emerald-100 dark:border-emerald-900/40 bg-emerald-50/10 dark:bg-emerald-950/20 grayscale-[0.5] opacity-80"
+                  : e.status === "failed" ? "border-amber-100 dark:border-amber-900/40 bg-amber-50/20 dark:bg-amber-950/20"
+                  : "border-slate-50 dark:border-slate-800"
               )}
             >
               {/* BADGE CONCLUIDO */}
@@ -289,11 +371,17 @@ export function MotoristaView() {
                   Entregue às {e.time}
                 </div>
               )}
+              {e.status === "failed" && (
+                <div className="absolute top-4 right-6 flex items-center gap-2 px-3 py-1.5 bg-amber-500 rounded-full text-white text-[9px] font-black uppercase tracking-widest shadow-lg shadow-amber-500/20">
+                  <AlertTriangle size={12} />
+                  Não entregue{e.time ? ` às ${e.time}` : ""}
+                </div>
+              )}
 
               <div className="flex items-center gap-3 mb-5">
                 <div className={cn(
                   "w-9 h-9 rounded-2xl flex items-center justify-center text-sm font-black",
-                  e.status === "completed" ? "bg-emerald-500 text-white" : "bg-slate-900 text-white"
+                  e.status === "completed" ? "bg-emerald-500 text-white" : e.status === "failed" ? "bg-amber-500 text-white" : "bg-slate-900 text-white"
                 )}>
                   {idx + 1}
                 </div>
@@ -321,27 +409,46 @@ export function MotoristaView() {
 
               <div className="flex items-center gap-3 pt-4 border-t border-slate-50 dark:border-slate-800">
                 {e.status === "pending" ? (
-                  <div className="grid grid-cols-2 gap-3 w-full">
-                      <motion.button 
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => handleNavigate(e.address)}
-                        className="h-14 bg-slate-900 text-white rounded-[24px] text-[10px] font-black uppercase tracking-[0.2em] flex items-center justify-center gap-3 shadow-lg shadow-slate-900/20"
-                      >
-                          <Navigation size={18} />
-                          Rota
-                      </motion.button>
-                      <motion.button 
-                        whileTap={{ scale: 0.98 }}
-                        onClick={() => {
-                          setSelectedDelivery(e);
-                          setIsFinishModalOpen(true);
-                        }}
-                        className="h-14 bg-blue-600 text-white rounded-[24px] text-[10px] font-black uppercase tracking-[0.2em] flex items-center justify-center gap-3 shadow-lg shadow-blue-600/20"
-                      >
-                          <Camera size={18} />
-                          Finalizar
-                      </motion.button>
+                  <div className="w-full space-y-3">
+                    <div className="grid grid-cols-2 gap-3 w-full">
+                        <motion.button 
+                          whileTap={{ scale: 0.98 }}
+                          onClick={() => handleNavigate(e.address)}
+                          className="h-14 bg-slate-900 text-white rounded-[24px] text-[10px] font-black uppercase tracking-[0.2em] flex items-center justify-center gap-3 shadow-lg shadow-slate-900/20"
+                        >
+                            <Navigation size={18} />
+                            Rota
+                        </motion.button>
+                        <motion.button 
+                          whileTap={{ scale: 0.98 }}
+                          onClick={() => {
+                            setSelectedDelivery(e);
+                            setIsFinishModalOpen(true);
+                          }}
+                          className="h-14 bg-blue-600 text-white rounded-[24px] text-[10px] font-black uppercase tracking-[0.2em] flex items-center justify-center gap-3 shadow-lg shadow-blue-600/20"
+                        >
+                            <Camera size={18} />
+                            Finalizar
+                        </motion.button>
+                    </div>
+                    <motion.button
+                      whileTap={{ scale: 0.98 }}
+                      onClick={() => abrirOcorrencia(e)}
+                      className="w-full h-12 bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 border-2 border-amber-200 dark:border-amber-900/50 rounded-[24px] text-[10px] font-black uppercase tracking-[0.2em] flex items-center justify-center gap-3"
+                    >
+                      <AlertTriangle size={16} />
+                      Registrar Ocorrência
+                    </motion.button>
                   </div>
+                ) : e.status === "failed" ? (
+                  <motion.button
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => abrirOcorrencia(e)}
+                    className="w-full h-14 bg-amber-50 dark:bg-amber-950/30 text-amber-600 dark:text-amber-400 border-2 border-amber-200 dark:border-amber-900/50 rounded-[24px] text-[10px] font-black uppercase tracking-[0.2em] flex items-center justify-center gap-3"
+                  >
+                    <AlertTriangle size={18} />
+                    Nova Ocorrência
+                  </motion.button>
                 ) : (
                   <motion.button 
                     whileTap={{ scale: 0.98 }}
@@ -447,6 +554,156 @@ export function MotoristaView() {
 
               <p className="text-[9px] font-bold text-slate-300 text-center uppercase tracking-widest leading-loose px-4">
                 Esta ação é definitiva e atualizará o status no Carflax HUB administrativo em tempo real.
+              </p>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL DE OCORRENCIA */}
+      <AnimatePresence>
+        {isOcorrenciaModalOpen && selectedDelivery && (
+          <div className="fixed inset-0 z-50 flex flex-col justify-end">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/80 backdrop-blur-md"
+              onClick={() => !enviandoOcorrencia && setIsOcorrenciaModalOpen(false)}
+            />
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="relative bg-white dark:bg-slate-900 rounded-t-[48px] p-6 pb-10 space-y-5 shadow-2xl max-h-[92vh] overflow-y-auto"
+            >
+              <div className="w-16 h-1.5 bg-slate-100 dark:bg-slate-700 rounded-full mx-auto" />
+
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-2xl font-black text-slate-900 dark:text-white uppercase tracking-tighter">Ocorrência</h3>
+                  <p className="text-[11px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-widest mt-2 flex items-center gap-2">
+                    <span className="px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded-md">NF #{selectedDelivery.nf}</span>
+                    <span>&bull;</span>
+                    <span className="truncate max-w-[140px]">{selectedDelivery.client}</span>
+                  </p>
+                </div>
+                <button
+                  onClick={() => !enviandoOcorrencia && setIsOcorrenciaModalOpen(false)}
+                  className="w-12 h-12 shrink-0 rounded-2xl bg-slate-50 dark:bg-slate-800 flex items-center justify-center text-slate-400 dark:text-slate-300 border border-slate-100 dark:border-slate-700"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              {/* TIPO */}
+              <div className="space-y-2">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] px-1">O que aconteceu?</p>
+                <div className="grid grid-cols-1 gap-2">
+                  {TIPOS_OCORRENCIA.map(t => (
+                    <button
+                      key={t.value}
+                      onClick={() => {
+                        setOcorrenciaTipo(t.value);
+                        setOcorrenciaBloqueia(t.bloqueiaPadrao);
+                      }}
+                      className={cn(
+                        "w-full text-left px-4 py-3 rounded-2xl border-2 text-[11px] font-black uppercase tracking-tight transition-all",
+                        ocorrenciaTipo === t.value
+                          ? "bg-amber-500 border-amber-500 text-white shadow-lg shadow-amber-500/20"
+                          : "bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-500 dark:text-slate-300"
+                      )}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* DESCRICAO */}
+              <div className="space-y-2">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] px-1">Detalhe (opcional)</p>
+                <textarea
+                  value={ocorrenciaDescricao}
+                  onChange={(ev) => setOcorrenciaDescricao(ev.target.value)}
+                  rows={3}
+                  placeholder="Ex: portaria não autorizou a entrada, cliente pediu para voltar amanhã..."
+                  className="w-full rounded-3xl border-2 border-slate-100 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 px-5 py-4 text-xs font-semibold text-slate-700 dark:text-slate-200 placeholder:text-slate-300 dark:placeholder:text-slate-600 outline-none focus:border-amber-400 resize-none"
+                />
+              </div>
+
+              {/* FOTO */}
+              <label className={cn(
+                "w-full h-14 rounded-[24px] flex items-center justify-center gap-3 text-[10px] font-black uppercase tracking-[0.2em] border-2 cursor-pointer active:scale-[0.98] transition-all",
+                ocorrenciaFoto
+                  ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200 dark:border-emerald-900/50 text-emerald-600 dark:text-emerald-400"
+                  : "bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-400 dark:text-slate-300"
+              )}>
+                <Camera size={18} />
+                {ocorrenciaFoto ? "Foto anexada — trocar" : "Anexar foto (opcional)"}
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  disabled={enviandoOcorrencia}
+                  onChange={(ev) => setOcorrenciaFoto(ev.target.files?.[0] || null)}
+                />
+              </label>
+
+              {/* NAO FOI POSSIVEL ENTREGAR */}
+              {selectedDelivery.status === "pending" && (
+                <button
+                  onClick={() => setOcorrenciaBloqueia(v => !v)}
+                  className={cn(
+                    "w-full flex items-center gap-4 px-5 py-4 rounded-[28px] border-2 text-left transition-all",
+                    ocorrenciaBloqueia
+                      ? "bg-red-50 dark:bg-red-950/30 border-red-200 dark:border-red-900/50"
+                      : "bg-white dark:bg-slate-800 border-slate-100 dark:border-slate-700"
+                  )}
+                >
+                  <div className={cn(
+                    "w-6 h-6 rounded-lg shrink-0 flex items-center justify-center border-2 transition-all",
+                    ocorrenciaBloqueia ? "bg-red-500 border-red-500 text-white" : "border-slate-200 dark:border-slate-600"
+                  )}>
+                    {ocorrenciaBloqueia && <CheckCircle2 size={14} />}
+                  </div>
+                  <div>
+                    <p className={cn(
+                      "text-[11px] font-black uppercase tracking-tight",
+                      ocorrenciaBloqueia ? "text-red-600 dark:text-red-400" : "text-slate-600 dark:text-slate-300"
+                    )}>
+                      Não foi possível entregar
+                    </p>
+                    <p className="text-[9px] font-bold text-slate-400 uppercase tracking-widest mt-0.5 leading-relaxed">
+                      Tira a parada das pendências de hoje
+                    </p>
+                  </div>
+                </button>
+              )}
+
+              <motion.button
+                whileTap={{ scale: 0.98 }}
+                disabled={!ocorrenciaTipo || enviandoOcorrencia}
+                onClick={handleRegistrarOcorrencia}
+                className="w-full h-16 bg-amber-500 disabled:bg-slate-200 dark:disabled:bg-slate-800 disabled:text-slate-400 text-white rounded-[28px] text-[11px] font-black uppercase tracking-[0.2em] flex items-center justify-center gap-3 shadow-xl shadow-amber-500/30 disabled:shadow-none transition-all"
+              >
+                {enviandoOcorrencia ? (
+                  <>
+                    <RefreshCw size={20} className="animate-spin" />
+                    Enviando...
+                  </>
+                ) : (
+                  <>
+                    <Send size={20} />
+                    Enviar Ocorrência
+                  </>
+                )}
+              </motion.button>
+
+              <p className="text-[9px] font-bold text-slate-300 text-center uppercase tracking-widest leading-loose px-4">
+                A ocorrência chega na hora em Entregas &rsaquo; Ocorrências, no Carflax HUB.
               </p>
             </motion.div>
           </div>

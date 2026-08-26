@@ -91,6 +91,7 @@ export const NAV_SECTIONS: NavSection[] = [
     permGroup: "LOGÍSTICA",
     subItems: [
       { label: "Romaneios" },
+      { label: "Ocorrências", value: "Ocorrências Entregas" },
       { label: "Relatórios", value: "Relatórios Entregas" },
       { label: "Mapa ao Vivo", value: "Mapa Entregas" },
     ],
@@ -196,7 +197,7 @@ const PUBLIC_SECTIONS = [
 
 const VENDEDOR_SECTIONS = [
   "Comercial", "Orçamentos", "Análise FRV", "Carteira", "Ligações", "Campanhas",
-  "Alugueis", "Logística", "Romaneios", "Entregas", "Relatórios Entregas", "Mapa Entregas",
+  "Alugueis", "Logística", "Romaneios", "Entregas", "Ocorrências Entregas", "Relatórios Entregas", "Mapa Entregas",
 ];
 
 const MARKETING_SECTIONS = [
