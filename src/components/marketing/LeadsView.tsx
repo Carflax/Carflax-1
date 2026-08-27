@@ -193,7 +193,7 @@ export function LeadsView() {
         <div className="flex gap-2">
           <TinyDropdown 
             value={filterPlatform} 
-            options={["Todas as Plataformas", "WhatsApp", "Instagram", "Facebook", "Google"]} 
+            options={["Todas as Plataformas", "WhatsApp", "Site", "Instagram", "Facebook", "Google"]} 
             onChange={setFilterPlatform} 
             icon={LayoutGrid} 
             variant="slate" 

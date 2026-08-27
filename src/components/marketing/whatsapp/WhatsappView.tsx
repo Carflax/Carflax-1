@@ -236,6 +236,25 @@ const TikTokIcon = () => (
   </svg>
 );
 
+/* Globo na cor da marca, na mesma pastilha branca do Google: o cliente que
+   chega pelo site nao pertence a nenhuma plataforma de terceiro, entao o
+   distintivo e o da propria Carflax. */
+const SiteIcon = () => (
+  <svg
+    className="w-3 h-3 text-[#863bff]"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <circle cx="12" cy="12" r="10"></circle>
+    <line x1="2" y1="12" x2="22" y2="12"></line>
+    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+  </svg>
+);
+
 const detectOrigin = (text: string): string | null => {
   if (!text) return null;
   const lower = text.toLowerCase();
@@ -264,6 +283,7 @@ interface CliqueAnuncio {
   utm_source?: string | null;
   utm_campaign?: string | null;
   utm_medium?: string | null;
+  utm_content?: string | null;
   utm_term?: string | null;
   campaign_id?: string | null;
   adgroup_id?: string | null;
@@ -280,6 +300,15 @@ const CONFIANCA_LABEL: Record<string, string> = {
   codigo: "Exata — código veio na mensagem",
   janela: "Provável — único clique no período",
   janela_mesma_campanha: "Provável — vários cliques, mesma campanha",
+};
+
+// Como o visitante chegou ao site antes de clicar no WhatsApp. So aparece em
+// lead de origem "Site" — em anuncio, utm_medium vem da propria campanha.
+const MIDIA_LABEL: Record<string, string> = {
+  direto: "Entrou direto no site",
+  organico: "Busca (resultado não pago)",
+  social: "Rede social",
+  referral: "Link em outro site",
 };
 
 const REDE_LABEL: Record<string, string> = {
@@ -326,7 +355,7 @@ function CampanhaBadge({ chat }: { chat: Chat }) {
     let cancelado = false;
     supabase
       .from("ads_cliques")
-      .select("codigo,utm_source,utm_campaign,utm_medium,utm_term,campaign_id,adgroup_id,keyword,network,device,gclid,fbclid,confianca,created_at")
+      .select("codigo,utm_source,utm_campaign,utm_medium,utm_content,utm_term,campaign_id,adgroup_id,keyword,network,device,gclid,fbclid,confianca,created_at")
       .eq("remote_jid", chat.id)
       .order("created_at", { ascending: false })
       .limit(1)
@@ -346,6 +375,14 @@ function CampanhaBadge({ chat }: { chat: Chat }) {
   const campanhaCompleta = clique?.utm_campaign || chat.leadInfo?.campaign;
   if (campanhaCompleta) linhas.push(["Campanha", campanhaCompleta]);
   if (chat.leadInfo?.source) linhas.push(["Origem", chat.leadInfo.source]);
+  // Vindo do site, utm_content carrega a pagina do clique — e o que diz ao
+  // vendedor o que o cliente estava olhando na hora de chamar. Em anuncio, o
+  // mesmo campo pertence ao criativo.
+  if (clique?.utm_content) {
+    const doSite = String(clique.utm_source || "").toLowerCase().includes("site");
+    linhas.push([doSite ? "Página" : "Criativo", clique.utm_content]);
+  }
+  if (clique?.utm_medium) linhas.push(["Mídia", MIDIA_LABEL[clique.utm_medium] || clique.utm_medium]);
   if (clique?.keyword) linhas.push(["Palavra-chave", clique.keyword]);
   if (clique?.utm_term) linhas.push(["Termo", clique.utm_term]);
   if (clique?.network) linhas.push(["Rede", REDE_LABEL[clique.network] || clique.network]);
@@ -442,22 +479,13 @@ const getOriginBadge = (origin?: string) => {
       </div>
     );
   }
-  if (o.includes("site")) {
+  if (o.includes("site") || o.includes("loja")) {
     return (
-      <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-[0_2px_4px_rgba(0,0,0,0.1)] z-10 animate-in fade-in zoom-in duration-200">
-        <svg
-          className="w-3 h-3 text-white"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <circle cx="12" cy="12" r="10"></circle>
-          <line x1="2" y1="12" x2="22" y2="12"></line>
-          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
-        </svg>
+      <div
+        title="Veio pelo site"
+        className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-white border border-border/80 flex items-center justify-center shadow-[0_2px_4px_rgba(0,0,0,0.1)] z-10 animate-in fade-in zoom-in duration-200"
+      >
+        <SiteIcon />
       </div>
     );
   }
