@@ -39,6 +39,7 @@ import {
   ShieldAlert,
   CornerUpLeft,
   Eye,
+  Plus,
 } from "lucide-react";
 import { evolutionApi } from "@/lib/evolution-v2";
 import { supabase } from "@/lib/supabase";
@@ -51,6 +52,7 @@ import { transcribeAudio, classifyByRules } from "@/lib/gemini-service";
 import { Package } from "lucide-react";
 import { useNotification } from "@/hooks/useNotification";
 import { ArchiveApprovalModal } from "./ArchiveApprovalModal";
+import { GravadorAudio } from "./GravadorAudio";
 import {
   cancelarPedidoPendente,
   podeAprovarArquivamento,
@@ -653,6 +655,15 @@ const ARCHIVE_REASONS = [
   { text: "Convertido", icon: "🎉" },
   { text: "Outros", icon: "💬" },
 ];
+
+// O modal de arquivamento agrupa por DESFECHO, e não numa lista corrida: vender
+// e perder são resultados opostos, e agendar retorno nem arquiva a conversa.
+// Tudo junto sob o título "motivo da perda" era o que confundia — o atendente
+// tinha que achar "Convertido" no meio dos motivos de perda.
+const ARCHIVE_REASON_GANHO = "Convertido";
+const ARCHIVE_REASONS_PERDA = ARCHIVE_REASONS.filter(
+  (r) => r.text !== ARCHIVE_REASON_GANHO,
+);
 
 // Catálogo do seletor de emoji do compositor. Lista curada em vez de biblioteca
 // externa: cobre o uso real do atendimento sem somar dependência nem peso ao bundle.
@@ -1354,6 +1365,18 @@ export function WhatsappView({
   // ERP Autcom Required Fields
 
   const [pendingFile, setPendingFile] = useState<File | null>(null);
+  // Gravação de áudio: a mecânica toda (microfone, onda, pausa, conversão para
+  // Ogg) vive em GravadorAudio.tsx. Aqui fica só o liga/desliga.
+  const [gravandoAudio, setGravandoAudio] = useState(false);
+  const [audioPreviewUrl, setAudioPreviewUrl] = useState<string | null>(null);
+  // Menu do "+" do compositor.
+  const [showPlusMenu, setShowPlusMenu] = useState(false);
+  // Inputs separados por tipo: o `accept` do seletor de arquivo é o que abre a
+  // galeria certa no celular e evita o atendente mandar um .zip achando que é
+  // foto. O antigo era um só, e não aceitava imagem — dava para mandar foto
+  // apenas colando ou arrastando.
+  const mediaInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [showProductSelector, setShowProductSelector] = useState(false);
   const [allProducts, setAllProducts] = useState<NormalizedProduct[]>([]);
@@ -1386,6 +1409,7 @@ export function WhatsappView({
   // Trava a conversa-alvo de uma ação (arquivar) pelo ID, para que a reordenação
   // da lista por novas mensagens não faça a ação cair na conversa errada.
   const archiveTargetRef = useRef<Chat | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<Chat | null>(null);
   const viewModeRef = useRef<"active" | "archived">("active");
   const lastPhoneJid = useRef<string | null>(null);
   const lidToJidMap = useRef<Map<string, string>>(new Map());
@@ -3558,6 +3582,15 @@ export function WhatsappView({
     setPendingFile(file);
   };
 
+  // A prévia usa object URL; sem revogar, cada gravação vaza um blob na memória.
+  useEffect(() => {
+    if (pendingFile) return;
+    setAudioPreviewUrl((url) => {
+      if (url) URL.revokeObjectURL(url);
+      return null;
+    });
+  }, [pendingFile]);
+
   // Insere o emoji na posição do cursor (não no fim), preservando o que já foi
   // digitado dos dois lados, e devolve o foco ao campo com o cursor após o emoji.
   const inserirEmoji = (emoji: string) => {
@@ -3598,10 +3631,12 @@ export function WhatsappView({
     }
   };
 
-  const confirmSendFile = async () => {
-    if (!pendingFile || !selectedChat) return;
-
-    const file = pendingFile;
+  // `arquivoDireto` existe para o gravador de áudio: ele já mostrou a prévia e
+  // entrega o arquivo pronto, sem passar pela barra de anexo pendente (e sem
+  // depender do setState de `pendingFile`, que não vale no mesmo tick).
+  const confirmSendFile = async (arquivoDireto?: File) => {
+    const file = arquivoDireto ?? pendingFile;
+    if (!file || !selectedChat) return;
     const caption = inputText;
     setPendingFile(null);
     setInputText("");
@@ -4361,10 +4396,14 @@ export function WhatsappView({
     }
   }, [displayedChats, selectedChat, handleSelectChat]);
 
-  const scheduleFollowUp = (dateStr: string) => {
-    if (!selectedChat) return;
+  const scheduleFollowUp = (dateStr: string, alvo?: Chat | null) => {
+    // O alvo é explícito porque o follow-up agora é agendado de dentro do modal
+    // de arquivamento, que pode ter sido aberto pelo menu de contexto para uma
+    // conversa diferente da que está aberta na tela.
+    const chat = alvo ?? selectedChat;
+    if (!chat) return;
     const updatedLeadInfo = {
-      ...(selectedChat.leadInfo || {
+      ...(chat.leadInfo || {
         status: "Novo Lead",
         temperature: "Frio" as Temperature,
         source: "WhatsApp",
@@ -4372,14 +4411,11 @@ export function WhatsappView({
       }),
       followUpDate: dateStr || undefined,
     };
-    setSelectedChat({
-      ...selectedChat,
-      leadInfo: updatedLeadInfo,
-    });
+    if (selectedChat?.id === chat.id) {
+      setSelectedChat({ ...chat, leadInfo: updatedLeadInfo });
+    }
     setChats((prev) =>
-      prev.map((c) =>
-        c.id === selectedChat.id ? { ...c, leadInfo: updatedLeadInfo } : c,
-      ),
+      prev.map((c) => (c.id === chat.id ? { ...c, leadInfo: updatedLeadInfo } : c)),
     );
   };
 
@@ -4811,15 +4847,17 @@ export function WhatsappView({
                 />
               </div>
 
-              {selectedChat?.leadInfo?.followUpDate && (
+              {(archiveTarget ?? selectedChat)?.leadInfo?.followUpDate && (
                 <div className="p-3 bg-yellow-500/5 border border-yellow-500/10 rounded-2xl text-[11px] text-yellow-500/90 font-bold flex items-center justify-between">
                   <span>
                     Agendado:{" "}
-                    {formatFollowUpDate(selectedChat.leadInfo.followUpDate)}
+                    {formatFollowUpDate(
+                      (archiveTarget ?? selectedChat)!.leadInfo!.followUpDate,
+                    )}
                   </span>
                   <button
                     onClick={() => {
-                      scheduleFollowUp("");
+                      scheduleFollowUp("", archiveTarget ?? selectedChat);
                       setFollowUpDateInput("");
                       showNotification(
                         "success",
@@ -4852,7 +4890,7 @@ export function WhatsappView({
                     );
                     return;
                   }
-                  scheduleFollowUp(followUpDateInput);
+                  scheduleFollowUp(followUpDateInput, archiveTarget ?? selectedChat);
                   showNotification(
                     "success",
                     "Agendado",
@@ -4900,15 +4938,32 @@ export function WhatsappView({
 
       {showArchiveModal && (
         <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="bg-card border border-border rounded-3xl shadow-2xl w-full max-w-sm overflow-hidden transform transition-all duration-300">
-            <div className="p-6 border-b border-border/50 flex items-center justify-between">
-              <h3 className="font-black text-sm uppercase tracking-tighter">
-                {isEnteringMaterial
-                  ? "Qual Material?"
-                  : isEnteringCustomReason
-                  ? "Escreva o Motivo"
-                  : "Motivo do Arquivamento"}
-              </h3>
+          <div
+            className={cn(
+              "bg-card border border-border rounded-3xl shadow-2xl w-full overflow-hidden transform transition-all duration-300",
+              // Os dois passos de digitação continuam estreitos: é um campo só.
+              isEnteringMaterial || isEnteringCustomReason ? "max-w-sm" : "max-w-2xl",
+            )}
+          >
+            <div className="p-6 border-b border-border/50 flex items-start justify-between gap-4">
+              <div className="space-y-1">
+                <h3 className="font-black text-sm uppercase tracking-tighter">
+                  {isEnteringMaterial
+                    ? "Qual Material?"
+                    : isEnteringCustomReason
+                    ? "Escreva o Motivo"
+                    : "Encerrar Atendimento"}
+                </h3>
+                {!isEnteringMaterial && !isEnteringCustomReason && (
+                  <p className="text-[10px] font-bold text-muted-foreground">
+                    Como terminou a conversa com{" "}
+                    <span className="text-foreground">
+                      {archiveTarget?.name || "este cliente"}
+                    </span>
+                    ?
+                  </p>
+                )}
+              </div>
               <button
                 onClick={handleCloseArchiveModal}
                 className="p-1 hover:bg-secondary rounded-lg transition-colors text-muted-foreground hover:text-foreground"
@@ -4998,14 +5053,44 @@ export function WhatsappView({
                 </div>
               </div>
             ) : (
-              <div className="p-6 space-y-4 max-h-[500px] overflow-y-auto">
-                <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">
-                  Selecione o motivo da perda ou encerramento:
-                </p>
-                <div className="space-y-1.5">
-                  {ARCHIVE_REASONS.map((r) => {
-                    const isSelected = selectedReason === r.text;
-                    return (
+              <div className="p-6 space-y-5 max-h-[70vh] overflow-y-auto">
+                {/* 1. GANHOU — primeiro e em destaque: é o desfecho que o time
+                    persegue, e era o mais difícil de achar na lista antiga. */}
+                <button
+                  onClick={() =>
+                    setSelectedReason(
+                      selectedReason === ARCHIVE_REASON_GANHO ? "" : ARCHIVE_REASON_GANHO,
+                    )
+                  }
+                  className={cn(
+                    "w-full p-4 flex items-center gap-3 text-left rounded-2xl border transition-all duration-200 active:scale-[0.99]",
+                    selectedReason === ARCHIVE_REASON_GANHO
+                      ? "border-emerald-500/40 bg-emerald-500/10"
+                      : "border-emerald-500/20 bg-emerald-500/5 hover:bg-emerald-500/10",
+                  )}
+                >
+                  <span className="text-xl leading-none">🎉</span>
+                  <span className="flex-1">
+                    <span className="block text-xs font-black uppercase tracking-tight text-emerald-500">
+                      Fechou negócio
+                    </span>
+                    <span className="block text-[10px] font-bold text-muted-foreground mt-0.5">
+                      Registra a venda e arquiva como convertido
+                    </span>
+                  </span>
+                  <span className="text-emerald-500 text-sm font-black">
+                    {selectedReason === ARCHIVE_REASON_GANHO ? "✓" : "→"}
+                  </span>
+                </button>
+
+                {/* 2. PERDEU — em grade de duas colunas: a lista em coluna única
+                    estourava a altura do modal e escondia o rodapé. */}
+                <div className="space-y-2">
+                  <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">
+                    Não fechou — qual o motivo?
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {ARCHIVE_REASONS_PERDA.map((r) => (
                       <button
                         key={r.text}
                         onClick={() => {
@@ -5013,35 +5098,24 @@ export function WhatsappView({
                             setIsEnteringCustomReason(true);
                           } else if (r.text === "Não vendemos o material") {
                             setIsEnteringMaterial(true);
-                          } else if (r.text === "Convertido") {
-                            setSelectedReason(isSelected ? "" : r.text);
                           } else {
                             handleArchiveChat(r.text);
                           }
                         }}
-                        className={cn(
-                          "w-full px-4 py-3 flex items-center justify-between text-left hover:bg-secondary/50 rounded-xl text-xs font-semibold border transition-all duration-200 active:scale-[0.99] group",
-                          isSelected
-                            ? "border-emerald-500/30 bg-emerald-500/5 text-foreground font-bold"
-                            : "border-transparent text-muted-foreground hover:text-foreground hover:border-border/30"
-                        )}
+                        className="w-full px-4 py-3 flex items-center gap-2.5 text-left rounded-xl text-xs font-semibold border border-border/40 text-muted-foreground hover:text-foreground hover:bg-secondary/50 hover:border-border transition-all duration-200 active:scale-[0.99] group"
                       >
-                        <span className="flex items-center gap-2">
-                          <span className="opacity-70 group-hover:opacity-100 transition-opacity">
-                            {r.icon}
-                          </span>
-                          <span>{r.text}</span>
+                        <span className="opacity-70 group-hover:opacity-100 transition-opacity shrink-0">
+                          {r.icon}
                         </span>
-                        {isSelected ? (
-                          <span className="text-emerald-500">✓</span>
-                        ) : (
-                          <span className="text-[10px] opacity-0 group-hover:opacity-60 transition-all transform translate-x-2 group-hover:translate-x-0 font-bold">
-                            →
-                          </span>
+                        <span className="flex-1 leading-tight">{r.text}</span>
+                        {/* Reticências avisam que ainda vai pedir mais informação
+                            antes de arquivar, em vez de arquivar no clique. */}
+                        {(r.text === "Outros" || r.text === "Não vendemos o material") && (
+                          <span className="text-[10px] font-black opacity-40 shrink-0">...</span>
                         )}
                       </button>
-                    );
-                  })}
+                    ))}
+                  </div>
                 </div>
 
                 {/* Se for Convertido, mostra a Forma de Pagamento e Observação logo abaixo na mesma tela */}
@@ -5090,6 +5164,41 @@ export function WhatsappView({
                     </button>
                   </div>
                 )}
+
+                {/* Follow-up: veio do sino que ficava no cabeçalho da conversa.
+                    Fica separado da lista de propósito — não é motivo de perda,
+                    é o oposto: manter a conversa viva para retomar depois, e
+                    clicar aqui NÃO arquiva. */}
+                <div className="pt-4 border-t border-border/50 space-y-2">
+                  <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest">
+                    Ainda vai decidir?
+                  </p>
+                  <button
+                    onClick={() => {
+                      setFollowUpDateInput(archiveTarget?.leadInfo?.followUpDate || "");
+                      setShowArchiveModal(false);
+                      setShowFollowUpModal(true);
+                    }}
+                    className={cn(
+                      "w-full px-4 py-3 flex items-center justify-between text-left rounded-xl text-xs font-semibold border transition-all duration-200 active:scale-[0.99] group",
+                      archiveTarget?.leadInfo?.followUpDate
+                        ? "border-yellow-500/30 bg-yellow-500/5 text-foreground font-bold"
+                        : "border-transparent text-muted-foreground hover:text-foreground hover:border-border/30 hover:bg-secondary/50",
+                    )}
+                  >
+                    <span className="flex items-center gap-2">
+                      <Bell className="w-3.5 h-3.5 opacity-70 group-hover:opacity-100 transition-opacity" />
+                      <span>
+                        {archiveTarget?.leadInfo?.followUpDate
+                          ? `Retornar em ${formatFollowUpDate(archiveTarget.leadInfo.followUpDate)} — não arquiva`
+                          : "Agendar retorno e manter a conversa aberta"}
+                      </span>
+                    </span>
+                    <span className="text-[10px] opacity-0 group-hover:opacity-60 transition-all transform translate-x-2 group-hover:translate-x-0 font-bold">
+                      →
+                    </span>
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -5625,35 +5734,11 @@ export function WhatsappView({
                   />
                 </button>
                 )}
-                <button
-                  onClick={() => {
-                    setFollowUpDateInput(
-                      selectedChat.leadInfo?.followUpDate || "",
-                    );
-                    setShowFollowUpModal(true);
-                  }}
-                  className={cn(
-                    "p-2.5 hover:bg-secondary rounded-xl transition-all relative",
-                    selectedChat.leadInfo?.followUpDate
-                      ? "text-yellow-500 bg-yellow-500/10 border border-yellow-500/20"
-                      : "text-muted-foreground",
-                  )}
-                  title={
-                    selectedChat.leadInfo?.followUpDate
-                      ? `Follow-up agendado para: ${formatFollowUpDate(selectedChat.leadInfo.followUpDate)}`
-                      : "Agendar Follow-up"
-                  }
-                >
-                  <Bell className="w-4 h-4" />
-                  {selectedChat.leadInfo?.followUpDate && (
-                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-yellow-500 rounded-full animate-pulse" />
-                  )}
-                </button>
-
                 {viewMode === "active" ? (
                   <button
                     onClick={() => {
                       archiveTargetRef.current = selectedChat;
+                      setArchiveTarget(selectedChat);
                       setShowArchiveModal(true);
                     }}
                     className="p-2.5 hover:bg-secondary rounded-xl text-muted-foreground hover:text-rose-500 transition-colors"
@@ -6367,12 +6452,21 @@ export function WhatsappView({
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-bold truncate">
-                          {pendingFile.name}
+                          {audioPreviewUrl ? "Áudio gravado" : pendingFile.name}
                         </p>
                         <p className="text-[10px] text-muted-foreground uppercase font-black tracking-widest">
                           {(pendingFile.size / 1024).toFixed(1)} KB • Pronto
                           para enviar
                         </p>
+                        {/* Ouvir antes de mandar: áudio é o único anexo que não
+                            dá para conferir olhando o nome do arquivo. */}
+                        {audioPreviewUrl && (
+                          <audio
+                            controls
+                            src={audioPreviewUrl}
+                            className="mt-2 h-8 w-full max-w-xs"
+                          />
+                        )}
                       </div>
                       <button
                         onClick={() => setPendingFile(null)}
@@ -6817,55 +6911,151 @@ export function WhatsappView({
                   </div>
                 )}
 
+                {/* Gravando, o compositor inteiro dá lugar ao gravador — como
+                    no WhatsApp. Conviver com catálogo, emoji e campo de texto
+                    convidaria a clicar neles no meio de uma gravação. */}
+                {gravandoAudio ? (
+                  <GravadorAudio
+                    onCancelar={() => setGravandoAudio(false)}
+                    onEnviar={(arquivo) => {
+                      setGravandoAudio(false);
+                      setAudioPreviewUrl(null);
+                      confirmSendFile(arquivo);
+                    }}
+                    onErro={(titulo, mensagem) =>
+                      showNotification("error", titulo, mensagem)
+                    }
+                  />
+                ) : (
                 <div className="flex items-center gap-2 max-w-5xl mx-auto">
                   <input
                     ref={fileInputRef}
                     type="file"
                     className="hidden"
-                    accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.txt,.csv,.mp4,.mov"
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar,.txt,.csv"
                     onChange={(e) => {
                       const file = e.target.files?.[0];
                       if (file) handleSendDocument(file);
                       e.target.value = "";
                     }}
                   />
-                  <button
-                    onClick={() => setShowProductSelector(!showProductSelector)}
-                    className={cn(
-                      "p-2.5 rounded-xl transition-all relative",
-                      showProductSelector
-                        ? "bg-primary text-white"
-                        : "hover:bg-secondary text-muted-foreground",
-                    )}
-                  >
-                    <Package className="w-5 h-5" />
-                    {cartProducts.length > 0 && (
-                      <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full text-[9px] font-black flex items-center justify-center">
-                        {cartProducts.length}
-                      </span>
-                    )}
-                  </button>
-                  <button
-                    className="p-2.5 hover:bg-secondary rounded-xl text-muted-foreground"
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    <Paperclip className="w-5 h-5" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      setIsNoteMode((p) => !p);
-                      setInputText("");
+                  <input
+                    ref={mediaInputRef}
+                    type="file"
+                    className="hidden"
+                    accept="image/*,video/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleSendDocument(file);
+                      e.target.value = "";
                     }}
-                    className={cn(
-                      "p-2.5 rounded-xl transition-all",
-                      isNoteMode
-                        ? "bg-amber-500/15 text-amber-500 border border-amber-500/30"
-                        : "hover:bg-secondary text-muted-foreground",
+                  />
+                  <input
+                    ref={audioInputRef}
+                    type="file"
+                    className="hidden"
+                    accept="audio/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleSendDocument(file);
+                      e.target.value = "";
+                    }}
+                  />
+                  {/* "+" — reúne o que antes eram três botões soltos na barra
+                      (catálogo, anexo e anotação interna) num menu só, como no
+                      WhatsApp. O badge do carrinho fica aqui porque o catálogo
+                      passou a morar dentro do menu e o aviso sumiria da vista. */}
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowPlusMenu((p) => !p)}
+                      className={cn(
+                        "p-2.5 rounded-xl transition-all relative",
+                        showPlusMenu
+                          ? "bg-primary/15 text-primary"
+                          : "hover:bg-secondary text-muted-foreground",
+                      )}
+                      title="Anexar"
+                      aria-label="Anexar"
+                      aria-expanded={showPlusMenu}
+                    >
+                      <Plus
+                        className={cn(
+                          "w-5 h-5 transition-transform duration-200",
+                          showPlusMenu && "rotate-45",
+                        )}
+                      />
+                      {cartProducts.length > 0 && (
+                        <span className="absolute -top-1 -right-1 w-4 h-4 bg-rose-500 text-white rounded-full text-[9px] font-black flex items-center justify-center">
+                          {cartProducts.length}
+                        </span>
+                      )}
+                    </button>
+
+                    {showPlusMenu && (
+                      <>
+                        <div
+                          className="fixed inset-0 z-40"
+                          onClick={() => setShowPlusMenu(false)}
+                        />
+                        <div className="absolute bottom-full left-0 mb-2 z-50 w-60 bg-card border border-border rounded-2xl shadow-2xl p-1.5 overflow-hidden">
+                          {[
+                            {
+                              icone: <FileText className="w-4 h-4 text-blue-500" />,
+                              texto: "Documento",
+                              acao: () => fileInputRef.current?.click(),
+                            },
+                            {
+                              icone: <Camera className="w-4 h-4 text-violet-500" />,
+                              texto: "Fotos e vídeos",
+                              acao: () => mediaInputRef.current?.click(),
+                            },
+                            {
+                              icone: <Mic className="w-4 h-4 text-rose-500" />,
+                              texto: "Áudio",
+                              acao: () => audioInputRef.current?.click(),
+                            },
+                            {
+                              icone: <Package className="w-4 h-4 text-emerald-500" />,
+                              texto: "Catálogo",
+                              detalhe:
+                                cartProducts.length > 0
+                                  ? `${cartProducts.length} no carrinho`
+                                  : undefined,
+                              acao: () => setShowProductSelector(true),
+                            },
+                            {
+                              icone: <Eye className="w-4 h-4 text-amber-500" />,
+                              texto: "Anotação interna",
+                              detalhe: isNoteMode ? "ativa" : undefined,
+                              acao: () => {
+                                setIsNoteMode((p) => !p);
+                                setInputText("");
+                              },
+                            },
+                          ].map((item) => (
+                            <button
+                              key={item.texto}
+                              type="button"
+                              onClick={() => {
+                                setShowPlusMenu(false);
+                                item.acao();
+                              }}
+                              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left text-xs font-bold text-foreground hover:bg-secondary transition-colors"
+                            >
+                              <span className="shrink-0">{item.icone}</span>
+                              <span className="flex-1">{item.texto}</span>
+                              {item.detalhe && (
+                                <span className="text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+                                  {item.detalhe}
+                                </span>
+                              )}
+                            </button>
+                          ))}
+                        </div>
+                      </>
                     )}
-                    title="Anotação interna (visível apenas para atendentes)"
-                  >
-                    <Eye className="w-5 h-5" />
-                  </button>
+                  </div>
 
                   {/* Seletor de emoji — antes só dava para inserir emoji pelo
                       atalho do sistema operacional, que ninguém do atendimento usa. */}
@@ -6978,37 +7168,54 @@ export function WhatsappView({
                         : "bg-background border-border focus:border-primary/50",
                     )}
                   />
-                  <button
-                    onClick={() => {
-                      if (isNoteMode) {
-                        handleSendInternalNote();
-                      } else {
-                        if (pendingFile) {
-                          confirmSendFile();
+                  {/* Lado direito do campo, como no WhatsApp: sem nada escrito
+                      fica só o microfone; ao começar a digitar (ou com arquivo
+                      na fila) ele dá lugar ao botão de enviar. Anexar é tudo
+                      pelo "+". Em modo anotação o enviar fica sempre visível —
+                      um áudio iria para o cliente, e a anotação é interna. */}
+                  {isNoteMode || inputText.trim().length > 0 || pendingFile ? (
+                    <button
+                      onClick={() => {
+                        if (isNoteMode) {
+                          handleSendInternalNote();
                         } else {
-                          handleSendMessage();
+                          if (pendingFile) {
+                            confirmSendFile();
+                          } else {
+                            handleSendMessage();
+                          }
                         }
-                      }
-                    }}
-                    className={cn(
-                      "w-11 h-11 rounded-xl flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all",
-                      isNoteMode
-                        ? "bg-amber-500 text-white shadow-amber-500/20"
-                        : "bg-primary text-white",
-                    )}
-                  >
-                    {isNoteMode ? (
-                      <Eye className="w-5 h-5" />
-                    ) : (
-                      <Send
-                        className={cn(
-                          "w-5 h-5",
-                          pendingFile && "animate-pulse",
-                        )}
-                      />
-                    )}
-                  </button>
+                      }}
+                      className={cn(
+                        "w-11 h-11 rounded-xl flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all shrink-0 animate-in fade-in zoom-in-75 duration-150",
+                        isNoteMode
+                          ? "bg-amber-500 text-white shadow-amber-500/20"
+                          : "bg-primary text-white",
+                      )}
+                      title={isNoteMode ? "Salvar anotação" : "Enviar"}
+                      aria-label={isNoteMode ? "Salvar anotação" : "Enviar"}
+                    >
+                      {isNoteMode ? (
+                        <Eye className="w-5 h-5" />
+                      ) : (
+                        <Send
+                          className={cn("w-5 h-5", pendingFile && "animate-pulse")}
+                        />
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setGravandoAudio(true)}
+                      className="p-2.5 hover:bg-secondary rounded-xl text-muted-foreground transition-all shrink-0 animate-in fade-in duration-150"
+                      title="Gravar áudio"
+                      aria-label="Gravar áudio"
+                    >
+                      <Mic className="w-5 h-5" />
+                    </button>
+                  )}
                 </div>
+                )}
               </div>
             </div>
           </>
@@ -7062,6 +7269,7 @@ export function WhatsappView({
                 // Trava a conversa clicada antes de limpar o menu, pois o modal
                 // pede o motivo de forma assíncrona e o contextMenu vira null.
                 archiveTargetRef.current = contextMenu.chat;
+                setArchiveTarget(contextMenu.chat);
                 setContextMenu(null);
                 setShowArchiveModal(true);
               } else {
