@@ -1437,6 +1437,12 @@ export function WhatsappView({
   const chatListRef = useRef<HTMLDivElement>(null);
   const tempBtnRef = useRef<HTMLButtonElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // O auto-scroll só vale quando o atendente já está no fim da conversa. Sem
+  // isso, qualquer mensagem nova (de qualquer cliente, pelo realtime) jogava a
+  // tela para baixo no meio da leitura de mensagens antigas.
+  const pertoDoFimRef = useRef(true);
+  // Ao trocar de conversa, ou ao enviar, a ida para o fim é intencional.
+  const forcarFimRef = useRef(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const selectedChatRef = useRef<Chat | null>(null);
   // Trava a conversa-alvo de uma ação (arquivar) pelo ID, para que a reordenação
@@ -3498,16 +3504,33 @@ export function WhatsappView({
     return () => clearInterval(id);
   }, []);
 
-  // Auto-scroll para o fim apenas quando NÃO estiver carregando mensagens antigas (load-more)
+  // Auto-scroll para o fim — mas só quando faz sentido:
+  //  • nunca durante o load-more (senão perde a posição das antigas);
+  //  • quando o atendente já está no fim, para acompanhar a conversa ao vivo;
+  //  • sempre ao abrir outra conversa ou ao enviar mensagem.
+  // Antes ele descia a cada alteração em `messages`, e como o realtime atualiza
+  // status, reação e mensagem de qualquer cliente, a tela pulava para baixo no
+  // meio da leitura.
   useEffect(() => {
     if (loadingMoreMessages) return;
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    const el = scrollRef.current;
+    if (!el) return;
+    if (!forcarFimRef.current && !pertoDoFimRef.current) return;
+    el.scrollTop = el.scrollHeight;
+    forcarFimRef.current = false;
   }, [messages, loadingMoreMessages]);
+
+  // Trocar de conversa sempre abre no fim, como no WhatsApp.
+  useEffect(() => {
+    forcarFimRef.current = true;
+    pertoDoFimRef.current = true;
+  }, [selectedChat?.id]);
 
   const handleSendMessage = async () => {
     if (!inputText.trim() || !selectedChat) return;
+
+    // Quem envia quer ver o que enviou, mesmo tendo subido para reler algo.
+    forcarFimRef.current = true;
 
     const textToSend = inputText;
     setInputText("");
@@ -5920,11 +5943,13 @@ export function WhatsappView({
                   ref={scrollRef}
                   className="flex-1 min-h-0 overflow-y-auto p-6 space-y-4"
                   onScroll={(e) => {
-                    if (
-                      (e.currentTarget as HTMLDivElement).scrollTop === 0 &&
-                      hasMoreMessages &&
-                      !loadingMoreMessages
-                    ) {
+                    const alvo = e.currentTarget as HTMLDivElement;
+                    // 120px de tolerância: quem está "quase no fim" continua
+                    // acompanhando ao vivo; quem subiu para ler fica onde está.
+                    pertoDoFimRef.current =
+                      alvo.scrollHeight - alvo.scrollTop - alvo.clientHeight < 120;
+
+                    if (alvo.scrollTop === 0 && hasMoreMessages && !loadingMoreMessages) {
                       loadMoreMessages();
                     }
                   }}
