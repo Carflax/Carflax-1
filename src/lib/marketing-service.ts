@@ -39,6 +39,10 @@ export interface MarketingCliente {
   mensagens_nao_lidas?: number;
   valor_venda?: number | null;
   data_venda?: string | null;
+  /** Quando a conversa deve voltar dos arquivados. */
+  follow_up_em?: string | null;
+  /** Preenchido pelo agendador do servidor ao devolver a conversa. */
+  follow_up_atendido_em?: string | null;
   /** erp = valor sincronizado da Citel; manual = lançado/corrigido pelo vendedor. */
   venda_origem?: string | null;
   valor_orcamento?: number | null;
@@ -835,6 +839,57 @@ export const marketingService = {
     await supabase
       .from("marketing_clientes")
       .update({ valor_orcamento: null, data_orcamento: null, updated_at: new Date().toISOString() })
+      .eq("remote_jid", remoteJid);
+  },
+
+  /**
+   * Agenda o retorno da conversa e a arquiva.
+   *
+   * Arquivar faz parte do agendamento, não é efeito colateral: o combinado é
+   * "some da caixa de entrada até tal hora". Quem devolve para os ativos é o
+   * agendador do servidor (db/src/lib/followUpScheduler.js), que roda mesmo com
+   * o HUB fechado.
+   *
+   * `quandoIso` nulo cancela o follow-up (e não desarquiva — quem estava
+   * arquivado por outro motivo continua arquivado).
+   */
+  async agendarFollowUp(remoteJid: string, quandoIso: string | null, autorId?: string) {
+    const agora = new Date().toISOString();
+    const patch: Record<string, unknown> = {
+      follow_up_em: quandoIso,
+      follow_up_atendido_em: null,
+      follow_up_criado_por: quandoIso ? autorId ?? null : null,
+      follow_up_criado_em: quandoIso ? agora : null,
+      updated_at: agora,
+    };
+    if (quandoIso) {
+      patch.arquivado = true;
+      patch.arquivado_por = autorId ?? null;
+      patch.arquivado_em = agora;
+    }
+
+    const { error } = await supabase
+      .from("marketing_clientes")
+      .update(patch)
+      .eq("remote_jid", remoteJid);
+
+    if (error) {
+      console.error("[MarketingService] Erro ao agendar follow-up:", error.message);
+      throw error;
+    }
+  },
+
+  /** Limpa o selo depois que o atendente tratou a conversa que voltou. */
+  async limparFollowUp(remoteJid: string) {
+    await supabase
+      .from("marketing_clientes")
+      .update({
+        follow_up_em: null,
+        follow_up_atendido_em: null,
+        follow_up_criado_por: null,
+        follow_up_criado_em: null,
+        updated_at: new Date().toISOString(),
+      })
       .eq("remote_jid", remoteJid);
   },
 

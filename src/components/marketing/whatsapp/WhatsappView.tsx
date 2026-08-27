@@ -152,6 +152,8 @@ interface LeadMetadata {
   quoteDocument?: string;
   city?: string;
   followUpDate?: string;
+  /** Preenchido pelo agendador quando a conversa volta — liga o selo na lista. */
+  followUpAtendidoEm?: string;
   numeroDocumento?: string;
   tipoDocumento?: number;
   cep?: string;
@@ -660,6 +662,9 @@ const ARCHIVE_REASONS = [
 // e perder são resultados opostos, e agendar retorno nem arquiva a conversa.
 // Tudo junto sob o título "motivo da perda" era o que confundia — o atendente
 // tinha que achar "Convertido" no meio dos motivos de perda.
+/** Altura máxima do compositor antes de virar rolagem (~6 linhas). */
+const ALTURA_MAX_COMPOSER = 132;
+
 const ARCHIVE_REASON_GANHO = "Convertido";
 const ARCHIVE_REASONS_PERDA = ARCHIVE_REASONS.filter(
   (r) => r.text !== ARCHIVE_REASON_GANHO,
@@ -1090,13 +1095,28 @@ function formatAudioTime(seconds: number) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-function formatFollowUpDate(dateStr?: string) {
-  if (!dateStr) return "";
-  const parts = dateStr.split("-");
-  if (parts.length === 3) {
-    return `${parts[2]}/${parts[1]}/${parts[0]}`;
-  }
-  return dateStr;
+/**
+ * Follow-up formatado como "dd/mm às HH:mm".
+ *
+ * Aceita tanto o valor do `datetime-local` ("2026-08-28T14:30") quanto o ISO
+ * com fuso que vem do banco — a tela lê dos dois lugares.
+ */
+function formatFollowUpDate(valor?: string) {
+  if (!valor) return "";
+  const d = new Date(valor);
+  if (Number.isNaN(d.getTime())) return valor;
+  const dia = d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+  const hora = d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" });
+  return `${dia} às ${hora}`;
+}
+
+/** ISO (banco) → valor aceito pelo input datetime-local, no fuso local. */
+function paraInputDateTime(iso?: string) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 function getFormattedMessageDate(timestampStr?: string) {
@@ -1327,7 +1347,20 @@ export function WhatsappView({
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const composerInputRef = useRef<HTMLInputElement | null>(null);
+  // Textarea, e não input: `input` não guarda quebra de linha nenhuma, então
+  // Shift+Enter não tinha como funcionar. O balão já renderiza com
+  // `whitespace-pre-wrap`, então a quebra aparece certo do outro lado.
+  const composerInputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Cresce com o conteúdo até o teto e então rola, como no WhatsApp. O "auto"
+  // antes de medir é necessário: sem zerar, o scrollHeight nunca diminui e o
+  // campo ficaria travado na maior altura que já teve.
+  useEffect(() => {
+    const el = composerInputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, ALTURA_MAX_COMPOSER)}px`;
+  }, [inputText]);
   const [loading, setLoading] = useState(true);
   // Cadastro do cliente no ERP (casado pelo telefone da conversa).
   const [showCadastroErp, setShowCadastroErp] = useState(false);
@@ -1695,6 +1728,8 @@ export function WhatsappView({
             temperature: (item.temperatura as Temperature) || "Frio",
             source: finalSource,
             campaign: item.campanha || "Geral",
+            followUpDate: item.follow_up_em || undefined,
+            followUpAtendidoEm: item.follow_up_atendido_em || undefined,
             saleValue:
               (item.valor_venda ?? 0) > 0
                 ? item.valor_venda!.toLocaleString("pt-BR", {
@@ -1830,6 +1865,8 @@ export function WhatsappView({
           temperature: (item.temperatura as Temperature) || "Frio",
           source: finalSource,
           campaign: item.campanha || "Geral",
+          followUpDate: item.follow_up_em || undefined,
+          followUpAtendidoEm: item.follow_up_atendido_em || undefined,
           saleValue:
             (item.valor_venda ?? 0) > 0
               ? item.valor_venda!.toLocaleString("pt-BR", {
@@ -3784,21 +3821,65 @@ export function WhatsappView({
     }
   };
 
-  const handleDragOver = (e: React.DragEvent) => {
+  // Arrastar arquivo para a conversa.
+  //
+  // O `dragleave` dispara toda vez que o ponteiro passa de um elemento para um
+  // filho — e a área de mensagens é cheia deles. Com um simples liga/desliga, o
+  // overlay piscava a cada balão que o arquivo cruzava. Pior: o próprio overlay
+  // é um filho que aparece durante o arrasto, então ele se auto-derrubava em
+  // loop (aparece → ponteiro entra nele → leave no pai → some → aparece...).
+  //
+  // A contagem de enter/leave resolve o primeiro caso; o `pointer-events-none`
+  // no overlay resolve o segundo.
+  const dragCounterRef = useRef(0);
+
+  /** Só reage a arquivo de verdade — arrastar texto dentro do app não conta. */
+  const arrastandoArquivo = (e: React.DragEvent) =>
+    Array.from(e.dataTransfer?.types || []).includes("Files");
+
+  const handleDragEnter = (e: React.DragEvent) => {
+    if (!arrastandoArquivo(e)) return;
     e.preventDefault();
+    dragCounterRef.current += 1;
     setIsDragging(true);
   };
 
-  const handleDragLeave = () => {
-    setIsDragging(false);
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!arrastandoArquivo(e)) return;
+    // Sem o preventDefault no dragover o navegador recusa o drop.
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    if (!arrastandoArquivo(e)) return;
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+    if (dragCounterRef.current === 0) setIsDragging(false);
   };
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
+    dragCounterRef.current = 0;
     setIsDragging(false);
     const file = e.dataTransfer.files[0];
     if (file) handleSendDocument(file);
   };
+
+  // Soltar o arquivo fora da janela (ou apertar Esc) não dispara drop nem leave
+  // na área — sem isto o overlay ficava preso na tela até o próximo arrasto.
+  useEffect(() => {
+    if (!isDragging) return;
+    const limpar = () => {
+      dragCounterRef.current = 0;
+      setIsDragging(false);
+    };
+    window.addEventListener("dragend", limpar);
+    window.addEventListener("drop", limpar);
+    return () => {
+      window.removeEventListener("dragend", limpar);
+      window.removeEventListener("drop", limpar);
+    };
+  }, [isDragging]);
 
   const loadProducts = useCallback(async () => {
     if (productsLoadedRef.current) return;
@@ -4396,12 +4477,26 @@ export function WhatsappView({
     }
   }, [displayedChats, selectedChat, handleSelectChat]);
 
-  const scheduleFollowUp = (dateStr: string, alvo?: Chat | null) => {
-    // O alvo é explícito porque o follow-up agora é agendado de dentro do modal
-    // de arquivamento, que pode ter sido aberto pelo menu de contexto para uma
-    // conversa diferente da que está aberta na tela.
+  /**
+   * Agenda (ou cancela) o retorno da conversa.
+   *
+   * Agendar ARQUIVA: o combinado é que a conversa suma da caixa de entrada até
+   * a hora marcada. Quem devolve aos ativos é o agendador do servidor, que roda
+   * mesmo com o HUB fechado — por isso o valor precisa ir para o banco, e não
+   * ficar só no estado da tela como era antes.
+   *
+   * O alvo é explícito porque o modal também abre pelo menu de contexto, para
+   * uma conversa diferente da que está aberta.
+   */
+  const scheduleFollowUp = async (quandoLocal: string, alvo?: Chat | null) => {
     const chat = alvo ?? selectedChat;
     if (!chat) return;
+
+    // `datetime-local` devolve hora local sem fuso; o `new Date` interpreta no
+    // fuso do navegador, que é o que o atendente quis dizer.
+    const iso = quandoLocal ? new Date(quandoLocal).toISOString() : null;
+    const agendando = Boolean(iso);
+
     const updatedLeadInfo = {
       ...(chat.leadInfo || {
         status: "Novo Lead",
@@ -4409,14 +4504,28 @@ export function WhatsappView({
         source: "WhatsApp",
         campaign: "Geral",
       }),
-      followUpDate: dateStr || undefined,
+      followUpDate: iso || undefined,
+      followUpAtendidoEm: undefined,
     };
-    if (selectedChat?.id === chat.id) {
-      setSelectedChat({ ...chat, leadInfo: updatedLeadInfo });
-    }
+
+    if (selectedChat?.id === chat.id) setSelectedChat(null);
     setChats((prev) =>
-      prev.map((c) => (c.id === chat.id ? { ...c, leadInfo: updatedLeadInfo } : c)),
+      prev.map((c) =>
+        c.id === chat.id
+          ? { ...c, leadInfo: updatedLeadInfo, arquivado: agendando ? true : c.arquivado }
+          : c,
+      ),
     );
+
+    try {
+      await marketingService.agendarFollowUp(chat.id, iso, userProfile?.id);
+    } catch {
+      showNotification(
+        "error",
+        "Não foi possível agendar",
+        "O follow-up não foi salvo. Tente de novo.",
+      );
+    }
   };
 
   const handleTemperatureChange = useCallback(
@@ -4837,14 +4946,18 @@ export function WhatsappView({
             <div className="p-6 space-y-4">
               <div className="space-y-2">
                 <label className="text-[10px] font-black text-muted-foreground uppercase tracking-widest block">
-                  Escolha uma Data
+                  Data e hora do retorno
                 </label>
                 <input
-                  type="date"
+                  type="datetime-local"
                   value={followUpDateInput}
                   onChange={(e) => setFollowUpDateInput(e.target.value)}
                   className="w-full bg-secondary/50 border border-border/80 rounded-2xl px-4 py-3 text-sm font-bold text-foreground outline-none focus:border-yellow-500/50 focus:ring-2 focus:ring-yellow-500/20 transition-all"
                 />
+                <p className="text-[10px] font-bold text-muted-foreground leading-relaxed">
+                  A conversa vai para <span className="text-foreground">Arquivados</span> e
+                  volta sozinha para os ativos na hora marcada, com o selo de follow-up.
+                </p>
               </div>
 
               {(archiveTarget ?? selectedChat)?.leadInfo?.followUpDate && (
@@ -5175,7 +5288,9 @@ export function WhatsappView({
                   </p>
                   <button
                     onClick={() => {
-                      setFollowUpDateInput(archiveTarget?.leadInfo?.followUpDate || "");
+                      setFollowUpDateInput(
+                        paraInputDateTime(archiveTarget?.leadInfo?.followUpDate),
+                      );
                       setShowArchiveModal(false);
                       setShowFollowUpModal(true);
                     }}
@@ -5499,6 +5614,22 @@ export function WhatsappView({
                         </span>
                       )}
                     </p>
+
+                    {/* Follow-up: dois estados bem diferentes, por isso dois
+                        rótulos. Arquivado, informa quando volta; devolvido pelo
+                        agendador, cobra a ação — é a conversa que o atendente
+                        pediu para reencontrar. */}
+                    {chat.leadInfo?.followUpAtendidoEm ? (
+                      <span className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-yellow-500/15 text-yellow-500 text-[8px] font-black uppercase tracking-widest">
+                        <Bell className="w-2.5 h-2.5" />
+                        Follow-up
+                      </span>
+                    ) : chat.leadInfo?.followUpDate ? (
+                      <span className="mt-1 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground text-[8px] font-black uppercase tracking-widest">
+                        <Bell className="w-2.5 h-2.5" />
+                        Volta {formatFollowUpDate(chat.leadInfo.followUpDate)}
+                      </span>
+                    ) : null}
                   </div>
 
                   <div className="flex flex-col items-end justify-between py-0.5 shrink-0 min-w-[40px]">
@@ -5759,13 +5890,14 @@ export function WhatsappView({
             </div>
 
             <div
+              onDragEnter={handleDragEnter}
               onDragOver={handleDragOver}
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
               className="flex-1 min-h-0 flex flex-col bg-[url('https://w0.peakpx.com/wallpaper/580/650/HD-wallpaper-whatsapp-background-dark-mode-pattern-whatsapp-dark-mode-thumbnail.jpg')] bg-repeat relative"
             >
               {isDragging && (
-                <div className="absolute inset-0 z-50 bg-primary/20 backdrop-blur-sm flex items-center justify-center border-4 border-dashed border-primary m-4 rounded-3xl animate-in fade-in duration-200">
+                <div className="absolute inset-0 z-50 bg-primary/20 backdrop-blur-sm flex items-center justify-center border-4 border-dashed border-primary m-4 rounded-3xl animate-in fade-in duration-200 pointer-events-none">
                   <div className="bg-card p-8 rounded-3xl shadow-2xl flex flex-col items-center gap-4">
                     <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
                       <Paperclip className="w-8 h-8 text-primary animate-bounce" />
@@ -7108,9 +7240,9 @@ export function WhatsappView({
                     )}
                   </div>
 
-                  <input
+                  <textarea
                     ref={composerInputRef}
-                    type="text"
+                    rows={1}
                     value={inputText}
                     onChange={(e) => {
                       let val = e.target.value;
@@ -7140,7 +7272,10 @@ export function WhatsappView({
                         setShowEmojiPicker(false);
                         return;
                       }
-                      if (e.key === "Enter") {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        // Sem o preventDefault o textarea ainda insere a quebra
+                        // antes de o campo ser limpo pelo envio.
+                        e.preventDefault();
                         setShowEmojiPicker(false);
                         if (isNoteMode) {
                           handleSendInternalNote();
@@ -7162,11 +7297,12 @@ export function WhatsappView({
                           : "Responda agora..."
                     }
                     className={cn(
-                      "flex-1 border rounded-xl px-4 py-2.5 text-sm outline-none transition-all",
+                      "flex-1 border rounded-xl px-4 py-2.5 text-sm outline-none transition-colors resize-none overflow-y-auto leading-relaxed",
                       isNoteMode
                         ? "bg-amber-500/5 border-amber-500/30 focus:border-amber-500/60 text-amber-700 dark:text-amber-300 placeholder:text-amber-500/50"
                         : "bg-background border-border focus:border-primary/50",
                     )}
+                    style={{ maxHeight: ALTURA_MAX_COMPOSER }}
                   />
                   {/* Lado direito do campo, como no WhatsApp: sem nada escrito
                       fica só o microfone; ao começar a digitar (ou com arquivo
