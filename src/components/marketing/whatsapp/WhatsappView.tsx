@@ -935,6 +935,22 @@ function Linkify({ text }: { text: string }): ReactElement {
         const isUrl = /^(https?:\/\/|www\.)/i.test(part);
         if (isUrl) {
           const href = part.startsWith("http") ? part : `https://${part}`;
+          const isGoogleMaps = /maps\.(google|app)|goo\.gl\/maps/i.test(href);
+          if (isGoogleMaps) {
+            return (
+              <a
+                key={i}
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => e.stopPropagation()}
+                className="inline-flex items-center gap-1.5 my-1 px-3 py-1.5 rounded-xl bg-white/20 hover:bg-white/30 border border-white/30 text-white font-black text-xs transition-all shadow-sm group/map-link"
+              >
+                <span>📍 Abrir rota no Google Maps / Waze</span>
+                <span className="group-hover/map-link:translate-x-0.5 transition-transform">→</span>
+              </a>
+            );
+          }
           return (
             <a
               key={i}
@@ -942,13 +958,29 @@ function Linkify({ text }: { text: string }): ReactElement {
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
-              className="text-sky-400 underline underline-offset-2 break-all hover:text-sky-300"
+              className="text-sky-300 underline underline-offset-2 break-all hover:text-sky-200 font-semibold"
             >
               {part}
             </a>
           );
         }
-        return <Fragment key={i}>{part}</Fragment>;
+
+        // Formatação de negrito do WhatsApp: *texto em destaque*
+        const boldParts = part.split(/(\*[^*\n]+\*)/g);
+        return (
+          <Fragment key={i}>
+            {boldParts.map((sub, j) => {
+              if (sub.startsWith("*") && sub.endsWith("*") && sub.length > 2) {
+                return (
+                  <strong key={j} className="font-black text-inherit opacity-95">
+                    {sub.slice(1, -1)}
+                  </strong>
+                );
+              }
+              return sub;
+            })}
+          </Fragment>
+        );
       })}
     </>
   );
@@ -1385,6 +1417,10 @@ export interface WhatsappApi {
   // Opcional: reagir (like/emoji) a uma mensagem. Só a API Oficial implementa hoje;
   // quando ausente, a UI de reação não é exibida.
   sendReaction?(jid: string, messageId: string, emoji: string): Promise<{ key?: { id?: string } }>;
+  // Envio de localização nativa (Meta Cloud API / Oficial)
+  sendLocation?(jid: string, location?: { latitude: number; longitude: number; name?: string; address?: string }): Promise<{ key?: { id?: string } }>;
+  // Envio do Card Interativo com Foto da Fachada + Botão de Rota
+  sendStoreCard?(jid: string): Promise<{ key?: { id?: string } }>;
 }
 
 export function WhatsappView({
@@ -3616,6 +3652,14 @@ export function WhatsappView({
     // Quem envia quer ver o que enviou, mesmo tendo subido para reler algo.
     forcarFimRef.current = true;
 
+    // Se o usuário digitou /end ou /endereco, envia o card oficial da fachada com localização
+    const trimmedCmd = inputText.trim().toLowerCase();
+    if (trimmedCmd === "/end" || trimmedCmd === "/endereco") {
+      setInputText("");
+      handleSendStoreLocation();
+      return;
+    }
+
     const textToSend = inputText;
     setInputText("");
 
@@ -3718,6 +3762,106 @@ export function WhatsappView({
       });
     } catch (error) {
       console.error("Erro ao enviar mensagem:", error);
+    }
+  };
+
+  /**
+   * Envia a localização oficial da loja Carflax como um card nativo e interativo do WhatsApp.
+   */
+  const handleSendStoreLocation = async () => {
+    if (!selectedChat) return;
+
+    forcarFimRef.current = true;
+    cancelarPedidoPendente(selectedChat.id);
+
+    if (selectedChat.arquivado) {
+      marketingService.toggleArchived(selectedChat.id, false);
+      setSelectedChat({ ...selectedChat, arquivado: false });
+      setChats((prev) =>
+        prev.map((c) =>
+          c.id === selectedChat.id ? { ...c, arquivado: false } : c,
+        ),
+      );
+    }
+
+    const imageUrl = "https://zwfvrmqffxcqurxpfewi.supabase.co/storage/v1/object/public/whatsapp-media/fachada-carflax.jpg";
+    const placeName = "Carflax Hidráulica e Elétrica";
+    const address = "Av. Américo Bruno, 75 — Ponte São João, Jundiaí - SP (CEP 13218-080)";
+    const mapsUrl = "https://maps.google.com/?q=Av.+Am%C3%A9rico+Bruno,+75+-+Ponte+S%C3%A3o+Jo%C3%A3o,+Jundia%C3%AD+-+SP,+13218-080";
+    const captionText = `📍 *${placeName}*\n\nVenha nos visitar! Amplo estacionamento e pronta entrega.\n\n🏢 *Endereço:*\n${address}\n\n⏰ *Horário de Atendimento:*\nSeg a Sex: 07:30 às 17:30\nSábado: 08:00 às 12:00\n\n🗺️ *Como chegar:*\n${mapsUrl}`;
+
+    const msgId = "me_" + Date.now().toString();
+    const timestamp = new Date().toISOString();
+    const time = formatBrTime(new Date(timestamp));
+
+    const newMsg: Message = {
+      id: msgId,
+      text: captionText,
+      time,
+      rawTimestamp: timestamp,
+      sender: "me",
+      status: "sent",
+      tipo: "image",
+      mediaUrl: imageUrl,
+    };
+
+    setMessages((prev) => [...prev, newMsg]);
+
+    setChats((prev) =>
+      bumpChatToTop(prev, selectedChat.id, {
+        lastMessage: "📷 Fachada da Loja",
+        lastMessageSender: "me",
+        lastMessageType: "image",
+        lastMessageStatus: "sent",
+        time: "Agora",
+        vendedor_id: vendedorId,
+      }),
+    );
+    setSelectedChat((prev) => (prev ? { ...prev, vendedor_id: vendedorId } : null));
+
+    try {
+      let realId: string | undefined;
+      if (api.sendStoreCard) {
+        const res = await api.sendStoreCard(selectedChat.id);
+        realId = res?.key?.id;
+      } else {
+        const res = await api.sendDocument(
+          selectedChat.id,
+          imageUrl,
+          "image/jpeg",
+          "fachada-carflax.jpg",
+          captionText,
+        );
+        realId = res?.key?.id;
+      }
+
+      if (realId) {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === msgId ? { ...m, id: realId } : m)),
+        );
+      }
+
+      await marketingService.upsertCliente({
+        remote_jid: selectedChat.id,
+        ultima_mensagem: "📷 Fachada da Loja",
+        ultima_conversa_em: timestamp,
+        status: "Em Contato",
+        vendedor_id: vendedorId,
+      });
+
+      await marketingService.saveMessage({
+        message_id: realId || msgId,
+        remote_jid: selectedChat.id,
+        texto: captionText,
+        sender: "me",
+        timestamp,
+        status: "sent",
+        tipo: "image",
+        media_url: imageUrl,
+        vendedor_id: vendedorId,
+      });
+    } catch (err) {
+      console.error("[StoreCard] Erro ao enviar card da loja:", err);
     }
   };
 
@@ -6179,7 +6323,7 @@ export function WhatsappView({
                               {(msg.tipo === "image" ||
                                 msg.tipo === "sticker") &&
                                 msg.mediaUrl && (
-                                  <div className="relative group/img">
+                                  <div className="relative group/img w-full overflow-hidden">
                                     <img
                                       src={msg.mediaUrl}
                                       alt={
@@ -6194,7 +6338,7 @@ export function WhatsappView({
                                       className={cn(
                                         isSticker
                                           ? "w-40 sm:w-48 h-auto object-contain"
-                                          : "w-72 max-w-full object-cover cursor-pointer hover:opacity-95 transition-all duration-300",
+                                          : "w-full max-h-[320px] object-cover cursor-pointer hover:opacity-95 transition-all duration-300",
                                         msg.text &&
                                           ![
                                             "Mídia",
@@ -7471,7 +7615,10 @@ export function WhatsappView({
                         } else if (trimmed === "/avalia") {
                           val = `Olá! 😊 Gostou do nosso atendimento?\n\nSua opinião é super importante para nós! Poderia deixar uma avaliação rápida de 5 estrelas no nosso Google? Leva menos de 1 minuto! ⭐⭐⭐⭐⭐\n\n👉 https://g.page/r/CZbhPzatSAjdEBM/review\n\nMuito obrigado pelo apoio e pela preferência! 🙌`;
                         } else if (trimmed === "/end" || trimmed === "/endereco") {
-                          val = `📍 *Nosso Endereço:*\n\n*Carflax Hidráulica e Elétrica*\nAv. Américo Bruno, 75 — Ponte São João\nJundiaí - SP | CEP: 13218-080\n\n🗺️ *Como chegar:*\nhttps://maps.google.com/?q=Av.+Am%C3%A9rico+Bruno,+75+-+Ponte+S%C3%A3o+Jo%C3%A3o,+Jundia%C3%AD+-+SP,+13218-080`;
+                          // Ao digitar /end ou /endereco, dispara direto o card com a foto da fachada
+                          setInputText("");
+                          handleSendStoreLocation();
+                          return;
                         }
                       }
                       setInputText(val);

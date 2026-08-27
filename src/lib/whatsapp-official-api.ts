@@ -104,6 +104,69 @@ export const whatsappOfficialApi = {
     return { key: res?.key };
   },
 
+  // Envio de localização nativa da loja (Carflax) ou personalizada
+  async sendLocation(
+    to: string,
+    location?: { latitude: number; longitude: number; name?: string; address?: string },
+  ): Promise<{ key?: { id?: string } }> {
+    const loc = location || {
+      latitude: -23.189531,
+      longitude: -46.876524,
+      name: "Carflax Hidráulica e Elétrica",
+      address: "Av. Américo Bruno, 75 — Ponte São João, Jundiaí - SP (CEP 13218-080)",
+    };
+    const res = await sendOfficial({
+      to,
+      type: "location",
+      location: loc,
+    });
+    return { key: res?.key };
+  },
+
+  // Envio do Card Interativo Oficial com Foto da Fachada + Endereço + Botão GPS
+  async sendStoreCard(to: string): Promise<{ key?: { id?: string } }> {
+    const mapsUrl = "https://maps.google.com/?q=Av.+Am%C3%A9rico+Bruno,+75+-+Ponte+S%C3%A3o+Jo%C3%A3o,+Jundia%C3%AD+-+SP,+13218-080";
+    const imageUrl = "https://zwfvrmqffxcqurxpfewi.supabase.co/storage/v1/object/public/whatsapp-media/fachada-carflax.jpg";
+    const bodyText = `📍 *Carflax Hidráulica e Elétrica*\n\nVenha nos visitar! Amplo estacionamento e pronta entrega.\n\n🏢 *Endereço:*\nAv. Américo Bruno, 75 — Ponte São João\nJundiaí - SP | CEP: 13218-080\n\n⏰ *Horário de Atendimento:*\nSeg a Sex: 07:30 às 17:30\nSábado: 08:00 às 12:00`;
+
+    try {
+      const res = await sendOfficial({
+        to,
+        type: "interactive",
+        interactive: {
+          type: "cta_url",
+          header: {
+            type: "image",
+            image: { link: imageUrl },
+          },
+          body: {
+            text: bodyText,
+          },
+          footer: {
+            text: "Carflax • Soberano em Hidráulica e Elétrica",
+          },
+          action: {
+            name: "cta_url",
+            parameters: {
+              display_text: "📍 Abrir no Google Maps / GPS",
+              url: mapsUrl,
+            },
+          },
+        },
+      });
+      return { key: res?.key };
+    } catch {
+      // Fallback enviando a foto da fachada com a legenda formatada e link direto
+      const res = await sendOfficial({
+        to,
+        type: "image",
+        mediaUrl: imageUrl,
+        text: `${bodyText}\n\n🗺️ *Como chegar:*\n${mapsUrl}`,
+      });
+      return { key: res?.key };
+    }
+  },
+
   // Assinatura chamada pela tela: (jid, base64, mimeType, fileName, caption, quoted).
   // A Cloud API exige um LINK público para a mídia (não aceita base64). A tela passa
   // o base64 cru, então subimos ao Supabase Storage e enviamos a URL resultante. Se
