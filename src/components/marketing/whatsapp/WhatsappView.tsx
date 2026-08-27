@@ -236,12 +236,9 @@ const TikTokIcon = () => (
   </svg>
 );
 
-/* Globo na cor da marca, na mesma pastilha branca do Google: o cliente que
-   chega pelo site nao pertence a nenhuma plataforma de terceiro, entao o
-   distintivo e o da propria Carflax. */
 const SiteIcon = () => (
   <svg
-    className="w-3 h-3 text-[#863bff]"
+    className="w-3 h-3 text-white"
     viewBox="0 0 24 24"
     fill="none"
     stroke="currentColor"
@@ -483,7 +480,7 @@ const getOriginBadge = (origin?: string) => {
     return (
       <div
         title="Veio pelo site"
-        className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-white border border-border/80 flex items-center justify-center shadow-[0_2px_4px_rgba(0,0,0,0.1)] z-10 animate-in fade-in zoom-in duration-200"
+        className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center shadow-[0_2px_4px_rgba(0,0,0,0.1)] z-10 animate-in fade-in zoom-in duration-200"
       >
         <SiteIcon />
       </div>
