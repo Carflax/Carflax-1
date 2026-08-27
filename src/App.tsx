@@ -601,6 +601,22 @@ function DashboardContent({
       const applicationServerKey = new Uint8Array([...atob(base64)].map(c => c.charCodeAt(0)));
 
       let sub = await reg.pushManager.getSubscription();
+
+      // Assinatura fica amarrada à chave VAPID usada no momento de assinar. Se a
+      // chave do servidor mudou, a antiga não recebe mais nada — e como o código
+      // só assinava quando não havia nenhuma, essas pessoas ficavam órfãs para
+      // sempre. Aqui a assinatura de chave diferente é descartada e refeita.
+      if (sub) {
+        const atual = new Uint8Array(sub.options.applicationServerKey ?? new ArrayBuffer(0));
+        const mesmaChave =
+          atual.length === applicationServerKey.length &&
+          atual.every((b, i) => b === applicationServerKey[i]);
+        if (!mesmaChave) {
+          try { await sub.unsubscribe(); } catch { /* segue e assina de novo */ }
+          sub = null;
+        }
+      }
+
       if (!sub) {
         sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey });
       }
@@ -614,6 +630,11 @@ function DashboardContent({
         p256dh: subJson.keys.p256dh,
         auth: subJson.keys.auth,
       }, { onConflict: 'endpoint' });
+
+      // As assinaturas antigas (de chave anterior) NÃO são apagadas aqui: o mesmo
+      // usuário costuma ter celular e computador, e apagar "as outras deste
+      // usuário" derrubaria o outro aparelho. Quem limpa é o envio no servidor,
+      // que remove a linha quando o serviço de push a recusa em definitivo.
     }
 
     setupPush();
