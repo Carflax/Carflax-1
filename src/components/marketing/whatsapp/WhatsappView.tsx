@@ -130,6 +130,13 @@ interface Message {
   editado?: boolean;
   linkPreview?: LinkPreview | null;
   vendedorId?: string;
+  /** Dados de localização (presente quando tipo === "location") */
+  locationData?: {
+    latitude: number;
+    longitude: number;
+    name?: string;
+    address?: string;
+  };
 }
 
 // Quente/Morno/Frio = temperatura de leads abertos (classificada).
@@ -641,6 +648,12 @@ interface EvoMessageResponse {
     };
     stickerMessage?: { mimetype?: string };
     reactionMessage?: { key?: { id?: string }; text?: string };
+    locationMessage?: {
+      degreesLatitude?: number;
+      degreesLongitude?: number;
+      name?: string;
+      address?: string;
+    };
   };
   messageTimestamp?: number;
   status?: string;
@@ -864,7 +877,49 @@ function inferMsgType(text?: string): string | undefined {
   if (text.includes("📹") || text === "Vídeo") return "video";
   if (text.includes("📎") || text === "Documento") return "document";
   if (text.includes("🖼️") || text === "Figurinha") return "sticker";
+  if (text.includes("📍") || text === "Localização") return "location";
+  // Padrão gerado pelo webhook da Evolution API para tipos não tratados
+  if (/\[Mídia não suportada:\s*location\]/i.test(text)) return "location";
   return "text";
+}
+
+/**
+ * Normaliza uma mensagem vinda do banco de dados, corrigindo tipos e textos
+ * que foram gravados antes do suporte completo a determinados tipos de mídia.
+ * Isso permite que mensagens antigas sejam exibidas corretamente sem migração.
+ */
+function normalizeMsgFromDb(m: {
+  texto?: string | null;
+  tipo?: string | null;
+}): { text: string; tipo: string; locationData?: { latitude: number; longitude: number; name?: string; address?: string } } {
+  const raw = m.texto || "";
+  const tipo = m.tipo || "text";
+
+  // Mensagens de localização gravadas pelo webhook da Evolution API (antigo)
+  // chegam com texto "[Mídia não suportada: location]" e tipo null/text
+  if (/\[Mídia não suportada:\s*location\]/i.test(raw)) {
+    return { text: "📍 Localização", tipo: "location" };
+  }
+
+  // Localização com coordenadas codificadas: "📍 lat:-23.5 lng:-46.6 | Nome"
+  const locMatch = raw.match(/^📍 lat:([\d.-]+) lng:([\d.-]+)(?:\s*\|\s*(.*))?$/);
+  if (locMatch || tipo === "location") {
+    if (locMatch) {
+      const latitude = parseFloat(locMatch[1]);
+      const longitude = parseFloat(locMatch[2]);
+      const name = locMatch[3]?.trim() || undefined;
+      const hasCoords = latitude !== 0 || longitude !== 0;
+      return {
+        text: `📍 Localização${name ? `: ${name}` : ""}`,
+        tipo: "location",
+        locationData: hasCoords ? { latitude, longitude, name } : undefined,
+      };
+    }
+    // tipo=location mas sem coords codificadas (webhook antigo)
+    return { text: "📍 Localização", tipo: "location" };
+  }
+
+  return { text: raw, tipo };
 }
 
 // Detecta URLs (http/https ou "www.") no texto e as renderiza como links azuis
@@ -2548,6 +2603,9 @@ export function WhatsappView({
       const isAudio = !!messageContent?.audioMessage;
       const isSticker = !!messageContent?.stickerMessage;
       const isDocument = !!messageContent?.documentMessage;
+      const isLocation = !!messageContent?.locationMessage;
+      const locationMsg = messageContent?.locationMessage;
+      // LOG TEMPORÁRIO removido
       const text =
         messageContent?.conversation ||
         messageContent?.extendedTextMessage?.text ||
@@ -2556,6 +2614,13 @@ export function WhatsappView({
         (isDocument
           ? messageContent.documentMessage?.fileName || "Documento"
           : null) ||
+        (isLocation && locationMsg?.degreesLatitude !== undefined
+          // Codifica lat/lng no texto para persistência no banco (sem coluna nova)
+          ? `📍 lat:${locationMsg.degreesLatitude} lng:${locationMsg.degreesLongitude}${
+              locationMsg.name ? ` | ${locationMsg.name}` :
+              locationMsg.address ? ` | ${locationMsg.address}` : ""
+            }`
+          : isLocation ? "📍 Localização" : null) ||
         (isAudio ? "🎵 Áudio" : isSticker ? "🖼️ Figurinha" : "📎 Mídia");
 
       // Preview de link (Open Graph) que o WhatsApp já manda junto no payload da mensagem recebida
@@ -2635,7 +2700,9 @@ export function WhatsappView({
               ? "video"
               : messageContent?.documentMessage
                 ? "document"
-                : "text";
+                : messageContent?.locationMessage
+                  ? "location"
+                  : "text";
 
       // Orçamento do ERP enviado como PDF (OR_<numero>.pdf) ou documento recebido
       const docFileName = messageContent?.documentMessage?.fileName || (tipoMsg === "document" ? text : null);
@@ -2649,6 +2716,16 @@ export function WhatsappView({
       const preResolvedMediaUrl = (message as unknown as { __resolvedMediaUrl?: string })
         .__resolvedMediaUrl;
       const mediaUrl: string | undefined = preResolvedMediaUrl;
+      // Dados de localização extraídos para persistência e renderização
+      const locationData = isLocation && locationMsg?.degreesLatitude !== undefined
+        ? {
+            latitude: locationMsg.degreesLatitude!,
+            longitude: locationMsg.degreesLongitude!,
+            name: locationMsg.name,
+            address: locationMsg.address,
+          }
+        : undefined;
+
       const isMediaMsg = [
         "audio",
         "image",
@@ -2903,6 +2980,7 @@ export function WhatsappView({
               ...(docFileName ? { fileName: docFileName } : {}),
               ...(quotedText ? { quotedText, quotedSender } : {}),
               ...(linkPreview ? { linkPreview } : {}),
+              ...(locationData ? { locationData } : {}),
             };
             return [...prevMsgs, newMsg];
           });
@@ -3282,14 +3360,15 @@ export function WhatsappView({
             selectedChatRef.current &&
             m.remote_jid === selectedChatRef.current.id
           ) {
+            const normalized = normalizeMsgFromDb(m);
             const newMsg: Message = {
               id: m.message_id,
-              text: m.texto || "",
+              text: normalized.text,
               time: formatBrTime(new Date(m.timestamp)),
               rawTimestamp: m.timestamp,
               sender: m.sender,
               status: (m.status as "sent" | "delivered" | "read") || "sent",
-              tipo: m.tipo,
+              tipo: normalized.tipo,
               mediaUrl: m.media_url,
               reacao: m.reacao,
               editado: m.editado || false,
@@ -3297,6 +3376,7 @@ export function WhatsappView({
               quotedSender: m.quoted_sender,
               linkPreview: m.link_preview ?? null,
               vendedorId: m.vendedor_id,
+              ...(normalized.locationData ? { locationData: normalized.locationData } : {}),
             };
             setMessages((prev) => {
               if (prev.some((msg) => msg.id === newMsg.id)) return prev;
@@ -3350,22 +3430,26 @@ export function WhatsappView({
             const existentes = new Set(prev.map((m) => m.id));
             const faltando = dbMessages
               .filter((m) => !existentes.has(m.message_id))
-              .map((m) => ({
-                id: m.message_id,
-                text: m.texto || "",
-                time: formatBrTime(new Date(m.timestamp)),
-                rawTimestamp: m.timestamp,
-                sender: m.sender,
-                status: (m.status as "sent" | "delivered" | "read") || "sent",
-                tipo: m.tipo,
-                mediaUrl: m.media_url,
-                reacao: m.reacao,
-                editado: m.editado || false,
-                quotedText: m.quoted_text,
-                quotedSender: m.quoted_sender,
-                linkPreview: m.link_preview ?? null,
-                vendedorId: m.vendedor_id,
-              })) as Message[];
+              .map((m) => {
+                const normalized = normalizeMsgFromDb(m);
+                return {
+                  id: m.message_id,
+                  text: normalized.text,
+                  time: formatBrTime(new Date(m.timestamp)),
+                  rawTimestamp: m.timestamp,
+                  sender: m.sender,
+                  status: (m.status as "sent" | "delivered" | "read") || "sent",
+                  tipo: normalized.tipo,
+                  mediaUrl: m.media_url,
+                  reacao: m.reacao,
+                  editado: m.editado || false,
+                  quotedText: m.quoted_text,
+                  quotedSender: m.quoted_sender,
+                  linkPreview: m.link_preview ?? null,
+                  vendedorId: m.vendedor_id,
+                  ...(normalized.locationData ? { locationData: normalized.locationData } : {}),
+                };
+              }) as Message[];
             if (faltando.length === 0) return prev;
             return [...prev, ...faltando].sort(
               (a, b) =>
@@ -4284,22 +4368,26 @@ export function WhatsappView({
     try {
       const dbMessages = await marketingService.getMessagesByJid(chat.id, 50);
 
-      const msgs: Message[] = dbMessages.map((m) => ({
-        id: m.message_id,
-        text: m.texto || "",
-        time: formatBrTime(new Date(m.timestamp)),
-        rawTimestamp: m.timestamp,
-        sender: m.sender,
-        status: (m.status as "sent" | "delivered" | "read") || "sent",
-        tipo: m.tipo,
-        mediaUrl: m.media_url,
-        reacao: m.reacao,
-        editado: m.editado || false,
-        quotedText: m.quoted_text,
-        quotedSender: m.quoted_sender,
-        linkPreview: m.link_preview ?? null,
-        vendedorId: m.vendedor_id,
-      }));
+      const msgs: Message[] = dbMessages.map((m) => {
+        const normalized = normalizeMsgFromDb(m);
+        return {
+          id: m.message_id,
+          text: normalized.text,
+          time: formatBrTime(new Date(m.timestamp)),
+          rawTimestamp: m.timestamp,
+          sender: m.sender,
+          status: (m.status as "sent" | "delivered" | "read") || "sent",
+          tipo: normalized.tipo,
+          mediaUrl: m.media_url,
+          reacao: m.reacao,
+          editado: m.editado || false,
+          quotedText: m.quoted_text,
+          quotedSender: m.quoted_sender,
+          linkPreview: m.link_preview ?? null,
+          vendedorId: m.vendedor_id,
+          ...(normalized.locationData ? { locationData: normalized.locationData } : {}),
+        };
+      });
 
       setMessages(msgs);
       setHasMoreMessages(dbMessages.length === 50);
@@ -4352,21 +4440,25 @@ export function WhatsappView({
         return;
       }
 
-      const mapped: Message[] = older.map((m) => ({
-        id: m.message_id,
-        text: m.texto || "",
-        time: formatBrTime(new Date(m.timestamp)),
-        rawTimestamp: m.timestamp,
-        sender: m.sender,
-        status: (m.status as "sent" | "delivered" | "read") || "sent",
-        tipo: m.tipo,
-        mediaUrl: m.media_url,
-        reacao: m.reacao,
-        quotedText: m.quoted_text,
-        quotedSender: m.quoted_sender,
-        linkPreview: m.link_preview ?? null,
-        vendedorId: m.vendedor_id,
-      }));
+      const mapped: Message[] = older.map((m) => {
+        const normalized = normalizeMsgFromDb(m);
+        return {
+          id: m.message_id,
+          text: normalized.text,
+          time: formatBrTime(new Date(m.timestamp)),
+          rawTimestamp: m.timestamp,
+          sender: m.sender,
+          status: (m.status as "sent" | "delivered" | "read") || "sent",
+          tipo: normalized.tipo,
+          mediaUrl: m.media_url,
+          reacao: m.reacao,
+          quotedText: m.quoted_text,
+          quotedSender: m.quoted_sender,
+          linkPreview: m.link_preview ?? null,
+          vendedorId: m.vendedor_id,
+          ...(normalized.locationData ? { locationData: normalized.locationData } : {}),
+        };
+      });
 
       // Preserva a posição do scroll ao inserir mensagens no topo
       const container = scrollRef.current;
@@ -5975,6 +6067,7 @@ export function WhatsappView({
                       msg.tipo === "sticker";
                     const isDocumentMsg = msg.tipo === "document";
                     const isSticker = msg.tipo === "sticker";
+                    const isLocation = msg.tipo === "location";
 
                     const currentDateFormatted = getFormattedMessageDate(
                       msg.rawTimestamp,
@@ -6075,7 +6168,7 @@ export function WhatsappView({
                                   : msg.sender === "me"
                                     ? "bg-primary text-white rounded-tr-none"
                                     : "bg-card border border-border text-foreground rounded-tl-none",
-                                isDocumentMsg
+                                isDocumentMsg || isLocation
                                   ? "p-0 overflow-hidden"
                                   : isVisualMedia
                                     ? "p-1"
@@ -6379,6 +6472,94 @@ export function WhatsappView({
                                 </div>
                               )}
 
+                              {/* Localização */}
+                              {isLocation && (() => {
+                                const hasCoords = !!msg.locationData && msg.locationData.latitude !== 0 && msg.locationData.longitude !== 0;
+                                const lat = msg.locationData?.latitude ?? 0;
+                                const lng = msg.locationData?.longitude ?? 0;
+                                const placeName = msg.locationData?.name || msg.locationData?.address || null;
+                                const mapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+
+                                // Fallback para mensagens antigas sem coordenadas
+                                if (!hasCoords) {
+                                  return (
+                                    <div className={cn("flex items-center gap-3 px-4 py-3 rounded-xl min-w-[220px]", msg.sender === "me" ? "bg-white/10" : "bg-secondary/50 border border-border/50")}>
+                                      <div className="w-9 h-9 rounded-full bg-red-500/20 border border-red-500/30 flex items-center justify-center shrink-0">
+                                        <svg className="w-4 h-4 text-red-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+                                      </div>
+                                      <div className="flex-1 min-w-0">
+                                        <p className={cn("text-[12px] font-semibold", msg.sender === "me" ? "text-white/90" : "text-foreground")}>📍 Localização</p>
+                                        <p className={cn("text-[10px]", msg.sender === "me" ? "text-white/50" : "text-muted-foreground")}>Coordenadas não disponíveis</p>
+                                      </div>
+                                      <span className={cn("text-[9px] font-bold shrink-0", msg.sender === "me" ? "text-white/50" : "text-muted-foreground")}>{msg.time}</span>
+                                    </div>
+                                  );
+                                }
+
+                                return (
+                                  <a
+                                    href={mapsUrl}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="block rounded-xl overflow-hidden group/loc transition-all hover:ring-2 hover:ring-primary/50"
+                                  >
+                                    {/* Mapa estático via OpenStreetMap (sem API key) */}
+                                    <div
+                                      className="relative w-[280px] h-[140px] bg-slate-200 dark:bg-slate-700 flex items-center justify-center overflow-hidden"
+                                      style={{
+                                        backgroundImage: `url('https://tile.openstreetmap.org/15/${Math.floor((lng + 180) / 360 * Math.pow(2, 15))}/${Math.floor((1 - Math.log(Math.tan(lat * Math.PI / 180) + 1 / Math.cos(lat * Math.PI / 180)) / Math.PI) / 2 * Math.pow(2, 15))}.png')`,
+                                        backgroundSize: "cover",
+                                        backgroundPosition: "center",
+                                      }}
+                                    >
+                                      {/* Overlay escuro + pin */}
+                                      <div className="absolute inset-0 bg-black/20 group-hover/loc:bg-black/10 transition-colors" />
+                                      <div className="relative flex flex-col items-center gap-1">
+                                        <div className="w-8 h-8 rounded-full bg-red-500 border-2 border-white shadow-lg flex items-center justify-center">
+                                          <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+                                        </div>
+                                      </div>
+                                    </div>
+                                    {/* Rodapé com nome/endereço */}
+                                    <div
+                                      className={cn(
+                                        "px-3 py-2 flex items-center gap-2",
+                                        msg.sender === "me"
+                                          ? "bg-primary/80"
+                                          : "bg-card border-t border-border/50",
+                                      )}
+                                    >
+                                      <svg className={cn("w-3.5 h-3.5 shrink-0", msg.sender === "me" ? "text-white/80" : "text-primary")} fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/></svg>
+                                      <span
+                                        className={cn(
+                                          "text-[11px] font-semibold truncate flex-1",
+                                          msg.sender === "me" ? "text-white" : "text-foreground",
+                                        )}
+                                      >
+                                        {placeName || "Ver localização no mapa"}
+                                      </span>
+                                      <svg className={cn("w-3 h-3 shrink-0 group-hover/loc:translate-x-0.5 transition-transform", msg.sender === "me" ? "text-white/60" : "text-muted-foreground")} fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M9 18l6-6-6-6" /></svg>
+                                      {/* Time + status dentro do rodapé */}
+                                      <div className="flex items-center gap-1 ml-auto shrink-0">
+                                        <span className={cn("text-[9px] font-bold", msg.sender === "me" ? "text-white/70" : "text-muted-foreground")}>
+                                          {msg.time}
+                                        </span>
+                                        {msg.sender === "me" && (
+                                          msg.status === "read" ? (
+                                            <CheckCheck className="w-3 h-3" style={{ color: "#32e043" }} />
+                                          ) : msg.status === "delivered" ? (
+                                            <CheckCheck className="w-3 h-3 text-white/70" />
+                                          ) : (
+                                            <Check className="w-3 h-3 text-white/70" />
+                                          )
+                                        )}
+                                      </div>
+                                    </div>
+                                  </a>
+                                );
+                              })()}
+
                               {/* Mensagem citada (reply/quote) */}
                               {msg.quotedText && (
                                 <div
@@ -6439,6 +6620,7 @@ export function WhatsappView({
                               {/* Texto ou Fallback de Erro */}
                               {msg.text &&
                                 !isDocumentMsg &&
+                                !isLocation &&
                                 (!msg.mediaUrl &&
                                 [
                                   "Mídia",
@@ -6472,8 +6654,8 @@ export function WhatsappView({
                                   </p>
                                 ) : null)}
 
-                              {/* Time & Status (hidden for audio/document as they have their own layout) */}
-                              {msg.tipo !== "audio" && !isDocumentMsg && (
+                              {/* Time & Status (hidden for audio/document/location as they have their own layout) */}
+                              {msg.tipo !== "audio" && !isDocumentMsg && !isLocation && (
                                 <div
                                   className={cn(
                                     "flex justify-end gap-1",

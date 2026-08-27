@@ -188,6 +188,22 @@ export const whatsappOfficialApi = {
         case "document":
           message = { documentMessage: { fileName: caption, mimetype: "application/octet-stream" } };
           break;
+        case "location": {
+          // Reconstrói o locationMessage a partir do texto codificado: "📍 lat:-23.5 lng:-46.6 | Nome"
+          const locMatch = caption.match(/^📍 lat:([\d.-]+) lng:([\d.-]+)(?:\s*\|\s*(.*))?$/);
+          if (locMatch) {
+            message = {
+              locationMessage: {
+                degreesLatitude: parseFloat(locMatch[1]),
+                degreesLongitude: parseFloat(locMatch[2]),
+                name: locMatch[3]?.trim() || undefined,
+              },
+            };
+          } else {
+            message = { locationMessage: { degreesLatitude: 0, degreesLongitude: 0 } };
+          }
+          break;
+        }
         default:
           message = { conversation: caption };
       }

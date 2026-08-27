@@ -130,7 +130,9 @@ Deno.serve(async (req: Request) => {
       const hasAudio = !!msgContent?.audioMessage;
       const hasDoc = !!msgContent?.documentMessage;
       const hasSticker = !!msgContent?.stickerMessage;
-      const tipo = hasImage ? 'image' : hasVideo ? 'video' : hasAudio ? 'audio' : hasDoc ? 'document' : hasSticker ? 'sticker' : 'text';
+      const hasLocation = !!msgContent?.locationMessage;
+      const locMsg = msgContent?.locationMessage as Record<string, unknown> | undefined;
+      const tipo = hasImage ? 'image' : hasVideo ? 'video' : hasAudio ? 'audio' : hasDoc ? 'document' : hasSticker ? 'sticker' : hasLocation ? 'location' : 'text';
 
       const text = String(
         msgContent?.conversation ||
@@ -138,6 +140,9 @@ Deno.serve(async (req: Request) => {
         (hasImage ? (msgContent?.imageMessage as Record<string, unknown>)?.caption || '' : '') ||
         (hasVideo ? (msgContent?.videoMessage as Record<string, unknown>)?.caption || '' : '') ||
         (hasDoc ? (msgContent?.documentMessage as Record<string, unknown>)?.fileName || '' : '') ||
+        (hasLocation && locMsg?.degreesLatitude !== undefined
+          ? `📍 lat:${locMsg.degreesLatitude} lng:${locMsg.degreesLongitude}${locMsg.name ? ` | ${locMsg.name}` : ''}`
+          : '') ||
         (tipo !== 'text' ? '📎 Mídia recebida' : '')
       );
 
