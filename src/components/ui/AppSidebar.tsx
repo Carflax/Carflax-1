@@ -196,6 +196,8 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
 
   const [openMenus, setOpenMenus] = useState<string[]>(["Dashboard"]);
   const [subquadros, setSubquadros] = useState<{ id: string; name: string }[]>([]);
+  const navScrollRef = useRef<HTMLDivElement>(null);
+  const settingsSectionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -389,12 +391,41 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
     if (isCollapsed) {
       onToggle();
       setOpenMenus([label]);
+      if (label === "Configurações") {
+        setTimeout(() => {
+          settingsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }, 150);
+      }
       return;
     }
-    setOpenMenus((prev) =>
-      prev.includes(label) ? [] : [label]
-    );
+    const isOpening = !openMenus.includes(label);
+    setOpenMenus(isOpening ? [label] : []);
+    if (isOpening && label === "Configurações") {
+      setTimeout(() => {
+        settingsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }, 150);
+    }
   };
+
+  useEffect(() => {
+    const isSettings = settingsItems.some(
+      (item) => item.label === activeItem || item.subItems?.some((sub) => (sub.value || sub.label) === activeItem)
+    );
+    if (isSettings) {
+      setOpenMenus((prev) => (prev.includes("Configurações") ? prev : ["Configurações"]));
+      setTimeout(() => {
+        settingsSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }, 150);
+      return;
+    }
+
+    const parentMenu = menuItems.find(
+      (item) => item.isDropdown && item.subItems?.some((sub) => (sub.value || sub.label) === activeItem)
+    );
+    if (parentMenu) {
+      setOpenMenus((prev) => (prev.includes(parentMenu.label) ? prev : [parentMenu.label]));
+    }
+  }, [activeItem, menuItems]);
 
   const isAllowed = (label: string) => {
     // Admin, Diretoria e Gerente vê tudo.
@@ -516,7 +547,7 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
       </div>
 
       {/* Main Navigation - More sober */}
-      <div className="flex-1 overflow-y-auto pt-4 px-3 space-y-6 scrollbar-hide">
+      <div ref={navScrollRef} className="flex-1 overflow-y-auto pt-4 px-3 space-y-6 scrollbar-hide">
         <div>
           <div className="space-y-1">
             {(!userProfile || loading) ? (
@@ -654,7 +685,7 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
         <div className="h-px bg-border/50 mx-1" />
 
         {/* Settings Section */}
-        <div>
+        <div ref={settingsSectionRef}>
           <div className="space-y-1">
             {settingsItems
               .filter(item => {
