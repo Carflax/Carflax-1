@@ -156,7 +156,7 @@ export function gerarConviteFornecedor(evento: Evento, f: EventoFornecedor) {
     "Demonstração prática de produto (instalação de ducha, emenda de cabo, solda de tubo etc.).", y);
 
   y = item(doc, "Estrutura de exposição — por conta da marca",
-    "Banner, inflável, mesa ou stand próprios. Montagem na véspera (21/10). Custo zero para a Carflax.", y);
+    "Banner, inflável, mesa ou stand próprios. Montagem na véspera (14/10). Custo zero para a Carflax.", y);
 
   if (f.apoio_master) {
     y += 2;

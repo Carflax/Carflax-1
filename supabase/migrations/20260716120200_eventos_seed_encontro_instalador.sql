@@ -1,4 +1,4 @@
--- Seed do "Encontro do Instalador Carflax" (22/10/2026), a partir do plano de ação.
+-- Seed do "Encontro do Instalador Carflax" (15/10/2026), a partir do plano de ação.
 -- Idempotente: se o evento já existe pelo nome, não faz nada.
 --
 -- Fornecedores: o plano prevê 12 marcas (6 hidráulicas + 6 elétricas), mas só
@@ -24,7 +24,7 @@ begin
       'em relacionamento, reativação de clientes e venda no balcão. Café da Manhã do Instalador, '
       'aproveitando o hábito de passar na loja antes da obra: o cliente participa do café, vê as '
       'demonstrações, retira o kit, concorre aos sorteios e sai comprando material para o dia.',
-    date '2026-10-22', time '07:30', time '10:00', 'Galpão da Carflax',
+    date '2026-10-15', time '07:30', time '10:00', 'Galpão da Carflax',
     60, 80, 100, 19000.00, 'planejamento'
   ) returning id into v_evento_id;
 
@@ -59,18 +59,18 @@ begin
     (v_evento_id, 5, '21/09–09/10', 'Convites e RSVP',
      'Convite pessoal vendedor a vendedor; entrega de convites físicos aos "Perdidos"; emissão de vouchers nominais.',
      date '2026-09-21', date '2026-10-09'),
-    (v_evento_id, 6, '12–20/10', 'Régua de presença',
+    (v_evento_id, 6, '05–13/10', 'Régua de presença',
      'Lembretes D-7 e D-2; confirmação logística com fornecedores (montagem, promotores, prêmios).',
-     date '2026-10-12', date '2026-10-20'),
-    (v_evento_id, 7, '21/10', 'Véspera',
+     date '2026-10-05', date '2026-10-13'),
+    (v_evento_id, 7, '14/10', 'Véspera',
      'Montagem de stands e infláveis no galpão a partir das 14h; briefing final com equipe e promotores.',
-     date '2026-10-21', date '2026-10-21'),
-    (v_evento_id, 8, '22/10', 'EVENTO',
+     date '2026-10-14', date '2026-10-14'),
+    (v_evento_id, 8, '15/10', 'EVENTO',
      '7h30 às 10h — credenciamento, café, demonstrações, sorteios, fotos e venda no balcão.',
-     date '2026-10-22', date '2026-10-22'),
-    (v_evento_id, 9, '23–30/10', 'Pós-evento',
+     date '2026-10-15', date '2026-10-15'),
+    (v_evento_id, 9, '16–23/10', 'Pós-evento',
      'Agradecimentos; relatório aos fornecedores; follow-up comercial dos presentes; atualização do RFV.',
-     date '2026-10-23', date '2026-10-30');
+     date '2026-10-16', date '2026-10-23');
 
   insert into public.evento_tarefas (evento_id, grupo, ordem, titulo) values
     (v_evento_id, 'Julho', 1, 'Criar o media kit de 1 página para os fornecedores'),
@@ -90,9 +90,9 @@ begin
     (v_evento_id, 'Outubro (pré-evento)', 2, 'Definir o mapa de stands do galpão (Amanco na posição principal)'),
     (v_evento_id, 'Outubro (pré-evento)', 3, 'Preparar checklist de véspera e briefing impresso para equipe e promotores'),
 
-    (v_evento_id, 'Dia do evento (22/10)', 1, 'Credenciamento na entrada: conferência de confirmados, entrega do kit e do número de sorteio'),
-    (v_evento_id, 'Dia do evento (22/10)', 2, 'Condução dos sorteios nos horários programados'),
-    (v_evento_id, 'Dia do evento (22/10)', 3, 'Registro de fotos e vídeos para redes sociais e prestação de contas'),
+    (v_evento_id, 'Dia do evento (15/10)', 1, 'Credenciamento na entrada: conferência de confirmados, entrega do kit e do número de sorteio'),
+    (v_evento_id, 'Dia do evento (15/10)', 2, 'Condução dos sorteios nos horários programados'),
+    (v_evento_id, 'Dia do evento (15/10)', 3, 'Registro de fotos e vídeos para redes sociais e prestação de contas'),
 
     (v_evento_id, 'Pós-evento', 1, 'Mensagem de agradecimento a clientes e fornecedores, com fotos'),
     (v_evento_id, 'Pós-evento', 2, 'Mini relatório para cada fornecedor (público presente, fotos do stand)'),

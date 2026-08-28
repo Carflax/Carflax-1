@@ -307,9 +307,9 @@ export function ConviteFornecedorPublicView() {
   // Os dados do evento vêm do Supabase quando disponíveis; os fallbacks abaixo são
   // os valores do Encontro 2026, para a página nunca aparecer vazia se a query falhar.
   const dataEventoLabel = (() => {
-    if (!evento?.data_evento) return "22 de outubro de 2026";
+    if (!evento?.data_evento) return "15 de outubro de 2026";
     const d = new Date(`${evento.data_evento}T12:00:00`);
-    if (isNaN(d.getTime())) return "22 de outubro de 2026";
+    if (isNaN(d.getTime())) return "15 de outubro de 2026";
     return d.toLocaleDateString("pt-BR", { day: "numeric", month: "long", year: "numeric" });
   })();
 
@@ -620,7 +620,7 @@ export function ConviteFornecedorPublicView() {
               </div>
               <h3 className="text-base font-bold text-slate-900">1. Estrutura de Exposição</h3>
               <p className="text-xs text-slate-500 leading-relaxed">
-                Banner roll-up, totem, mesa personalizada ou estande próprio para montagem na véspera (21/10 a partir das 14h).
+                Banner roll-up, totem, mesa personalizada ou estande próprio para montagem na véspera (14/10 a partir das 14h).
               </p>
             </div>
 
@@ -717,7 +717,7 @@ export function ConviteFornecedorPublicView() {
             </h2>
           </div>
           <p className="reveal-scroll text-center text-xs sm:text-sm text-slate-500 mb-14 max-w-2xl mx-auto">
-            A montagem dos estandes ocorre na véspera, 21/10, a partir das 14h.
+            A montagem dos estandes ocorre na véspera, 14/10, a partir das 14h.
           </p>
 
           <div className="relative">
@@ -970,7 +970,7 @@ export function ConviteFornecedorPublicView() {
                         Informações sobre a montagem
                       </h2>
                       <p className="text-xs sm:text-sm text-slate-400">
-                        A montagem ocorrerá na véspera do evento (21/10), a partir das 14h, diretamente no galpão da Carflax.
+                        A montagem ocorrerá na véspera do evento (14/10), a partir das 14h, diretamente no galpão da Carflax.
                       </p>
                     </div>
 
