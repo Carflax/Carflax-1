@@ -180,8 +180,17 @@ export function ChatModal({
   }, [isOpen, documento, empresa, markupJaResolvido]);
 
   // 1. Efeito Principal de Inicialização e Realtime
+  //
+  // Sem `!documento` na guarda: existe conversa gravada com documento vazio (o
+  // Coletor manda divergência assim quando o pedido não vem no evento, e uma
+  // resposta dentro dela herda o mesmo documento). A central agrupa por
+  // documento e mostra essas conversas normalmente; com a guarda antiga o modal
+  // abria e nunca carregava nada — "nenhuma conversa ainda" com mensagem visível
+  // na lista atrás. Documento vazio é uma chave de conversa como outra qualquer;
+  // o que ele não tem é orçamento, e só isso fica de fora (itens, markup,
+  // cliente).
   useEffect(() => {
-    if (!isOpen || !documento) return;
+    if (!isOpen) return;
     
     // Solicitar permissão de notificação ao abrir o chat se ainda não tiver
     if ("Notification" in window && Notification.permission === "default") {
@@ -310,7 +319,7 @@ export function ChatModal({
         if (dbUser && dbUser.id !== userProfile?.id) {
           setBudgetOwner(dbUser.id);
           setOwnerProfile({ name: dbUser.name, avatar: dbUser.avatar || "" });
-        } else if (!vCode) {
+        } else if (!vCode && documento) {
           // Última tentativa: o vendedor gravado no crm_status do documento.
           const docId = documento.replace("#", "").split("-")[0].trim();
           const { data: status } = await supabase.from("crm_status").select("vendedor_codigo, vendedor").eq("documento", docId).maybeSingle();
@@ -570,7 +579,7 @@ export function ChatModal({
 
   // Efeito para carregar o nome do cliente do orçamento
   useEffect(() => {
-    if (!isOpen || !documento) return;
+    if (!isOpen) return;
 
     // Este efeito também roda quando chega/muda uma mensagem. Limpar o nome nesse
     // caso fazia o cliente sumir do header e voltar só quando a API respondia
@@ -631,7 +640,9 @@ export function ChatModal({
       }
     }
 
-    fetchClientName();
+    // Sem documento não há orçamento para consultar — o nome do cliente, quando
+    // existe, veio do próprio título ou do texto da divergência, acima.
+    if (documento) fetchClientName();
   }, [isOpen, documento, title, sellerName, userProfile?.name, conversas]);
 
   // Mantém a lista de mensagens de divergência (editáveis pelo coletor) atualizada.
@@ -1327,9 +1338,9 @@ export function ChatModal({
                     </span>
                   )}
                 </span>
-              ) : (
+              ) : documento ? (
                 <div className="h-1.5 w-16 bg-secondary/20 rounded-full animate-pulse" />
-              )}
+              ) : null}
               {clientName && !headerLoading && (
                 <span
                   className={cn("font-black text-foreground/80 uppercase tracking-tight leading-none truncate", isMaximized ? "text-[12px]" : "text-[10px]")}
@@ -1341,7 +1352,7 @@ export function ChatModal({
             </div>
           </div>
           <div className="flex items-center gap-1 shrink-0">
-            {amICentralizer && (
+            {amICentralizer && documento && (
               <button 
                 onClick={(e) => { e.stopPropagation(); handleToggleItems(); }} 
                 className={cn(
