@@ -58,6 +58,8 @@ interface Orcamento {
   items: OrcamentoItem[];
   empresa: string;
   docGerado?: string;
+  /** Orçamento trocado de empresa: o ERP o "faturou" em outro orçamento. */
+  transferido?: boolean;
 }
 
 interface RelatoriosViewProps {
@@ -341,6 +343,7 @@ export function RelatoriosView({
           items: itemsToCount,
           empresa: o.EMPRESA || "",
           docGerado: o.DOC_GERADO || undefined,
+          transferido: Number(o.TRANSFERIDO ?? 0) === 1,
         };
       });
 
@@ -368,6 +371,7 @@ export function RelatoriosView({
       const idsPresentes = new Set(parsed.map((o) => normDoc(o.id)));
       parsed = parsed.filter((o) => {
         if (o.status === "VENDA" || o.status === "PERDIDO") return true;
+        if (o.transferido) return false;
         if (!o.docGerado) return true;
         const gerado = normDoc(o.docGerado);
         if (gerado === normDoc(o.id)) return true;

@@ -61,6 +61,8 @@ export interface Orcamento {
   lembreteData?: string;
   empresa?: string;
   docGerado?: string;
+  /** Orçamento trocado de empresa: o ERP o "faturou" em outro orçamento. Documento fantasma. */
+  transferido?: boolean;
   items: CrmItem[];
   sellerCode?: string;
   phone?: string;
@@ -151,6 +153,7 @@ function parseOrcamentos(raw: CrmOrcamento[]): Orcamento[] {
       lossReason: r.MOTIVO_CANCELAMENTO !== "SEM MOTIVO" ? r.MOTIVO_CANCELAMENTO : undefined,
       empresa: r.EMPRESA,
       docGerado: r.DOC_GERADO ?? undefined,
+      transferido: Number(r.TRANSFERIDO ?? 0) === 1,
       items: products,
       sellerCode: r.COD_VENDEDOR,
       phone: r.TELEFONE_CLIENTE ? formatPhone(r.TELEFONE_CLIENTE.trim()) : ''
@@ -736,6 +739,9 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
       const idsPresentes = new Set(orcamentos.map((o) => normDoc(o.id)));
       orcamentos = orcamentos.filter((o) => {
         if (o.status === "VENDA" || o.status === "PERDIDO") return true; // nunca esconde definitivo
+        // Transferido para outra empresa: o ERP marca a origem com TIPFAT='OR'. Não
+        // depende do destino estar carregado — ele quase nunca está.
+        if (o.transferido) return false;
         if (!o.docGerado) return true;
         const gerado = normDoc(o.docGerado);
         if (gerado === normDoc(o.id)) return true; // aponta pra si mesmo: ignora
@@ -966,7 +972,10 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
           };
         });
 
-        // Excluir orçamentos transferidos (docGerado aponta para outro doc existente)
+        // Excluir orçamentos transferidos (flag do ERP; ou docGerado apontando para
+        // outro doc existente). Sem a flag, o follow-up de um orçamento trocado de
+        // empresa ficava cobrando eternamente: o destino é de outra empresa e nunca
+        // entra em allIds.
         const normDoc = (s?: string) =>
           String(s || "").split("-")[0].replace(/\D/g, "").padStart(12, "0");
         const allIds = new Set([
@@ -975,6 +984,7 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
         ]);
         extras = extras.filter((o) => {
           if (o.status === "VENDA" || o.status === "PERDIDO") return true;
+          if (o.transferido) return false;
           if (!o.docGerado) return true;
           const gerado = normDoc(o.docGerado);
           if (gerado === normDoc(o.id)) return true;

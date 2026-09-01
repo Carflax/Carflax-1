@@ -452,6 +452,8 @@ export interface CrmOrcamento {
   ORCAMENTO: string;
   /** Documento gerado quando o orçamento foi faturado/convertido (FGO_NUMFAT). Elo de migração entre empresas. */
   DOC_GERADO?: string | null;
+  /** 1 quando o orçamento foi transferido para outro orçamento (troca de empresa): FGO_TIPFAT = 'OR'. */
+  TRANSFERIDO?: number | string | null;
   PEDIDO: string;
   NOTA_FISCAL?: string | number;
   DATA_ORCAMENTO: string;
