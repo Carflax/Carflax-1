@@ -5,7 +5,7 @@
 // diferentes: o App monta o do mês corrente para o painel, e o modal "Todos os
 // Vendedores" remonta para o mês que o usuário filtrar.
 import { apiCrmOrcamentos, mapCrmItem } from "@/lib/api";
-import { getCrmStatusMap } from "@/lib/crm-service";
+import { getCrmStatusMap, isPerdaComercial } from "@/lib/crm-service";
 
 export async function buildPerdidoMap(inicio: string, fim: string): Promise<Map<string, number>> {
   const orcData = await apiCrmOrcamentos({ inicio, fim }).catch(() => null);
@@ -22,7 +22,10 @@ export async function buildPerdidoMap(inicio: string, fim: string): Promise<Map<
     else if (r.PEDIDO === "Sim" || r.NOTA_FISCAL || (r.DATA_BAIXA && r.DATA_BAIXA !== "SEM DATA")) status = "VENDA";
     if (crmStatus) status = crmStatus;
 
-    if (status === "PERDIDO") {
+    // Mesma regra da tela de Orçamentos: motivo não comercial não conta como
+    // perda. Sem isto o painel Geral e a tela de Orçamentos partiam de
+    // denominadores diferentes e nunca fechavam.
+    if (status === "PERDIDO" && isPerdaComercial(r.MOTIVO_CANCELAMENTO)) {
       const products = (r.PRODUTOS || []).map(mapCrmItem);
       const totalVenda = products.reduce(
         (acc: number, p: { QUANTIDADE: number | string; PRECO_UNITARIO: number | string }) =>
@@ -30,7 +33,11 @@ export async function buildPerdidoMap(inicio: string, fim: string): Promise<Map<
         0,
       );
       const total = parseFloat(r.VALOR_TOTAL_ORCAMENTO) || 0;
-      const valor = totalVenda || total;
+      // Vale o total do documento, não a soma dos itens: o total já traz o
+      // desconto negociado e é o mesmo número que a tela de Orçamentos usa. Com
+      // a ordem invertida, um orçamento com desconto era contado pelo valor
+      // cheio e o painel Geral fechava uma conversão diferente da tela.
+      const valor = total || totalVenda;
       const cod = String(r.COD_VENDEDOR || "").trim();
       map.set(cod, (map.get(cod) || 0) + valor);
     }

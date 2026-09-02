@@ -84,6 +84,34 @@ export const LOSS_REASONS_FALLBACK = [
 export const STATUS_MAO_DE_OBRA = "MÃO DE OBRA E MATERIAL";
 
 /**
+ * Motivos de perda que NÃO são perda comercial e por isso não entram no
+ * denominador da taxa de conversão. "Mão de obra e material" virou status
+ * próprio, mas o texto segue aqui por causa dos orçamentos antigos, marcados
+ * como PERDIDO com esse motivo antes da mudança.
+ */
+export const MOTIVOS_NAO_COMERCIAIS = new Set([
+  "MÃO DE OBRA E MATERIAL",
+  "MAO DE OBRA E MATERIAL",
+]);
+
+export function isPerdaComercial(motivo?: string | null): boolean {
+  return !MOTIVOS_NAO_COMERCIAIS.has((motivo ?? "").toUpperCase().trim());
+}
+
+/**
+ * Taxa de conversão por valor — regra única do HUB.
+ *
+ * vendido ÷ (vendido + perdido comercial). O "vendido" é o FATURADO: pedido em
+ * aberto não é conversão decidida, é promessa. O painel Geral usava o TOTAL
+ * (faturado + em aberto) no numerador e por isso mostrava uma taxa bem mais
+ * alta que a tela de Orçamentos para o mesmo vendedor.
+ */
+export function taxaConversaoValor(faturado: number, perdidoComercial: number): number {
+  const decididos = faturado + perdidoComercial;
+  return decididos > 0 ? (faturado / decididos) * 100 : 0;
+}
+
+/**
  * Motivos aposentados: saíram da lista de perda a pedido do comercial.
  * "Mão de obra e material" virou o status acima; "Comparativo de linhas" foi
  * descontinuado. O cadastro segue existindo no ERP (CADCOC) — filtramos aqui

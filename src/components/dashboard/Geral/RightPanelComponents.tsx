@@ -1,4 +1,5 @@
 // Dashboard Right Panel Components
+import { taxaConversaoValor } from "@/lib/crm-service";
 import {
   Gift,
   Target,
@@ -372,15 +373,18 @@ const calcPercentVsEquilibrio = (row?: VendedorResumo | null, ref?: Date) => {
 // Linhas agregadas (time do supervisor, ou subtotal "TEAM:") não têm código no
 // perdidoMap — nesses casos soma o perdido dos membros, em vez de cair no
 // default de perdido 0 (que renderizaria 100% de conversão).
+// Usa FATURADO, não TOTAL: o TOTAL soma o "em aberto", que é pedido ainda não
+// faturado — promessa, não conversão decidida. Era a maior causa de o painel
+// mostrar uma taxa muito acima da tela de Orçamentos para o mesmo vendedor.
 const calcTaxaConversao = (row: VendedorResumo, perdidoMap: Map<string, number>, teamCodes?: string[]) => {
-  const totalNum = typeof row.TOTAL === 'string' ? parseFloat(row.TOTAL) : (row.TOTAL || 0);
+  const faturado = typeof row.FATURADO === 'string' ? parseFloat(row.FATURADO) : (row.FATURADO || 0);
   const codesToSum = (teamCodes && teamCodes.length > 0 && row.COD_VENDEDOR === "MEDIA")
     ? teamCodes
     : (row.COD_VENDEDOR.startsWith("TEAM:") ? row.MEMBER_CODES : undefined);
   const perdido = codesToSum
     ? codesToSum.reduce((acc, c) => acc + (perdidoMap.get(String(c).trim()) || 0), 0)
     : perdidoMap.get(String(row.COD_VENDEDOR || "").trim()) || 0;
-  return Number(totalNum) + perdido > 0 ? (Number(totalNum) / (Number(totalNum) + perdido)) * 100 : 0;
+  return taxaConversaoValor(Number(faturado) || 0, perdido);
 };
 
 // Versão compacta do SalesMetricsCard, usada no modal "Todos os Vendedores".
@@ -1120,7 +1124,8 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, s
     { label: m("Diário"), value: formatBRL(calculateDiarioNecessario()), icon: Zap, valueColor: "text-slate-900" },
     { label: m("Diária Realizada"), value: formatBRL(calcDiariaPraticada(data, refDate)), icon: Zap, valueColor: "text-cyan-600" },
     { label: m("Projeção"), value: formatBRL(calcProjecao(data, refDate)), icon: TrendingUp, valueColor: calcProjecao(data, refDate) >= Number(data.META || 0) ? "text-emerald-600" : "text-rose-600" },
-    { label: m("Tx Conversão"), value: perdidoMap ? `${calcTaxaConversao(data, perdidoMap, teamCodes).toFixed(2)}%` : "—", icon: PieChart, valueColor: "text-blue-600" },
+    { label: m("Tx Conversão"), // Uma casa decimal, igual à rosca "Por Valor" da tela de Orçamentos.
+      value: perdidoMap ? `${calcTaxaConversao(data, perdidoMap, teamCodes).toFixed(1)}%` : "—", icon: PieChart, valueColor: "text-blue-600" },
     { label: m("Ticket Médio"), value: formatBRL(data.TICKET_MEDIO), icon: DollarSign, valueColor: "text-slate-900" },
     { label: m("Margem Real"), value: `${Number(data.MARGEM_REAL_PERC || data.MARGEM_PCT || 0).toFixed(2)}%`, icon: TrendingUp, valueColor: "text-blue-600" },
     { label: m("Prazo Médio"), value: `${Number(data.PRAZO_MEDIO_DIAS || 0).toFixed(0)} d`, icon: Clock, valueColor: "text-slate-900" },

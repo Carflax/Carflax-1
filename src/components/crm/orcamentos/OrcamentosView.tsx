@@ -32,7 +32,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { apiCrmOrcamentos, apiCrmOrcamentoItens, apiCrmFaturamento, mapCrmItem, type CrmOrcamento, type CrmItem, type FaturamentoResumo } from "@/lib/api";
-import { STATUS_MAO_DE_OBRA,
+import { STATUS_MAO_DE_OBRA, isPerdaComercial, taxaConversaoValor,
   getCrmStatusMap,
   upsertCrmStatus,
   addConversa,
@@ -1507,18 +1507,12 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
     // `pipeline` acima, que é orçamento ainda não decidido.
     const emAbertoPedidos = faturamento ? Number(faturamento.EM_ABERTO) || 0 : 0;
 
-    // Motivos que não representam perda comercial real — excluídos da taxa de
-    // conversão. "Mão de obra e material" virou STATUS (e status PERDIDO já não
-    // o inclui), mas o texto continua aqui para os orçamentos antigos que foram
-    // marcados como perdidos com esse motivo antes da mudança.
-    const MOTIVOS_NAO_COMERCIAIS = ["MÃO DE OBRA E MATERIAL", "MAO DE OBRA E MATERIAL"];
+    // Perda comercial: a regra mora em crm-service e é a mesma do painel Geral.
     const perdidosConversao = filteredAndSortedItems
-      .filter((o) => o.status === "PERDIDO" && !MOTIVOS_NAO_COMERCIAIS.includes((o.lossReason || "").toUpperCase().trim()))
+      .filter((o) => o.status === "PERDIDO" && isPerdaComercial(o.lossReason))
       .reduce((s, o) => s + o.totalValue, 0);
 
-    // Taxa de conversão real = vendas / (vendas + perdidos comerciais)
-    const decididos = vendasValor + perdidosConversao;
-    const convValor = decididos > 0 ? ((vendasValor / decididos) * 100) : 0;
+    const convValor = taxaConversaoValor(vendasValor, perdidosConversao);
 
     const reasonCounts = filteredAndSortedItems
       .filter((o) => o.status === "PERDIDO" && o.lossReason)
