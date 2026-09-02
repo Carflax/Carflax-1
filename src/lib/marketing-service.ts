@@ -1224,12 +1224,19 @@ export const marketingService = {
       { data: msgsRaw },
       { data: usersRaw },
     ] = await Promise.all([
+      // Lead é CADASTRO NOVO no período (created_at), não conversa no período.
+      // Antes o filtro era `ultima_conversa_em`, e o card contava também cliente
+      // antigo que voltou a falar — em 02/09 dava 28 contra 10 cadastros de fato.
+      // O resto do relatório já trabalhava com created_at (a série diária agrupa
+      // por ele, o período anterior compara por ele, e o gráfico por horário
+      // consulta por ele), então o card era o único fora do compasso: o delta
+      // comparava conversas contra leads novos, e a série diária descartava
+      // calada quem conversou no período mas tinha sido cadastrado antes.
       supabase
         .from("marketing_clientes")
-        .select("remote_jid, vendedor_id, origem, campanha, temperatura, status, created_at, ultima_conversa_em, valor_venda, valor_orcamento")
-        .not("ultima_conversa_em", "is", null)
-        .gte("ultima_conversa_em", startIso)
-        .lte("ultima_conversa_em", endIso)
+        .select("remote_jid, vendedor_id, origem, campanha, temperatura, status, created_at, valor_venda, valor_orcamento")
+        .gte("created_at", startIso)
+        .lte("created_at", endIso)
         .limit(5000),
       supabase
         .from("marketing_clientes")
