@@ -1277,15 +1277,99 @@ export const marketingService = {
 
     const leads = (leadsRaw || []).filter(l => !isDescartado(l));
     const quotes = (quotesRaw || []).filter(l => !isDescartado(l));
-    const sales = (salesRaw || []).filter(l => !isDescartado(l)).map((s) => ({
-      remote_jid: s.remote_jid,
-      nome: (s.nome as string | null) || (s.push_name as string | null) || null,
-      valor: Number(s.valor_venda) || 0,
-      vendedor_id: s.vendedor_id as string | null | undefined,
-      origem: s.origem as string | null | undefined,
-      campanha: s.campanha as string | null | undefined,
-      data_venda: s.data_venda as string,
-    }));
+    // --- Vendas do período ------------------------------------------------
+    //
+    // `marketing_clientes.valor_venda` é o ACUMULADO do cliente e `data_venda` é
+    // a data do ÚLTIMO pedido. Usar os dois direto jogava a compra inteira do
+    // cliente no dia da última — um cliente que comprou 3.350 em 26/08 e 838 em
+    // 01/09 aparecia como 4.188 no dia 01/09, e sumia de agosto.
+    //
+    // `marketing_vendas` tem um registro por pedido, com número e data próprios.
+    // Ela é a fonte certa, mas só cobre o que o sincronizador do ERP gravou: das
+    // 117 linhas, 40 têm data e 77 são registros antigos sem data nem número.
+    // Por isso o cálculo é híbrido — pedido datado manda; cliente sem NENHUM
+    // pedido datado continua entrando pelo acumulado, senão essas vendas
+    // sumiriam do relatório. (Os antigos sem data também são a origem das
+    // duplicatas: ignorá-los resolve a contagem em dobro de tabela.)
+    const clientesComVenda = (salesRaw || []).filter((l) => !isDescartado(l));
+    const jidsCandidatos = clientesComVenda.map((c) => c.remote_jid as string);
+
+    const [{ data: pedidosNoPeriodo }, { data: pedidosDatadosDosCandidatos }] = await Promise.all([
+      supabase
+        .from("marketing_vendas")
+        .select("remote_jid, valor, data, documento")
+        .not("data", "is", null)
+        .gte("data", startIso)
+        .lte("data", endIso)
+        .limit(5000),
+      jidsCandidatos.length > 0
+        ? supabase
+            .from("marketing_vendas")
+            .select("remote_jid")
+            .not("data", "is", null)
+            .in("remote_jid", jidsCandidatos)
+            .limit(5000)
+        : Promise.resolve({ data: [] as { remote_jid: string }[] }),
+    ]);
+
+    // Quem tem pedido datado não pode entrar pelo acumulado: seria contar duas vezes.
+    const temPedidoDatado = new Set(
+      (pedidosDatadosDosCandidatos || []).map((v) => v.remote_jid),
+    );
+
+    // Soma por conversa do que foi vendido DENTRO do período.
+    const somaNoPeriodo = new Map<string, number>();
+    for (const v of pedidosNoPeriodo || []) {
+      somaNoPeriodo.set(v.remote_jid, (somaNoPeriodo.get(v.remote_jid) || 0) + (Number(v.valor) || 0));
+      temPedidoDatado.add(v.remote_jid);
+    }
+
+    // O pedido pode cair no período com o cliente fora dele (a `data_venda` do
+    // cliente é a do último pedido, que pode ser de outro mês). Busca o cadastro
+    // desses para não perder atendente, origem e campanha da venda.
+    const jidsSet = new Set(jidsCandidatos);
+    const jidsFaltantes = [...somaNoPeriodo.keys()].filter((j) => !jidsSet.has(j));
+    let clientesExtras: Record<string, unknown>[] = [];
+    if (jidsFaltantes.length > 0) {
+      const { data } = await supabase
+        .from("marketing_clientes")
+        .select("remote_jid, nome, push_name, vendedor_id, origem, campanha, descartado")
+        .in("remote_jid", jidsFaltantes);
+      clientesExtras = (data || []).filter((l) => !isDescartado(l));
+    }
+
+    const cadastroPorJid = new Map<string, Record<string, unknown>>();
+    for (const c of [...clientesComVenda, ...clientesExtras]) {
+      cadastroPorJid.set(c.remote_jid as string, c);
+    }
+
+    const montar = (c: Record<string, unknown>, valor: number, data: string) => ({
+      remote_jid: c.remote_jid as string,
+      nome: (c.nome as string | null) || (c.push_name as string | null) || null,
+      valor,
+      vendedor_id: c.vendedor_id as string | null | undefined,
+      origem: c.origem as string | null | undefined,
+      campanha: c.campanha as string | null | undefined,
+      data_venda: data,
+    });
+
+    const sales = [
+      // 1. Quem tem pedido datado: vale o que foi vendido no período.
+      ...[...somaNoPeriodo.entries()].flatMap(([jid, valor]) => {
+        const c = cadastroPorJid.get(jid);
+        if (!c || valor <= 0) return [];
+        const datas = (pedidosNoPeriodo || [])
+          .filter((v) => v.remote_jid === jid)
+          .map((v) => String(v.data));
+        // Mostra a data do último pedido DENTRO do período.
+        const ultima = datas.sort()[datas.length - 1];
+        return [montar(c, valor, ultima)];
+      }),
+      // 2. Legado: cliente sem nenhum pedido datado segue pelo acumulado.
+      ...clientesComVenda
+        .filter((c) => !temPedidoDatado.has(c.remote_jid as string))
+        .map((c) => montar(c, Number(c.valor_venda) || 0, c.data_venda as string)),
+    ];
     const msgs = msgsRaw || [];
 
     const userNames = new Map<string, string>();
