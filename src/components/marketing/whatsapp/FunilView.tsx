@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   ArrowLeft,
   RefreshCw,
@@ -27,13 +27,32 @@ export const ETAPAS = [
   { id: "NOVO", label: "Novo Lead", barra: "bg-slate-400" },
   { id: "ATENDIMENTO", label: "Em Atendimento", barra: "bg-blue-500" },
   { id: "ORCAMENTO", label: "Orçamento Enviado", barra: "bg-amber-500" },
-  { id: "NEGOCIACAO", label: "Negociação", barra: "bg-violet-500" },
+  // O id continua NEGOCIACAO: é o que já está gravado em funil_etapa dos
+  // cards arrastados. Só o rótulo mudou.
+  { id: "NEGOCIACAO", label: "Follow-up Feito", barra: "bg-violet-500" },
   { id: "GANHO", label: "Ganho", barra: "bg-emerald-500" },
-  { id: "PERDIDO", label: "Perdido", barra: "bg-rose-500" },
+  // Id PERDIDO preservado: é o valor gravado em funil_etapa de quem for
+  // arrastado para cá. Só o rótulo virou "Arquivado", que é o que a coluna
+  // realmente mostra — conversa encerrada, com ou sem motivo comercial.
+  { id: "PERDIDO", label: "Arquivado", barra: "bg-rose-500" },
 ] as const;
 
 export type EtapaId = (typeof ETAPAS)[number]["id"];
 const ETAPA_IDS = new Set<string>(ETAPAS.map((e) => e.id));
+
+/** Começo do dia de hoje, no fuso local. */
+function inicioDeHoje(): Date {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+/** A data (ISO ou timestamp) cai no dia de hoje? */
+function ehDeHoje(iso?: string | null): boolean {
+  if (!iso) return false;
+  const t = new Date(iso).getTime();
+  return !isNaN(t) && t >= inicioDeHoje().getTime();
+}
 
 interface ClienteFunil {
   id: string;
@@ -49,6 +68,11 @@ interface ClienteFunil {
   valor_venda: number | null;
   ultima_conversa_em: string | null;
   funil_etapa: string | null;
+  arquivado: boolean | null;
+  data_venda: string | null;
+  mensagens_nao_lidas: number | null;
+  /** Motivo escolhido no arquivamento ("Preço Alto", "Não vendemos o material: ..."). */
+  status: string | null;
 }
 
 /**
@@ -65,8 +89,8 @@ interface ClienteFunil {
  *
  * `temperatura` só entra para "Perdido". Quente/Morno é leitura de interesse
  * feita pela IA, não posição no processo: um lead recém-respondido costuma vir
- * "Quente" e ele pertence a Em Atendimento, não a Negociação. Negociação é
- * coluna de decisão humana — só chega lá quem for arrastado para lá.
+ * "Quente" e ele pertence a Em Atendimento. "Follow-up Feito" é coluna de
+ * decisão humana — só chega lá quem for arrastado para lá.
  *
  * `statusErp` é a situação do orçamento vinculado no ERP e vence a leitura
  * local: orçamento baixado como perdido cai em Perdido mesmo que a temperatura
@@ -80,6 +104,8 @@ export function etapaDoCliente(
     temperatura?: string | null;
     vendedor_id?: string | null;
     orcamento_documento?: string | null;
+    arquivado?: boolean | null;
+    data_venda?: string | null;
   },
   statusErp?: Map<string, StatusErp>,
 ): EtapaId {
@@ -88,7 +114,16 @@ export function etapaDoCliente(
   const doc = String(c.orcamento_documento || "").trim();
   const erp = doc ? statusErp?.get(doc) : undefined;
 
-  if ((c.valor_venda ?? 0) > 0 || erp === "VENDA") return "GANHO";
+  // Ganho é o placar do DIA: venda fechada hoje. Sem o recorte, todo cliente que
+  // já comprou alguma vez ficava parado na coluna e ela deixava de dizer como o
+  // dia está indo. Venda antiga não some do card — só não ocupa o Ganho.
+  const vendeuHoje = (c.valor_venda ?? 0) > 0 && ehDeHoje(c.data_venda);
+
+  // Arquivar é encerrar: ou virou venda hoje, ou se perdeu. Não faz sentido uma
+  // conversa encerrada voltar para "Em atendimento" só porque tem atendente.
+  if (c.arquivado) return vendeuHoje ? "GANHO" : "PERDIDO";
+
+  if (vendeuHoje) return "GANHO";
   if (erp === "PERDIDO" || c.temperatura === "Perdido") return "PERDIDO";
   if (c.valor_orcamento != null) return "ORCAMENTO";
   if (c.vendedor_id) return "ATENDIMENTO";
@@ -184,8 +219,10 @@ export function FunilView({
   // nenhum número ao lado, parecendo que não tinha vínculo com a Citel.
   const [docsVenda, setDocsVenda] = useState<Map<string, string[]>>(new Map());
 
-  const carregar = useCallback(async () => {
-    setLoading(true);
+  // `silencioso` = recarga vinda do realtime: atualiza sem acender o spinner
+  // nem esvaziar as colunas, senão o quadro pisca a cada mensagem que chega.
+  const carregar = useCallback(async (silencioso = false) => {
+    if (!silencioso) setLoading(true);
     setErro(null);
     // Mesmos filtros de getActiveClientes(), que monta a lista de conversas ao
     // lado — o quadro TEM que mostrar o mesmo conjunto, senão vira uma segunda
@@ -193,12 +230,18 @@ export function FunilView({
     // nunca tiveram conversa (`ultima_conversa_em` nula) e 32 não são contato
     // individual (grupo/broadcast). Sem estes dois filtros o Novo Lead enchia
     // com 545 cards que não existem na tela do WhatsApp.
+    //
+    // As arquivadas entram por exceção, para alimentar a coluna Perdido, e só as
+    // de HOJE: o quadro é a leitura do dia, não o histórico. São 3.320
+    // arquivadas na base — trazer o acervo transformaria a coluna em cemitério.
     const { data, error } = await supabase
       .from("marketing_clientes")
       .select(
-        "id, remote_jid, nome, push_name, foto_url, temperatura, vendedor_id, valor_orcamento, data_orcamento, orcamento_documento, valor_venda, ultima_conversa_em, funil_etapa",
+        "id, remote_jid, nome, push_name, foto_url, temperatura, vendedor_id, valor_orcamento, data_orcamento, orcamento_documento, valor_venda, data_venda, ultima_conversa_em, funil_etapa, arquivado, mensagens_nao_lidas, status",
       )
-      .or("arquivado.eq.false,arquivado.is.null")
+      .or(
+        `arquivado.eq.false,arquivado.is.null,and(arquivado.eq.true,arquivado_em.gte.${inicioDeHoje().toISOString()})`,
+      )
       .eq("descartado", false)
       .not("ultima_conversa_em", "is", null)
       .like("remote_jid", "%@s.whatsapp.net")
@@ -247,12 +290,68 @@ export function FunilView({
           });
       }
     }
-    setLoading(false);
+    if (!silencioso) setLoading(false);
   }, []);
 
   useEffect(() => {
     carregar();
   }, [carregar]);
+
+  // ── Tempo real ────────────────────────────────────────────────────────────
+  //
+  // Recarrega o quadro inteiro em vez de remendar o card que mudou: o que
+  // decide se uma conversa entra, sai ou troca de coluna são os filtros da
+  // consulta (arquivada hoje, contato individual, com conversa) mais a
+  // derivação da etapa. Reproduzir isso na mão a cada evento daria duas regras
+  // para manter — e a consulta é leve, ~65 linhas.
+  //
+  // O debounce existe porque uma única mensagem dispara vários UPDATEs em
+  // sequência (não lidas, última conversa, temperatura).
+  const recarregarRef = useRef(carregar);
+  recarregarRef.current = carregar;
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let tentativaReconexao: ReturnType<typeof setTimeout> | null = null;
+    let canal: ReturnType<typeof supabase.channel> | null = null;
+    let vivo = true;
+
+    const agendarRecarga = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => recarregarRef.current(true), 600);
+    };
+
+    const conectar = () => {
+      if (!vivo) return;
+      canal = supabase
+        .channel(`funil-clientes-${Date.now()}`)
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "marketing_clientes" },
+          agendarRecarga,
+        )
+        .subscribe((status) => {
+          // Sem tratar o status o canal morre calado e o quadro congela sem
+          // ninguém perceber — foi o que já aconteceu na tela de conversas.
+          if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
+            console.warn(`[Funil] Realtime caiu (${status}). Reconectando...`);
+            if (canal) supabase.removeChannel(canal);
+            canal = null;
+            if (tentativaReconexao) clearTimeout(tentativaReconexao);
+            tentativaReconexao = setTimeout(conectar, 3000);
+          }
+        });
+    };
+
+    conectar();
+
+    return () => {
+      vivo = false;
+      if (timer) clearTimeout(timer);
+      if (tentativaReconexao) clearTimeout(tentativaReconexao);
+      if (canal) supabase.removeChannel(canal);
+    };
+  }, []);
 
   const porEtapa = useMemo(() => {
     const termo = busca.trim().toLowerCase();
@@ -290,42 +389,37 @@ export function FunilView({
     }
   };
 
-  // flex-1 + min-h-0 em vez de h-full: o quadro vive dentro de uma linha flex
-  // ao lado da conversa, e h-full somado à margem estourava a altura do pai.
+  // Sem borda, canto arredondado, sombra ou margem: o funil é renderizado DENTRO
+  // do painel do WhatsappView, que já tem os quatro. Com eles aqui virava um
+  // quadro dentro do outro, com moldura dupla e uma faixa morta em volta.
   return (
-    <div className="flex-1 min-h-0 min-w-0 flex flex-col bg-background overflow-hidden border border-border/50 rounded-2xl shadow-2xl m-4">
-      {/* Cabeçalho */}
-      <div className="flex items-center gap-4 px-6 py-4 border-b border-border shrink-0">
+    <div className="flex-1 min-h-0 min-w-0 flex flex-col bg-background overflow-hidden">
+      {/* Faixa de controles — sem título nem subtítulo, para o quadro ganhar a
+          altura. Não some por inteiro porque esta seta é a única saída do funil:
+          a lista de conversas fica escondida enquanto ele está aberto. */}
+      <div className="flex items-center gap-2 px-3 py-1.5 shrink-0">
         <button
           onClick={onVoltar}
-          className="p-2 hover:bg-secondary rounded-xl text-muted-foreground hover:text-primary transition-colors"
+          className="p-1.5 hover:bg-secondary rounded-lg text-muted-foreground hover:text-primary transition-colors"
           title={tituloVoltar}
         >
           <ArrowLeft className="w-4 h-4" />
         </button>
-        <div className="flex flex-col gap-0.5">
-          <h2 className="font-black text-base tracking-tighter uppercase leading-none">
-            Funil de Vendas
-          </h2>
-          <span className="text-[8px] font-black text-muted-foreground uppercase tracking-wider">
-            {clientes.length} conversas ativas · arraste para mudar a etapa
-          </span>
-        </div>
 
-        <div className="relative ml-auto w-64">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+        <div className="relative ml-auto w-56">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
           <input
             type="text"
             placeholder="Buscar cliente..."
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
-            className="w-full bg-secondary/50 border border-border rounded-xl pl-9 pr-3 py-2 text-xs font-bold outline-none focus:border-primary/50 transition-all"
+            className="w-full bg-secondary/50 border border-border rounded-lg pl-8 pr-3 py-1 text-[11px] font-bold outline-none focus:border-primary/50 transition-all"
           />
         </div>
         <button
-          onClick={carregar}
-          className="p-2 hover:bg-secondary rounded-xl text-muted-foreground hover:text-primary transition-colors"
-          title="Recarregar"
+          onClick={() => carregar()}
+          className="p-1.5 hover:bg-secondary rounded-lg text-muted-foreground hover:text-primary transition-colors"
+          title={`Recarregar · ${clientes.length} conversas`}
         >
           <RefreshCw className={cn("w-4 h-4", loading && "animate-spin")} />
         </button>
@@ -338,7 +432,7 @@ export function FunilView({
       )}
 
       {/* Colunas */}
-      <div className="flex-1 overflow-x-auto overflow-y-hidden p-6">
+      <div className="flex-1 overflow-x-auto overflow-y-hidden px-3 pb-3">
         <div className="flex gap-4 h-full min-w-max">
           {ETAPAS.map((etapa) => {
             const lista = porEtapa.get(etapa.id) || [];
@@ -405,6 +499,18 @@ export function FunilView({
                           }}
                           className={cn(
                             "bg-card border border-border/60 rounded-xl p-3 cursor-grab active:cursor-grabbing hover:border-primary/40 transition-all space-y-2",
+                            // Mensagem não lida: vibra sempre, e pinta a borda de
+                            // verde — menos no Novo Lead, onde o vermelho da
+                            // coluna manda. Sem essa exceção as duas regras
+                            // disputavam a mesma borda e a última vencia, deixando
+                            // o lead novo verde em vez de vermelho.
+                            (c.mensagens_nao_lidas || 0) > 0 && "animate-cutucar",
+                            (c.mensagens_nao_lidas || 0) > 0 &&
+                              etapa.id !== "NOVO" &&
+                              "border-emerald-500/40",
+                            // Novo Lead: ninguém respondeu ainda. Borda vermelha
+                            // para o card gritar mais que os das outras colunas.
+                            etapa.id === "NOVO" && "border-rose-500/70",
                             arrastando === c.id && "opacity-40",
                           )}
                         >
@@ -426,8 +532,32 @@ export function FunilView({
                             <span className="text-[11px] font-black text-foreground truncate flex-1">
                               {nome}
                             </span>
+                            {/* Não lidas: quem está trabalhando o quadro precisa
+                                ver onde o cliente respondeu sem abrir conversa
+                                por conversa. */}
+                            {(c.mensagens_nao_lidas || 0) > 0 && (
+                              <span
+                                className="min-w-[18px] h-[18px] px-1 rounded-full bg-emerald-500 text-white text-[9px] font-black flex items-center justify-center shrink-0 tabular-nums"
+                                title={`${c.mensagens_nao_lidas} mensagem(ns) não lida(s)`}
+                              >
+                                {(c.mensagens_nao_lidas || 0) > 9 ? "9+" : c.mensagens_nao_lidas}
+                              </span>
+                            )}
                             <IconeTemp t={c.temperatura} />
                           </div>
+
+                          {/* Motivo do arquivamento, só na coluna Arquivado.
+                              Nas conversas vivas o mesmo campo guarda a leitura
+                              da IA, que não é desfecho; e em Ganho ele só repetia
+                              "CONVERTIDO", que a própria coluna já diz. */}
+                          {etapa.id === "PERDIDO" && c.arquivado && c.status && (
+                            <div
+                              className="text-[9px] font-bold text-rose-400/80 uppercase tracking-wide truncate"
+                              title={c.status}
+                            >
+                              {c.status}
+                            </div>
+                          )}
 
                           {c.valor_orcamento != null && (
                             <div className="flex items-center gap-1.5">

@@ -155,6 +155,27 @@
   }
 }
 
+/* Vibração do card do funil com mensagem não lida.
+   Definida aqui, e não no tailwind.config.js: o projeto está no Tailwind v4
+   (`@import "tailwindcss"`), onde o config JS legado é ignorado — animação
+   declarada lá simplesmente não vira CSS.
+   Tremida de ~0,4s e 2s parado. O ciclo de 2,4s reparte assim: a vibração cabe
+   nos primeiros 17% e o resto é pausa. Chama o olho de tempos em tempos sem
+   deixar a coluna em movimento permanente, que cansa e atrapalha a leitura. */
+@keyframes cutucar {
+  0%             { transform: translateX(0); }
+  4%             { transform: translateX(-1.5px); }
+  8%             { transform: translateX(1.5px); }
+  12%            { transform: translateX(-1.5px); }
+  16%            { transform: translateX(1.5px); }
+  20%, 100%      { transform: translateX(0); }
+}
+
+.animate-cutucar {
+  animation: cutucar 2.4s ease-in-out infinite;
+}
+
+
 /* Selo "em movimento" do marcador de motorista no mapa ao vivo */
 @keyframes frotaPulse {
   0%, 100% { transform: scale(1); }

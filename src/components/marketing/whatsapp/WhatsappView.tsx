@@ -5648,15 +5648,7 @@ export function WhatsappView({
       {showFunil && (
         <div className="flex-1 min-w-0 flex border-r border-border">
           <FunilView
-            // Uma seta só, em vez de mais um ícone no cabeçalho da conversa:
-            // com atendimento aberto ela fecha a conversa e devolve a tela ao
-            // quadro; sem conversa, sai do funil.
-            onVoltar={() =>
-              selectedChat ? setSelectedChat(null) : setShowFunil(false)
-            }
-            tituloVoltar={
-              selectedChat ? "Fechar conversa" : "Voltar para as mensagens"
-            }
+            onVoltar={() => setShowFunil(false)}
             onAbrirConversa={(jid) => openDirectChat(jid)}
           />
         </div>
@@ -5771,7 +5763,13 @@ export function WhatsappView({
                 />
               </button>
               <button
-                onClick={() => setShowFunil(true)}
+                // Zera a conversa ao entrar: na tela de Mensagens sempre há uma
+                // aberta (a lista abre a primeira sozinha), e sem isto o funil
+                // nascia dividido com um atendimento que ninguém pediu.
+                onClick={() => {
+                  setSelectedChat(null);
+                  setShowFunil(true);
+                }}
                 className="p-2 hover:bg-secondary rounded-xl transition-colors relative"
                 title="Funil de vendas"
               >
@@ -6036,6 +6034,18 @@ export function WhatsappView({
                 horizontal do outro. */}
             <div className="p-4 flex items-center justify-between gap-3 border-b border-border bg-card/20 backdrop-blur-md z-40 relative">
               <div className="flex items-center gap-3 min-w-[9rem] flex-1">
+                {/* Fecha a conversa e devolve a tela inteira ao quadro. Só no
+                    funil: na tela normal a lista fica ao lado e se troca de
+                    conversa clicando em outra, nunca "saindo" da atual. */}
+                {showFunil && (
+                  <button
+                    onClick={() => setSelectedChat(null)}
+                    className="p-2 -ml-1 hover:bg-secondary rounded-xl text-muted-foreground hover:text-primary transition-colors shrink-0"
+                    title="Fechar conversa"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
                 <div className="relative shrink-0">
                   <ContactAvatar
                     name={selectedChat.name}
@@ -6057,7 +6067,13 @@ export function WhatsappView({
                     {/* Campanha que trouxe o cliente — clicar abre o detalhe do clique. */}
                     {/* key: troca de conversa remonta o componente, zerando o
                         detalhe carregado sem precisar de efeito de reset. */}
-                    <CampanhaBadge key={selectedChat.id} chat={selectedChat} />
+                    {/* Fora do funil: lá a conversa divide a tela com o quadro e
+                        a tag da campanha é longa o bastante para empurrar o nome
+                        do contato. Quem está trabalhando o funil quer o cliente,
+                        não a origem. */}
+                    {!showFunil && (
+                      <CampanhaBadge key={selectedChat.id} chat={selectedChat} />
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     {presenceChats.has(selectedChat.id) ? (
