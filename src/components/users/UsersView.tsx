@@ -149,7 +149,7 @@ export function UsersView() {
     "Segurança":    ["Gerente de Segurança", "Auxiliar de Segurança"],
     "Vendas":       ["Gerente de Vendas", "Supervisor de Vendas", "Supervisora de Vendas", "Vendedor B2B", "Vendedor B2C", "Auxiliar de Vendas", "Check-out"],
     "Compras":      ["Gerente de Compras", "Auxiliar de Compras"],
-    "Marketing":    ["Gerente de Marketing", "Auxiliar de Marketing"],
+    "Marketing":    ["Gerente de Marketing", "Auxiliar de Marketing", "Atendente do Tráfego"],
     "Recursos H":   ["Gerente de RH", "Auxiliar de RH"],
     "Financeiro":   ["Gerente Administrativo", "Assistente Administrativo", "Gerente Contábil", "Auxiliar Contábil", "Faturista", "Caixa"],
     "Administrativo": ["Auxiliar Administrativo"],

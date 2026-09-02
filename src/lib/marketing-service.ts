@@ -2,6 +2,59 @@ import { supabase } from "./supabase";
 import { apiAdminSQL } from "./api";
 
 /**
+ * Cargo que define quem atende o tráfego pago. Precisa bater exatamente com a
+ * opção do setor Marketing em UsersView (ROLES_BY_DEPARTMENT) — é o vínculo
+ * entre a designação do usuário e o tempo médio de resposta do WhatsApp.
+ */
+export const CARGO_ATENDENTE_TRAFEGO = "Atendente do Tráfego";
+
+interface MsgResposta {
+  remote_jid?: string | null;
+  sender?: string | null;
+  timestamp?: string | null;
+  vendedor_id?: string | null;
+}
+
+/**
+ * Tempo até a 1ª resposta de cada conversa, com quem respondeu.
+ *
+ * Regra única do HUB para "1ª resposta", usada tanto pelo cabeçalho das
+ * Mensagens quanto pela coluna 1ª RESP. do relatório de marketing. As duas
+ * contas ficaram duplicadas por um tempo e divergiram — o cabeçalho descartava
+ * mensagem fora do horário comercial e o relatório não —, então o mesmo
+ * atendente aparecia com dois tempos diferentes em duas telas. Qualquer
+ * mudança de critério tem que ser feita AQUI.
+ *
+ * Conta da primeira mensagem do contato até a primeira resposta nossa depois
+ * dela. Espera acima de 24h é descartada como conversa que virou outra coisa.
+ *
+ * @param msgs mensagens do período, ordenadas por timestamp crescente
+ */
+export function paresPrimeiraResposta(
+  msgs: MsgResposta[],
+): { vendedorId: string | null; minutos: number }[] {
+  const byJid: Record<string, MsgResposta[]> = {};
+  for (const m of msgs) {
+    if (!m.remote_jid || !m.sender || !m.timestamp) continue;
+    (byJid[m.remote_jid] ||= []).push(m);
+  }
+
+  const pares: { vendedorId: string | null; minutos: number }[] = [];
+  for (const lista of Object.values(byJid)) {
+    const idxContato = lista.findIndex((m) => m.sender === "contact");
+    if (idxContato === -1) continue;
+    const resposta = lista.slice(idxContato + 1).find((m) => m.sender === "me");
+    if (!resposta) continue;
+    const minutos =
+      (new Date(resposta.timestamp!).getTime() -
+        new Date(lista[idxContato].timestamp!).getTime()) / 60000;
+    if (minutos < 0 || minutos > 1440) continue;
+    pares.push({ vendedorId: resposta.vendedor_id || null, minutos });
+  }
+  return pares;
+}
+
+/**
  * Escapa um valor para uso dentro de um filtro `.or()`/`.ilike()` do PostgREST.
  * Sem isso, caracteres reservados como ( ) , da máscara de telefone quebram a query.
  * O valor deve ser envolvido em aspas duplas na condição (ex: `col.ilike."%valor%"`).
@@ -1062,6 +1115,21 @@ export const marketingService = {
    * Lógica: para cada conversa, encontra a 1ª mensagem do cliente e a 1ª
    * resposta nossa após ela. Retorna a média em minutos (ou null se sem dados).
    */
+  /**
+   * Tempo médio de 1ª resposta.
+   *
+   * Só conta as conversas respondidas por quem tem o cargo "Atendente do
+   * Tráfego" (setor Marketing). O WhatsApp é aberto ao time todo, então sem
+   * esse recorte a média misturava quem trabalha campanha com quem só responde
+   * um cliente próprio de vez em quando — e uma resposta de 2h de alguém de
+   * fora estragava o indicador de quem atende o tráfego.
+   *
+   * Se NINGUÉM tiver o cargo, cai no comportamento antigo (conta todo mundo),
+   * para a métrica não zerar antes de alguém ser designado.
+   *
+   * Usa paresPrimeiraResposta(), a mesma regra da coluna 1ª RESP. do relatório:
+   * para o mesmo período e o mesmo atendente, os dois números batem.
+   */
   async getAvgFirstResponseTime(startDate: Date, endDate?: Date): Promise<number | null> {
     try {
       const start = new Date(startDate);
@@ -1069,44 +1137,26 @@ export const marketingService = {
       const end = endDate ? new Date(endDate) : new Date(startDate);
       end.setHours(23, 59, 59, 999);
 
-      const isBusinessHour = (date: Date): boolean => {
-        const dow = date.getDay();
-        if (dow === 0 || dow === 6) return false;
-        const minutes = date.getHours() * 60 + date.getMinutes();
-        return minutes >= 7 * 60 + 30 && minutes <= 17 * 60 + 30;
-      };
+      const { data: atendentes } = await supabase
+        .from("usuarios")
+        .select("id")
+        .eq("role", CARGO_ATENDENTE_TRAFEGO);
+      const idsTrafego = new Set((atendentes || []).map((u) => String(u.id)));
 
       const { data, error } = await supabase
         .from("marketing_whatsapp")
-        .select("remote_jid, sender, timestamp")
+        .select("remote_jid, sender, timestamp, vendedor_id")
         .gte("timestamp", start.toISOString())
         .lte("timestamp", end.toISOString())
         .order("timestamp", { ascending: true });
 
       if (error || !data || data.length === 0) return null;
 
-      const byJid: Record<string, { sender: string; timestamp: string }[]> = {};
-      for (const msg of data) {
-        if (!msg.remote_jid || !msg.sender || !msg.timestamp) continue;
-        if (!byJid[msg.remote_jid]) byJid[msg.remote_jid] = [];
-        byJid[msg.remote_jid].push({ sender: msg.sender, timestamp: msg.timestamp });
-      }
-
-      const deltas: number[] = [];
-      for (const msgs of Object.values(byJid)) {
-        const firstContactIdx = msgs.findIndex(m => {
-          if (m.sender !== "contact") return false;
-          return isBusinessHour(new Date(m.timestamp));
-        });
-        if (firstContactIdx === -1) continue;
-
-        const firstContactTime = new Date(msgs[firstContactIdx].timestamp).getTime();
-        const firstResponse = msgs.slice(firstContactIdx + 1).find(m => m.sender === "me");
-        if (!firstResponse) continue;
-
-        const diffMinutes = (new Date(firstResponse.timestamp).getTime() - firstContactTime) / 60000;
-        if (diffMinutes >= 0 && diffMinutes <= 1440) deltas.push(diffMinutes);
-      }
+      // Resposta de quem não tem o cargo não entra na conta. Sem vendedor_id
+      // gravado também fica de fora: não dá para creditar o tempo a ninguém.
+      const deltas = paresPrimeiraResposta(data)
+        .filter((par) => idsTrafego.size === 0 || idsTrafego.has(String(par.vendedorId || "")))
+        .map((par) => par.minutos);
 
       if (deltas.length === 0) return null;
       return deltas.reduce((a, b) => a + b, 0) / deltas.length;
@@ -1223,28 +1273,16 @@ export const marketingService = {
     (usersRaw || []).forEach((u) => { userNames.set(u.id, u.name); userAvatars.set(u.id, u.avatar); });
 
     // --- Tempo de 1ª resposta por conversa, atribuído a quem respondeu ---
-    const byJidMsgs: Record<string, { sender: string; timestamp: string; vendedor_id?: string | null }[]> = {};
-    for (const m of msgs) {
-      if (!m.remote_jid || !m.sender || !m.timestamp) continue;
-      (byJidMsgs[m.remote_jid] ||= []).push(m);
-    }
-    // Acumula soma/contagem de minutos por vendedor + global.
+    // Mesma regra do cabeçalho das Mensagens (paresPrimeiraResposta).
     const respBySeller: Record<string, { sum: number; count: number }> = {};
     let respGlobalSum = 0;
     let respGlobalCount = 0;
-    for (const list of Object.values(byJidMsgs)) {
-      const firstContactIdx = list.findIndex((m) => m.sender === "contact");
-      if (firstContactIdx === -1) continue;
-      const contactTime = new Date(list[firstContactIdx].timestamp).getTime();
-      const response = list.slice(firstContactIdx + 1).find((m) => m.sender === "me");
-      if (!response) continue;
-      const diff = (new Date(response.timestamp).getTime() - contactTime) / 60000;
-      if (diff < 0 || diff > 1440) continue;
-      respGlobalSum += diff;
+    for (const { vendedorId, minutos } of paresPrimeiraResposta(msgs)) {
+      respGlobalSum += minutos;
       respGlobalCount += 1;
-      const sid = response.vendedor_id || "sem_vendedor";
+      const sid = vendedorId || "sem_vendedor";
       (respBySeller[sid] ||= { sum: 0, count: 0 });
-      respBySeller[sid].sum += diff;
+      respBySeller[sid].sum += minutos;
       respBySeller[sid].count += 1;
     }
 
