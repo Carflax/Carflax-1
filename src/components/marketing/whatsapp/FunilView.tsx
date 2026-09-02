@@ -109,8 +109,6 @@ export function etapaDoCliente(
   },
   statusErp?: Map<string, StatusErp>,
 ): EtapaId {
-  if (c.funil_etapa && ETAPA_IDS.has(c.funil_etapa)) return c.funil_etapa as EtapaId;
-
   const doc = String(c.orcamento_documento || "").trim();
   const erp = doc ? statusErp?.get(doc) : undefined;
 
@@ -119,9 +117,14 @@ export function etapaDoCliente(
   // dia está indo. Venda antiga não some do card — só não ocupa o Ganho.
   const vendeuHoje = (c.valor_venda ?? 0) > 0 && ehDeHoje(c.data_venda);
 
-  // Arquivar é encerrar: ou virou venda hoje, ou se perdeu. Não faz sentido uma
-  // conversa encerrada voltar para "Em atendimento" só porque tem atendente.
+  // Arquivar é encerrar, e vence ATÉ o arrasto manual. Vinha depois de
+  // `funil_etapa` e o card ficava preso na coluna para onde tinha sido
+  // arrastado: arquivava e continuava em "Em Atendimento" porque alguém o havia
+  // movido para lá antes. Decisão do sistema sobre desfecho ganha de posição
+  // antiga escolhida à mão.
   if (c.arquivado) return vendeuHoje ? "GANHO" : "PERDIDO";
+
+  if (c.funil_etapa && ETAPA_IDS.has(c.funil_etapa)) return c.funil_etapa as EtapaId;
 
   if (vendeuHoje) return "GANHO";
   if (erp === "PERDIDO" || c.temperatura === "Perdido") return "PERDIDO";
@@ -240,7 +243,16 @@ export function FunilView({
         "id, remote_jid, nome, push_name, foto_url, temperatura, vendedor_id, valor_orcamento, data_orcamento, orcamento_documento, valor_venda, data_venda, ultima_conversa_em, funil_etapa, arquivado, mensagens_nao_lidas, status",
       )
       .or(
-        `arquivado.eq.false,arquivado.is.null,and(arquivado.eq.true,arquivado_em.gte.${inicioDeHoje().toISOString()})`,
+        [
+          "arquivado.eq.false",
+          "arquivado.is.null",
+          `and(arquivado.eq.true,arquivado_em.gte.${inicioDeHoje().toISOString()})`,
+          // Nem todo caminho de arquivamento grava `arquivado_em` — há
+          // arquivamento em massa que deixa o campo nulo. Sem esta segunda
+          // condição a conversa sumia do quadro em vez de ir para Arquivado.
+          // `updated_at` é escrito por qualquer um deles.
+          `and(arquivado.eq.true,arquivado_em.is.null,updated_at.gte.${inicioDeHoje().toISOString()})`,
+        ].join(","),
       )
       .eq("descartado", false)
       .not("ultima_conversa_em", "is", null)
@@ -328,6 +340,16 @@ export function FunilView({
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "marketing_clientes" },
+          agendarRecarga,
+        )
+        // Mensagem nova também recarrega. O contador de não lidas vive em
+        // marketing_clientes, mas depender só dela deixava o badge sem aparecer:
+        // o evento da mensagem é o que chega primeiro e com certeza — é o mesmo
+        // que a lista de conversas usa. Com o debounce, os dois eventos da mesma
+        // mensagem viram uma recarga só.
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "marketing_whatsapp" },
           agendarRecarga,
         )
         .subscribe((status) => {
@@ -602,6 +624,16 @@ export function FunilView({
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
+                                // Zera o badge na hora, sem esperar a volta do
+                                // realtime: abrir a conversa marca como lida no
+                                // banco, mas o evento + debounce + recarga levam
+                                // cerca de um segundo, e o card ficava vibrando
+                                // depois de já estar aberto.
+                                setClientes((prev) =>
+                                  prev.map((x) =>
+                                    x.id === c.id ? { ...x, mensagens_nao_lidas: 0 } : x,
+                                  ),
+                                );
                                 onAbrirConversa(c.remote_jid);
                               }}
                               // O card é draggable; sem isto o mousedown no botão

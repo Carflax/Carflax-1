@@ -3757,6 +3757,13 @@ export function WhatsappView({
         prev ? { ...prev, vendedor_id: vendedorId } : null,
       );
 
+      // Responder também é ler. O contador só zerava ao ABRIR a conversa, então
+      // mensagem que chegava com o chat já aberto ficava somando para sempre: o
+      // card mostrava "9+" onde havia 4 de verdade. O webhook do Evolution já
+      // zera nesse caso; o da API oficial não recebe eco das nossas mensagens,
+      // então o acerto tem que sair daqui.
+      marketingService.markAsRead(selectedChat.id);
+
       const sendResp = await api.sendText(
         selectedChat.id,
         textToSend,

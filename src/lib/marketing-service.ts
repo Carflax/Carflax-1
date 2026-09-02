@@ -724,6 +724,10 @@ export const marketingService = {
     // não mexe na temperatura.
     if (archived) {
       updatePayload.temperatura = motivo === "Convertido" ? "Convertido" : "Perdido";
+      // Limpa a etapa escolhida à mão no funil: ela descrevia um atendimento que
+      // acabou de ser encerrado, e se a conversa for desarquivada deve voltar
+      // pela leitura dos dados, não por uma posição antiga.
+      updatePayload.funil_etapa = null;
     }
 
     // Salva o motivo no campo 'status' que já existe na tabela
