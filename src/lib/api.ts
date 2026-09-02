@@ -497,6 +497,8 @@ export interface ClienteErp {
     /** Orçamentos da Citel nos últimos 12 meses (cancelados fora). `fechados` = já viraram pedido. */
     orcamentos_qtd?: number; orcamentos_total?: number;
     orcamentos_fechados?: number; orcamento_ultimo?: string | null;
+    /** Números dos orçamentos dos últimos 12 meses (5 mais recentes). */
+    orcamentos_docs?: { documento: string; valor: number; data: string | null; fechado: boolean }[];
   };
   /** Como o cliente foi identificado: 'documento' (exato) ou 'telefone'. */
   vinculo?: string | null;

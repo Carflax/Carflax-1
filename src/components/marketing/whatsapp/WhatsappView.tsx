@@ -4258,7 +4258,11 @@ export function WhatsappView({
         c.name.toLowerCase().includes(searchLower) ||
         c.id.toLowerCase().includes(searchLower) ||
         c.lastMessage.toLowerCase().includes(searchLower) ||
-        (digits.length > 0 && c.id.replace(/\D/g, "").includes(digits)),
+        (digits.length > 0 && c.id.replace(/\D/g, "").includes(digits)) ||
+        // Número do orçamento vinculado, para achar a conversa a partir do
+        // documento do ERP sem precisar saber o nome do cliente.
+        (digits.length > 0 &&
+          (c.leadInfo?.quoteDocument || "").replace(/\D/g, "").includes(digits)),
     );
 
     const byId = new Map<string, Chat>();
@@ -5193,6 +5197,30 @@ export function WhatsappView({
                           style: "currency", currency: "BRL", maximumFractionDigits: 2,
                         })}
                       </span>
+                    </div>
+                  )}
+
+                  {/* Os números em si. Sem eles o card dizia quantos orçamentos
+                      existem e quanto somam, mas não qual documento abrir. */}
+                  {(cadastroErp.compras?.orcamentos_docs?.length || 0) > 0 && (
+                    <div className="flex flex-col gap-1 px-3">
+                      {cadastroErp.compras!.orcamentos_docs!.map((d) => (
+                        <div key={d.documento} className="flex items-center justify-between gap-3">
+                          <span className="text-[10px] font-black text-foreground tabular-nums">
+                            #{d.documento}
+                            {d.fechado && (
+                              <span className="ml-1.5 text-[8px] font-bold text-emerald-600 dark:text-emerald-400 uppercase tracking-widest">
+                                virou pedido
+                              </span>
+                            )}
+                          </span>
+                          <span className="text-[10px] font-bold text-muted-foreground tabular-nums">
+                            {d.valor.toLocaleString("pt-BR", {
+                              style: "currency", currency: "BRL", maximumFractionDigits: 2,
+                            })}
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   )}
 

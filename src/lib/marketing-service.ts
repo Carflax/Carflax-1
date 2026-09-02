@@ -433,6 +433,10 @@ export const marketingService = {
     ];
     if (digits) {
       orConditions.push(`remote_jid.ilike."%${digits}%"`);
+      // Número do orçamento vinculado. Fica gravado com zeros à esquerda
+      // ("000001031803"), então o ilike com % dos dois lados acha tanto quem
+      // digita "1031803" quanto o número completo.
+      orConditions.push(`orcamento_documento.ilike."%${digits}%"`);
     }
 
     const { data, error } = await supabase
