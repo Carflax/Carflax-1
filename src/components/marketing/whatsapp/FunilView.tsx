@@ -173,6 +173,11 @@ export function FunilView({
   const [arrastando, setArrastando] = useState<string | null>(null);
   const [colunaAlvo, setColunaAlvo] = useState<EtapaId | null>(null);
   const [statusErp, setStatusErp] = useState<Map<string, StatusErp>>(new Map());
+  // Fotos de perfil do WhatsApp expiram, e o <img> quebrado vira aquele ícone
+  // cinza de imagem faltando. Guardamos quais falharam para cair nas iniciais,
+  // o mesmo que o ContactAvatar faz na tela de Mensagens (não dá para importá-lo
+  // aqui: o WhatsappView já importa este arquivo, seria ciclo).
+  const [fotosQuebradas, setFotosQuebradas] = useState<Set<string>>(new Set());
   // Documentos de pedido por conversa. O número da venda NÃO fica no cliente —
   // `marketing_clientes.valor_venda` é só a soma; cada pedido do ERP é uma linha
   // em `marketing_vendas`. Sem esta busca o card mostrava valor de venda sem
@@ -404,10 +409,13 @@ export function FunilView({
                           )}
                         >
                           <div className="flex items-center gap-2">
-                            {c.foto_url ? (
+                            {c.foto_url && !fotosQuebradas.has(c.id) ? (
                               <img
                                 src={c.foto_url}
                                 alt=""
+                                onError={() =>
+                                  setFotosQuebradas((prev) => new Set(prev).add(c.id))
+                                }
                                 className="w-7 h-7 rounded-full object-cover shrink-0"
                               />
                             ) : (
