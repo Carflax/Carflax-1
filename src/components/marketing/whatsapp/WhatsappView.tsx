@@ -18,6 +18,7 @@ import {
   Megaphone,
   Flame,
   Archive,
+  Filter,
   ChevronDown,
   DollarSign,
   X,
@@ -52,6 +53,7 @@ import { transcribeAudio, classifyByRules } from "@/lib/gemini-service";
 import { Package } from "lucide-react";
 import { useNotification } from "@/hooks/useNotification";
 import { ArchiveApprovalModal } from "./ArchiveApprovalModal";
+import { FunilView } from "./FunilView";
 import { GravadorAudio } from "./GravadorAudio";
 import {
   cancelarPedidoPendente,
@@ -1491,6 +1493,8 @@ export function WhatsappView({
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
   const [followUpDateInput, setFollowUpDateInput] = useState("");
   const [showArchiveModal, setShowArchiveModal] = useState(false);
+  // Funil de vendas: troca a tela inteira das Mensagens pelo quadro.
+  const [showFunil, setShowFunil] = useState(false);
   // Fila de arquivamentos aguardando o supervisor (só aparece para quem aprova).
   const [showApprovalModal, setShowApprovalModal] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState(0);
@@ -4947,6 +4951,18 @@ export function WhatsappView({
     }
   };
 
+  if (showFunil) {
+    return (
+      <FunilView
+        onVoltar={() => setShowFunil(false)}
+        onAbrirConversa={(jid) => {
+          setShowFunil(false);
+          openDirectChat(jid);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="flex h-full bg-background overflow-hidden border border-border/50 rounded-2xl shadow-2xl m-4 relative">
       {/* Modals */}
@@ -5710,6 +5726,13 @@ export function WhatsappView({
                 <Archive
                   className={`w-4 h-4 transition-colors ${viewMode === "archived" ? "text-red-500" : "text-muted-foreground hover:text-primary"}`}
                 />
+              </button>
+              <button
+                onClick={() => setShowFunil(true)}
+                className="p-2 hover:bg-secondary rounded-xl transition-colors relative"
+                title="Funil de vendas"
+              >
+                <Filter className="w-4 h-4 text-muted-foreground hover:text-primary transition-colors" />
               </button>
             </div>
           </div>
