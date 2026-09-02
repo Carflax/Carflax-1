@@ -807,11 +807,15 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, s
         if (isDirector) {
           // Diretor(a): vê o Total Geral (empresa), os subtotais por time de cada
           // supervisor e todos os vendedores individualmente.
-          const [response, orgRes] = await Promise.all([
+          const [response, orgRes, metasMesDir] = await Promise.all([
             apiDashboardGeral(undefined, dataStr),
             supabase.from("usuarios").select("id, operator_code, name, role, responsavel_id, is_leader"),
+            apiDashboardMetas(dataStr).catch(() => [] as { COD_VENDEDOR: string; META: number | string }[]),
           ]);
           const usuarios = (orgRes.data || []) as OrgUser[];
+          const metaMapDir = new Map<string, number>(
+            (metasMesDir || []).map((mt) => [String(mt.COD_VENDEDOR).trim(), parseFloat(String(mt.META)) || 0]),
+          );
 
           if (response && response.length > 0) {
             const mediaRow = response.find(r => r.COD_VENDEDOR === "MEDIA");
@@ -828,14 +832,43 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, s
 
             // Cada supervisor = usuário que é responsável por ≥1 pessoa.
             const teamTotals: VendedorResumo[] = [];
+            // Os mesmos vendedores sem linha no ERP também precisam aparecer na
+            // lista individual — senão a diretoria não consegue abrir o card de
+            // quem ainda não vendeu no mês.
+            const semLinhaGlobal: VendedorResumo[] = [];
             for (const sup of usuarios) {
               const membros = membrosPorResponsavel.get(sup.id);
               if (!membros || membros.length === 0) continue;
               const cods = new Set<string>();
               if (sup.operator_code) cods.add(String(sup.operator_code).trim());
               membros.forEach(m => { if (m.operator_code) cods.add(String(m.operator_code).trim()); });
-              const rows = [...cods].map(c => erpByCod.get(c)).filter(Boolean) as VendedorResumo[];
+              // Vendedor sem faturamento no mês não tem linha no ERP. Descartá-lo
+              // apagava a meta dele do total do time: o card do Canal Mesa aparecia
+              // com 765.217 para a diretoria e 968.233 para o supervisor, porque
+              // dois membros ainda não tinham vendido. Entra com a meta real (CADMET)
+              // e o resto zerado — mesmo tratamento que o caminho do supervisor já
+              // fazia mais abaixo.
+              const rowsErp = [...cods].map((c) => erpByCod.get(c)).filter(Boolean) as VendedorResumo[];
+              const semLinha: VendedorResumo[] = [...cods]
+                .filter((c) => !erpByCod.has(c))
+                .map((c) => ({ cod: c, meta: metaMapDir.get(c) || 0 }))
+                .filter(({ meta }) => meta > 0)
+                .map(({ cod, meta }) => {
+                  const membro = [sup, ...membros].find(
+                    (u) => String(u.operator_code || "").trim() === cod,
+                  );
+                  return {
+                    COD_VENDEDOR: cod,
+                    NOME_VENDEDOR: membro?.name || cod,
+                    META: meta, FATURADO: 0, EM_ABERTO: 0, TOTAL: 0, FALTANTE: meta,
+                    CUSTO: 0, MARGEM_REAL: 0, MARGEM_REAL_PERC: 0,
+                    QTD_VENDAS: 0, TICKET_MEDIO: 0, QTD_ORCAMENTOS: 0, ORC_FECHADOS: 0,
+                    PRAZO_MEDIO_DIAS: 0, TOTAL_VENDIDO_HOJE: 0,
+                  } as VendedorResumo;
+                });
+              const rows = [...rowsErp, ...semLinha];
               if (rows.length === 0) continue;
+              semLinhaGlobal.push(...semLinha);
               teamTotals.push(buildTeamTotal(rows, mediaRow, `TEAM:${sup.id}`, formatTeamName(sup.name), [...cods]));
             }
             teamTotals.sort(
@@ -843,7 +876,14 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, s
             );
 
             if (cancelled) return;
-            setAllVendedores([...(mediaRow ? [mediaRow] : []), ...teamTotals, ...individuais]);
+            setAllVendedores([
+              ...(mediaRow ? [mediaRow] : []),
+              ...teamTotals,
+              ...individuais,
+              ...semLinhaGlobal.filter(
+                (p, i, arr) => arr.findIndex((o) => o.COD_VENDEDOR === p.COD_VENDEDOR) === i,
+              ),
+            ]);
             if (!extData) {
               if (mediaRow) {
                 setData(mediaRow);
