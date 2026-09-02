@@ -158,10 +158,13 @@ const IconeTemp = ({ t }: { t: string | null }) => {
 export function FunilView({
   onVoltar,
   onAbrirConversa,
+  tituloVoltar = "Voltar para as mensagens",
 }: {
   onVoltar: () => void;
   /** Abre a conversa do card na tela de Mensagens. */
   onAbrirConversa: (remoteJid: string) => void;
+  /** Dica da seta — muda conforme haja ou não conversa aberta ao lado. */
+  tituloVoltar?: string;
 }) {
   const [clientes, setClientes] = useState<ClienteFunil[]>([]);
   const [loading, setLoading] = useState(true);
@@ -282,14 +285,16 @@ export function FunilView({
     }
   };
 
+  // flex-1 + min-h-0 em vez de h-full: o quadro vive dentro de uma linha flex
+  // ao lado da conversa, e h-full somado à margem estourava a altura do pai.
   return (
-    <div className="flex flex-col h-full bg-background overflow-hidden border border-border/50 rounded-2xl shadow-2xl m-4">
+    <div className="flex-1 min-h-0 min-w-0 flex flex-col bg-background overflow-hidden border border-border/50 rounded-2xl shadow-2xl m-4">
       {/* Cabeçalho */}
       <div className="flex items-center gap-4 px-6 py-4 border-b border-border shrink-0">
         <button
           onClick={onVoltar}
           className="p-2 hover:bg-secondary rounded-xl text-muted-foreground hover:text-primary transition-colors"
-          title="Voltar para as mensagens"
+          title={tituloVoltar}
         >
           <ArrowLeft className="w-4 h-4" />
         </button>

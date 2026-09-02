@@ -4761,13 +4761,18 @@ export function WhatsappView({
     };
   }, [openDirectChat]);
 
-  // Seleção automática inicial (se nada estiver aberto e não houver chat pendente)
+  // Seleção automática inicial (se nada estiver aberto e não houver chat pendente).
+  //
+  // No funil ela NÃO vale: lá o padrão é ficar sem conversa aberta, com o quadro
+  // usando a tela toda. Sem esta guarda, fechar a conversa reabria na hora a
+  // primeira da lista — parecia que o botão de voltar só recarregava o chat.
   useEffect(() => {
+    if (showFunil) return;
     const pendingChatJid = localStorage.getItem("carflax_pending_chat");
     if (displayedChats.length > 0 && !selectedChat && !pendingChatJid) {
       handleSelectChat(displayedChats[0]);
     }
-  }, [displayedChats, selectedChat, handleSelectChat]);
+  }, [displayedChats, selectedChat, handleSelectChat, showFunil]);
 
   /**
    * Agenda (ou cancela) o retorno da conversa.
@@ -4954,18 +4959,6 @@ export function WhatsappView({
       console.error("Erro ao salvar nota interna:", err);
     }
   };
-
-  if (showFunil) {
-    return (
-      <FunilView
-        onVoltar={() => setShowFunil(false)}
-        onAbrirConversa={(jid) => {
-          setShowFunil(false);
-          openDirectChat(jid);
-        }}
-      />
-    );
-  }
 
   return (
     <div className="flex h-full bg-background overflow-hidden border border-border/50 rounded-2xl shadow-2xl m-4 relative">
@@ -5648,7 +5641,29 @@ export function WhatsappView({
         </div>
       )}
 
+      {/* Funil de vendas — ocupa o lugar da lista de conversas. A área da
+          conversa (abaixo) continua montada, então clicar em CHAT num card abre
+          o atendimento completo ao lado, com envio, áudio, anexo e status: é o
+          mesmo componente, não uma cópia reduzida. */}
+      {showFunil && (
+        <div className="flex-1 min-w-0 flex border-r border-border">
+          <FunilView
+            // Uma seta só, em vez de mais um ícone no cabeçalho da conversa:
+            // com atendimento aberto ela fecha a conversa e devolve a tela ao
+            // quadro; sem conversa, sai do funil.
+            onVoltar={() =>
+              selectedChat ? setSelectedChat(null) : setShowFunil(false)
+            }
+            tituloVoltar={
+              selectedChat ? "Fechar conversa" : "Voltar para as mensagens"
+            }
+            onAbrirConversa={(jid) => openDirectChat(jid)}
+          />
+        </div>
+      )}
+
       {/* Sidebar - Chats */}
+      {!showFunil && (
       <div className="w-80 border-r border-border flex flex-col bg-card/50 backdrop-blur-md">
         <div className="p-6 space-y-4">
           <div className="flex justify-between items-center mb-6">
@@ -6006,13 +6021,21 @@ export function WhatsappView({
           )}
         </div>
       </div>
+      )}
 
       {/* Main Chat Area */}
+      {/* Com o funil aberto só aparece depois de escolher uma conversa — assim o
+          quadro usa a tela toda enquanto ninguém clicou em CHAT. */}
+      {(!showFunil || selectedChat) && (
       <div className="flex-1 flex flex-col bg-background relative overflow-hidden">
         {selectedChat ? (
           <>
-            <div className="p-4 flex items-center justify-between border-b border-border bg-card/20 backdrop-blur-md z-40 relative">
-              <div className="flex items-center gap-3">
+            {/* Cabeçalho tolerante a largura: no funil ele divide a tela com o
+                quadro e antes o nome quebrava em duas linhas enquanto os badges
+                eram cortados na borda. min-w-0 + truncate de um lado, rolagem
+                horizontal do outro. */}
+            <div className="p-4 flex items-center justify-between gap-3 border-b border-border bg-card/20 backdrop-blur-md z-40 relative">
+              <div className="flex items-center gap-3 min-w-[9rem] flex-1">
                 <div className="relative shrink-0">
                   <ContactAvatar
                     name={selectedChat.name}
@@ -6026,9 +6049,9 @@ export function WhatsappView({
                   />
                   {getOriginBadge(selectedChat.leadInfo?.source)}
                 </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <h4 className="font-bold text-base tracking-tight font-inter">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <h4 className="font-bold text-base tracking-tight font-inter truncate">
                       {nomeESobrenome(selectedChat.name)}
                     </h4>
                     {/* Campanha que trouxe o cliente — clicar abre o detalhe do clique. */}
@@ -6056,8 +6079,8 @@ export function WhatsappView({
                     {/* Número da conversa. Some em grupo, onde não existe um só. */}
                     {telefoneDoJid(selectedChat.id) && (
                       <>
-                        <span className="text-[10px] text-muted-foreground/50">•</span>
-                        <p className="text-[10px] text-muted-foreground font-medium tabular-nums select-all">
+                        <span className="text-[10px] text-muted-foreground/50 shrink-0">•</span>
+                        <p className="text-[10px] text-muted-foreground font-medium tabular-nums select-all whitespace-nowrap">
                           {telefoneDoJid(selectedChat.id)}
                         </p>
                       </>
@@ -6066,7 +6089,11 @@ export function WhatsappView({
                 </div>
               </div>
 
-              <div className="flex items-center gap-2">
+              {/* [&>*]:shrink-0 — sem isto o flex espreme cada badge até virar
+                  um talho ilegível em vez de deixar a fileira rolar.
+                  max-w-[60%] — sem o teto, a fileira toma a largura que quiser e
+                  o nome do contato é esmagado até desaparecer. */}
+              <div className="flex items-center gap-2 min-w-0 max-w-[60%] overflow-x-auto scrollbar-hide [&>*]:shrink-0">
                 {/* Atendente (vendedor_id) Estático */}
                 {selectedChat.vendedor_id ? (
                   <div
@@ -6138,7 +6165,10 @@ export function WhatsappView({
                     </div>
                   )}
                 </div>
-                {selectedChat.leadInfo?.quoteValue && (
+                {/* Os valores de orçamento e venda saem no funil: o card do
+                    quadro, a dois palmos daqui, já mostra os dois — e é
+                    exatamente o espaço que faltava para o nome do contato. */}
+                {!showFunil && selectedChat.leadInfo?.quoteValue && (
                   <button
                     onClick={abrirCadastroErp}
                     className="flex items-center justify-center gap-1.5 h-9 px-3 bg-blue-500/10 border border-blue-500/30 rounded-xl text-blue-500 hover:bg-blue-500/20 transition-colors"
@@ -6161,7 +6191,7 @@ export function WhatsappView({
                     )}
                   </button>
                 )}
-                {selectedChat.leadInfo?.saleValue && (
+                {!showFunil && selectedChat.leadInfo?.saleValue && (
                   <button
                     onClick={abrirCadastroErp}
                     className="flex items-center justify-center gap-1.5 h-9 px-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-500 hover:bg-emerald-500/20 transition-colors"
@@ -6183,9 +6213,12 @@ export function WhatsappView({
                 {/* Cadastro do cliente no ERP, casado pelo telefone da conversa.
                     Com orçamento ou venda na tela, o atalho é o próprio valor —
                     o ícone solto só aparece quando não há nenhum dos dois, senão
-                    o lead sem documento ficaria sem como abrir o cadastro. */}
-                {!selectedChat.leadInfo?.quoteValue &&
-                  !selectedChat.leadInfo?.saleValue && (
+                    o lead sem documento ficaria sem como abrir o cadastro.
+                    No funil os valores estão escondidos, então o ícone volta a
+                    ser o único caminho e precisa aparecer sempre. */}
+                {(showFunil ||
+                  (!selectedChat.leadInfo?.quoteValue &&
+                    !selectedChat.leadInfo?.saleValue)) && (
                 <button
                   onClick={abrirCadastroErp}
                   className="p-2.5 hover:bg-secondary rounded-xl transition-all group"
@@ -7801,6 +7834,7 @@ export function WhatsappView({
           </div>
         )}
       </div>
+      )}
 
       {/* Context Menu UI */}
       {contextMenu && (
