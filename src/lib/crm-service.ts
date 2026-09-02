@@ -72,10 +72,34 @@ export const LOSS_REASONS_FALLBACK = [
   "DESISTIU",
   "POSTERGOU",
   "LIBERAÇÃO FINANCEIRA",
-  "COMPARATIVO DE LINHAS",
-  "MÃO DE OBRA E MATERIAL",
   "PREÇO ALTO FABRICANTE",
 ] as const;
+
+/**
+ * Status para o orçamento que não é venda nem perda comercial: o cliente
+ * comprou material com mão de obra junto, coisa que a Carflax não fornece.
+ * Fica fora do "em aberto" (não há o que cobrar) e fora do "perdido" (não se
+ * perdeu para concorrente) — por isso é status, não motivo de perda.
+ */
+export const STATUS_MAO_DE_OBRA = "MÃO DE OBRA E MATERIAL";
+
+/**
+ * Motivos aposentados: saíram da lista de perda a pedido do comercial.
+ * "Mão de obra e material" virou o status acima; "Comparativo de linhas" foi
+ * descontinuado. O cadastro segue existindo no ERP (CADCOC) — filtramos aqui
+ * para não precisar mexer no Citel e para que os orçamentos antigos que já
+ * usam esses textos continuem legíveis.
+ */
+const MOTIVOS_APOSENTADOS = new Set([
+  "MÃO DE OBRA E MATERIAL",
+  "MAO DE OBRA E MATERIAL",
+  "COMPARATIVO DE LINHAS",
+]);
+
+/** Remove da lista de escolha os motivos aposentados. */
+function semAposentados(lista: string[]): string[] {
+  return lista.filter((m) => !MOTIVOS_APOSENTADOS.has(m.toUpperCase().trim()));
+}
 
 export const LOSS_REASON_ALL = "Todos os Motivos";
 
@@ -95,7 +119,7 @@ export async function getLossReasons(): Promise<string[]> {
 
   lossReasonsInflight = apiCrmMotivosPerda()
     .then((rows) => {
-      const list = rows.map((r) => r.descricao.trim()).filter(Boolean);
+      const list = semAposentados(rows.map((r) => r.descricao.trim()).filter(Boolean));
       if (list.length === 0) return [...LOSS_REASONS_FALLBACK];
       lossReasonsCache = list;
       return list;

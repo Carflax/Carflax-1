@@ -32,7 +32,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { apiCrmOrcamentos, apiCrmOrcamentoItens, apiCrmFaturamento, mapCrmItem, type CrmOrcamento, type CrmItem, type FaturamentoResumo } from "@/lib/api";
-import {
+import { STATUS_MAO_DE_OBRA,
   getCrmStatusMap,
   upsertCrmStatus,
   addConversa,
@@ -396,6 +396,7 @@ const OrcamentoRow = memo(({ item, isAdmin, showDualColumns, demandaMode, todayS
                 item.status === "LIB. CRÉDITO" ? "bg-orange-600/10 dark:bg-orange-500/20 text-orange-600 dark:text-orange-400 border-orange-600/20" :
                 item.status === "AGUARD. PEDIDO" ? "bg-indigo-600/10 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-400 border-indigo-600/20" :
                 item.status === "PERDIDO" ? "bg-rose-600/10 dark:bg-rose-500/20 text-rose-600 dark:text-rose-400 border-rose-600/20" :
+                item.status === STATUS_MAO_DE_OBRA ? "bg-teal-600/10 dark:bg-teal-500/20 text-teal-600 dark:text-teal-400 border-teal-600/20" :
                 "bg-secondary text-muted-foreground border-border"
               )}
             >
@@ -1355,7 +1356,9 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
       if (isDemandas) {
         result = result.filter((item) => getDemanda(item, hojeIso) !== null);
       } else if (filterStatus === "Em Aberto") {
-        result = result.filter((item) => !["VENDA", "PERDIDO"].includes(item.status));
+        result = result.filter(
+          (item) => !["VENDA", "PERDIDO", STATUS_MAO_DE_OBRA].includes(item.status),
+        );
       } else {
         const statusMap: Record<string, string> = {
           Emitido: "EMITIDO",
@@ -1365,6 +1368,7 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
           "Aguard. Pedido": "AGUARD. PEDIDO",
           Venda: "VENDA",
           Perdido: "PERDIDO",
+          "Mão de Obra e Material": STATUS_MAO_DE_OBRA,
         };
         const mapped = statusMap[filterStatus];
         if (mapped) result = result.filter((item) => item.status === mapped);
@@ -1492,7 +1496,8 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
     const pipeline = filterStatus === "Perdido"
       ? filteredAndSortedItems.reduce((s, o) => s + o.totalValue, 0)
       : filteredAndSortedItems
-          .filter((o) => !["VENDA", "PERDIDO"].includes(o.status))
+          // Mão de obra e material não é pipeline: não há o que cobrar do cliente.
+          .filter((o) => !["VENDA", "PERDIDO", STATUS_MAO_DE_OBRA].includes(o.status))
           .reduce((s, o) => s + o.totalValue, 0);
 
     // Valor total de todos os orçamentos
@@ -1502,7 +1507,10 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
     // `pipeline` acima, que é orçamento ainda não decidido.
     const emAbertoPedidos = faturamento ? Number(faturamento.EM_ABERTO) || 0 : 0;
 
-    // Motivos que não representam perda comercial real — excluídos da taxa de conversão.
+    // Motivos que não representam perda comercial real — excluídos da taxa de
+    // conversão. "Mão de obra e material" virou STATUS (e status PERDIDO já não
+    // o inclui), mas o texto continua aqui para os orçamentos antigos que foram
+    // marcados como perdidos com esse motivo antes da mudança.
     const MOTIVOS_NAO_COMERCIAIS = ["MÃO DE OBRA E MATERIAL", "MAO DE OBRA E MATERIAL"];
     const perdidosConversao = filteredAndSortedItems
       .filter((o) => o.status === "PERDIDO" && !MOTIVOS_NAO_COMERCIAIS.includes((o.lossReason || "").toUpperCase().trim()))
@@ -1581,6 +1589,7 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
     { label: "Aguard. Pedido", key: "AGUARD. PEDIDO", color: "bg-orange-500" },
     { label: "Venda", key: "VENDA", color: "bg-emerald-500" },
     { label: "Perdido", key: "PERDIDO", color: "bg-rose-500" },
+    { label: "Mão de Obra", key: STATUS_MAO_DE_OBRA, color: "bg-teal-500" },
   ];
   const maxStatusCount = Math.max(...statusBarData.map((s) => insights.statusCounts[s.key] || 0), 1);
 
@@ -1634,7 +1643,7 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
             )}
           </div>
 
-          <TinyDropdown value={filterStatus} options={["Todos os Status", DEMANDAS_FILTER, "Em Aberto", "Emitido", "Enviado", "Negociação", "Lib. Crédito", "Aguard. Pedido", "Venda", "Perdido"]} onChange={setFilterStatus} icon={FileCheck} variant="blue" placeholder="Todos os Status" />
+          <TinyDropdown value={filterStatus} options={["Todos os Status", DEMANDAS_FILTER, "Em Aberto", "Emitido", "Enviado", "Negociação", "Lib. Crédito", "Aguard. Pedido", "Venda", "Perdido", "Mão de Obra e Material"]} onChange={setFilterStatus} icon={FileCheck} variant="blue" placeholder="Todos os Status" />
           
           {(isGerente(userProfile?.role) || isSupervisor(userProfile?.role)) && (
             <TinyDropdown value={filterSeller} options={uniqueSellers} onChange={setFilterSeller} icon={UserIcon} variant="slate" placeholder="Todos os Vendedores" />
@@ -2088,6 +2097,8 @@ export function OrcamentosView({ userProfile }: { userProfile?: UserProfile }) {
                       { label: "Lib. Crédito", color: "text-orange-600 dark:text-orange-400", dot: "bg-orange-600 dark:bg-orange-400", next: null },
                       { label: "Aguard. Pedido", color: "text-indigo-600 dark:text-indigo-400", dot: "bg-indigo-600 dark:bg-indigo-400", next: null },
                       { label: "Perdido", color: "text-rose-600 dark:text-rose-400", dot: "bg-rose-600 dark:bg-rose-400", next: "perdido" },
+                      // Desfecho sem cobrança e sem perda: grava direto, sem passo extra.
+                      { label: "Mão de Obra e Material", color: "text-teal-600 dark:text-teal-400", dot: "bg-teal-600 dark:bg-teal-400", next: null },
                     ].map((btn, i) => (
                       <button
                         key={i}
