@@ -40,6 +40,7 @@ const EMPTY_ANALYTICS: ReportsAnalytics = {
   },
   previous: { leads: 0, salesCount: 0, salesValue: 0 },
   bySeller: [],
+  salesList: [],
   byOrigin: [],
   byCampaign: [],
   byTemperature: [],
@@ -231,18 +232,11 @@ export function ReportsView() {
       .finally(() => setRentabLoading(false));
   }, [activeTab, startDate, endDate, adsData]);
 
-  const { totals, previous, bySeller, byOrigin, byCampaign, byTemperature, dailySeries } = analytics;
+  const { totals, previous, bySeller, salesList, byOrigin, byCampaign, byTemperature, dailySeries } = analytics;
   const maxOriginLeads = Math.max(...byOrigin.map((o) => o.leads), 1);
   const maxCampaignLeads = Math.max(...byCampaign.map((c) => c.leads), 1);
   const totalTempLeads = byTemperature.reduce((s, t) => s + t.leads, 0);
   const hasData = totals.leads > 0 || totals.salesCount > 0 || totals.quotesCount > 0;
-
-  // Funil: Leads -> Orçamentos -> Vendas, com % de queda entre etapas.
-  const funnel = [
-    { label: "Leads", value: totals.leads, color: "bg-blue-500", pctOfTop: 100 },
-    { label: "Orçamentos", value: totals.quotesCount, color: "bg-indigo-500", pctOfTop: totals.leads > 0 ? (totals.quotesCount / totals.leads) * 100 : 0 },
-    { label: "Vendas", value: totals.salesCount, color: "bg-emerald-500", pctOfTop: totals.leads > 0 ? (totals.salesCount / totals.leads) * 100 : 0 },
-  ];
 
   const dateLabel =
     endDate !== null
@@ -392,25 +386,60 @@ export function ReportsView() {
               </section>
 
               {/* Funil */}
+              {/* Quem são as vendas do período: de quem, por quanto e com qual
+                  atendente, sem precisar abrir a aba de Atendentes e cruzar na
+                  mão. */}
               <section className="space-y-2.5">
                 <h2 className="text-sm font-black uppercase tracking-tight flex items-center gap-2">
-                  <Filter className="w-4 h-4 text-primary" /> Funil de Conversão
+                  <DollarSign className="w-4 h-4 text-emerald-500" /> Vendas do Período
+                  {salesList.length > 0 && (
+                    <span className="text-[10px] font-black text-muted-foreground tracking-widest">
+                      {salesList.length} · {formatCurrency(totals.salesValue)}
+                    </span>
+                  )}
                 </h2>
-                <div className="bg-card border border-border rounded-3xl p-4 shadow-sm space-y-2">
-                  {funnel.map((stage, i) => (
-                    <div key={stage.label}>
-                      <div className="flex items-center justify-between text-xs mb-1">
-                        <span className="font-bold text-foreground">{stage.label}</span>
-                        <span className="text-muted-foreground tabular-nums">
-                          <span className="font-black text-foreground">{stage.value.toLocaleString("pt-BR")}</span>
-                          {i > 0 && <span> · {stage.pctOfTop.toFixed(1)}% dos leads</span>}
-                        </span>
-                      </div>
-                      <div className="w-full bg-secondary h-2.5 rounded-full overflow-hidden">
-                        <div className={cn("h-full rounded-full transition-all duration-700", stage.color)} style={{ width: `${Math.max(stage.pctOfTop, stage.value > 0 ? 3 : 0)}%` }} />
-                      </div>
+                <div className="bg-card border border-border rounded-3xl shadow-sm overflow-hidden">
+                  {salesList.length === 0 ? (
+                    <p className="py-10 text-center text-xs font-bold text-muted-foreground">
+                      Nenhuma venda registrada no período.
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs">
+                        <thead className="bg-secondary/50 text-muted-foreground uppercase text-[10px] font-black tracking-widest">
+                          <tr>
+                            <th className="text-left py-3 px-5">Cliente</th>
+                            <th className="text-right py-3 px-3">Valor</th>
+                            <th className="text-left py-3 px-5">Atendente</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {salesList.map((v) => (
+                            <tr
+                              key={`${v.remoteJid}-${v.data}`}
+                              className="border-b border-border/40 last:border-0 hover:bg-secondary/40 transition-colors"
+                            >
+                              <td className="py-3 px-5">
+                                <span className="font-bold text-foreground">{v.cliente}</span>
+                                <span className="block text-[10px] text-muted-foreground tabular-nums">
+                                  {new Date(v.data).toLocaleDateString("pt-BR")}
+                                </span>
+                              </td>
+                              <td className="py-3 px-3 text-right tabular-nums font-black text-emerald-500 whitespace-nowrap">
+                                {formatCurrency(v.valor)}
+                              </td>
+                              <td className="py-3 px-5">
+                                <div className="flex items-center gap-2.5">
+                                  <SellerAvatar name={v.sellerName} avatar={v.sellerAvatar} />
+                                  <span className="font-bold text-foreground whitespace-nowrap">{v.sellerName}</span>
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
-                  ))}
+                  )}
                 </div>
               </section>
             </div>

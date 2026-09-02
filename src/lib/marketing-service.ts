@@ -232,6 +232,16 @@ export interface VerbasData {
   totalVerbas: number;
 }
 
+/** Uma venda do período, para a lista abaixo do funil. */
+export interface SaleReport {
+  remoteJid: string;
+  cliente: string;
+  valor: number;
+  sellerName: string;
+  sellerAvatar?: string | null;
+  data: string;
+}
+
 export interface ReportsAnalytics {
   totals: {
     leads: number;
@@ -255,6 +265,8 @@ export interface ReportsAnalytics {
     salesValue: number;
   };
   bySeller: SellerReport[];
+  /** Vendas individuais do período, da maior para a menor. */
+  salesList: SaleReport[];
   byOrigin: OriginReport[];
   byCampaign: CampaignReport[];
   byTemperature: TemperatureReport[];
@@ -1247,7 +1259,7 @@ export const marketingService = {
         .limit(5000),
       supabase
         .from("marketing_clientes")
-        .select("remote_jid, vendedor_id, origem, campanha, valor_venda, data_venda")
+        .select("remote_jid, nome, push_name, vendedor_id, origem, campanha, valor_venda, data_venda")
         .gt("valor_venda", 0)
         .not("data_venda", "is", null)
         .gte("data_venda", startIso)
@@ -1267,6 +1279,7 @@ export const marketingService = {
     const quotes = (quotesRaw || []).filter(l => !isDescartado(l));
     const sales = (salesRaw || []).filter(l => !isDescartado(l)).map((s) => ({
       remote_jid: s.remote_jid,
+      nome: (s.nome as string | null) || (s.push_name as string | null) || null,
       valor: Number(s.valor_venda) || 0,
       vendedor_id: s.vendedor_id as string | null | undefined,
       origem: s.origem as string | null | undefined,
@@ -1336,6 +1349,25 @@ export const marketingService = {
         delete respBySeller["sem_vendedor"];
       }
     }
+
+    // --- Vendas individuais do período (card abaixo do funil) ---
+    // Usa a MESMA lista que alimenta o KPI de vendas, então a soma da lista
+    // fecha com o card "Vendas" — se saísse de outra consulta, os dois números
+    // divergiriam na primeira diferença de filtro.
+    const salesList: SaleReport[] = sales
+      .map((s) => {
+        // Mesmo remanejo do bySeller: venda sem atendente entra como Ingryd.
+        const sid = s.vendedor_id || (ingrydId ? ingrydId : "sem_vendedor");
+        return {
+          remoteJid: s.remote_jid,
+          cliente: s.nome || s.remote_jid.split("@")[0],
+          valor: s.valor,
+          sellerName: sid === "sem_vendedor" ? "Sem atendente" : (userNames.get(sid) || "Desconhecido"),
+          sellerAvatar: userAvatars.get(sid) || null,
+          data: s.data_venda,
+        };
+      })
+      .sort((a, b) => b.valor - a.valor);
 
     const bySeller: SellerReport[] = [...sellerAcc.entries()].map(([id, acc]) => {
       const resp = respBySeller[id];
@@ -1471,6 +1503,7 @@ export const marketingService = {
         salesValue: prevSalesValue,
       },
       bySeller,
+      salesList,
       byOrigin,
       byCampaign,
       byTemperature,
