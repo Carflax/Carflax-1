@@ -1,3 +1,4 @@
+import { RankingView } from "@/components/dashboard/RankingView";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { type Session } from "@supabase/supabase-js";
 import { NotificationProvider } from "@/components/ui/NotificationProvider";
@@ -1560,6 +1561,8 @@ function DashboardContent({
             <RelatoriosScrumView userProfile={userProfile || undefined} />
           ) : activeItem === "DB Admin" ? (
             <SqlRunnerView />
+          ) : activeItem === "Ranking" ? (
+            <RankingView />
           ) : activeItem === "Geral" ? (
             <GeralView
               userProfile={userProfile || undefined}
@@ -2109,6 +2112,21 @@ function App() {
     return (
       <ThemeProvider defaultTheme="dark" storageKey="carflax-theme">
         <AvaliarPublicView />
+      </ThemeProvider>
+    );
+  }
+
+  // Ranking do dia isolado: sem barra lateral, para ficar aberto num telão.
+  const isRankingDiaRoute =
+    window.location.pathname.includes("/ranking-dia") ||
+    window.location.search.includes("view=ranking-dia");
+
+  if (isRankingDiaRoute) {
+    return (
+      <ThemeProvider defaultTheme="dark" storageKey="carflax-theme">
+        <NotificationProvider>
+          <RankingView />
+        </NotificationProvider>
       </ThemeProvider>
     );
   }

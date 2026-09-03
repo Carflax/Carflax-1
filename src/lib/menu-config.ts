@@ -1,6 +1,12 @@
 export interface NavSubItem {
   label: string;
   value?: string; // permission key when different from label
+  /**
+   * Abre em ABA NOVA em vez de trocar a seção do HUB. Para telas que vivem
+   * sozinhas — painel de TV, telão da loja —, onde a barra lateral e o resto do
+   * HUB só roubam espaço.
+   */
+  novaAba?: string;
 }
 
 export interface NavSection {
@@ -23,6 +29,9 @@ export const NAV_SECTIONS: NavSection[] = [
     subItems: [
       { label: "Geral" },
       { label: "Produtos" },
+      // Placar do dia: top 10 por vendido hoje. Abre isolado, para poder ficar
+      // aberto num telão sem o resto do HUB em volta.
+      { label: "Ranking", novaAba: "/ranking-dia" },
     ],
   },
   { label: "Esteira", permGroup: "ESSENCIAL" },

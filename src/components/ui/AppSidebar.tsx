@@ -58,7 +58,13 @@ interface MenuItem {
   icon: LucideIcon;
   label: string;
   isDropdown?: boolean;
-  subItems?: { label: string; icon?: LucideIcon; value?: string }[];
+  subItems?: {
+    label: string;
+    icon?: LucideIcon;
+    value?: string;
+    /** Abre em aba nova em vez de trocar a seção do HUB. */
+    novaAba?: string;
+  }[];
 }
 
 // Icon map — only place you need to add an icon when creating a new section
@@ -134,6 +140,7 @@ function buildMenuItems(subquadros: { id: string; name: string }[]): MenuItem[] 
       subItems: section.subItems?.map(sub => ({
         label: sub.label,
         value: sub.value,
+        novaAba: sub.novaAba,
         icon: ICON_MAP[sub.value ?? sub.label] ?? LayoutGrid,
       })),
     };
@@ -651,6 +658,14 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
                             <div
                               key={i}
                               onClick={() => {
+                                // Item marcado com `novaAba` não troca a seção:
+                                // abre a tela isolada em outra aba e deixa o HUB
+                                // onde estava.
+                                if (sub.novaAba) {
+                                  window.open(sub.novaAba, "_blank", "noopener");
+                                  if (onMobileClose) onMobileClose();
+                                  return;
+                                }
                                 onActiveItemChange(sub.value || sub.label);
                                 if (onMobileClose) onMobileClose();
                               }}

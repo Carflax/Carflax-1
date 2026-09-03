@@ -96,6 +96,8 @@ export interface VendedorResumo {
   PRAZO_MEDIO_DIAS: number | string;
   PRAZO_MEDIO_DIAS_HOJE?: number | string;
   TOTAL_VENDIDO_HOJE: number | string;
+  /** Ritmo necessário hoje: o que falta da meta do mês ÷ dias úteis restantes. */
+  DIARIO?: number | string;
   dias_trabalhados?: number;
   avatar?: string;
   // Só nas linhas agregadas de time (COD_VENDEDOR "TEAM:<id>"): códigos dos
