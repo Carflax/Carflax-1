@@ -151,6 +151,21 @@ export interface VendaDiaria {
   FATURADO: number;
 }
 
+export interface RankingDiaRow {
+  COD_VENDEDOR: string;
+  NOME_VENDEDOR: string;
+  VENDIDO_HOJE: number | string;
+  /** Meta do mês menos (faturado + em aberto). A meta DIÁRIA sai daqui, no front. */
+  FALTANTE: number | string;
+}
+
+/**
+ * Ranking do dia para o painel de parede. Consulta enxuta e cache de 15s no
+ * servidor — o /dashboard/geral tem 10 CTEs e cache de 3 min, e não aguenta ser
+ * consultado a cada 15 segundos.
+ */
+export const apiRankingDia = () => get<RankingDiaRow[]>("/api/dashboard/geral/ranking-dia");
+
 export const apiVendasDiarias = (vendedor?: string, data?: string) =>
   get<VendaDiaria[]>("/api/dashboard/geral/diario", {
     ...(vendedor ? { vendedor } : {}),

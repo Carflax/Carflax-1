@@ -1,10 +1,16 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Crown, TrendingUp, TrendingDown, Minus, Flame, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import { apiDashboardGeral, type VendedorResumo } from "@/lib/api";
+import {
+  apiRankingDia,
+  apiDashboardGeral,
+  type RankingDiaRow,
+  type VendedorResumo,
+} from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { buildAvatarResolver, type AvatarResolver } from "@/lib/avatar-by-code";
 import { cn } from "@/lib/utils";
+import { calcMetaDiaria } from "@/lib/dias-uteis";
 
 /**
  * Ranking do dia — painel de parede.
@@ -19,9 +25,10 @@ import { cn } from "@/lib/utils";
  * individual, para os dois números não se contradizerem.
  */
 
-const INTERVALO_MS = 30 * 1000;
-// O endpoint tem cache de 3 min no servidor: buscar mais rápido não traz dado
-// novo, só carrega o ERP à toa.
+// 15s contra o endpoint enxuto (/ranking-dia), que tem cache de 15s no
+// servidor. Cada ciclo cai numa entrada nova de cache, então a tela acompanha a
+// venda quase ao vivo sem repetir consulta pesada no ERP.
+const INTERVALO_MS = 15 * 1000;
 const SOM_COMEMORACAO = "https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3";
 
 interface Linha {
@@ -43,22 +50,13 @@ const diaIso = (d: Date) =>
 const percentualDaMeta = (vendido: number, meta: number) =>
   meta > 0 ? (vendido / meta) * 100 : vendido > 0 ? 100 : 0;
 
-function mapear(resposta: VendedorResumo[], resolver: AvatarResolver | null): Map<string, Linha> {
-  const mapa = new Map<string, Linha>();
+/** Percentual de cada vendedor num dia passado — base da variação. */
+function percentuaisDoDia(resposta: VendedorResumo[]): Map<string, number> {
+  const mapa = new Map<string, number>();
   for (const r of resposta || []) {
     const cod = String(r.COD_VENDEDOR);
     if (cod === "MEDIA" || cod.startsWith("TEAM:")) continue;
-    const vendidoHoje = num(r.TOTAL_VENDIDO_HOJE);
-    const metaDiaria = num(r.DIARIO);
-    mapa.set(cod, {
-      cod,
-      nome: r.NOME_VENDEDOR,
-      vendidoHoje,
-      metaDiaria,
-      percentual: percentualDaMeta(vendidoHoje, metaDiaria),
-      variacao: null,
-      avatar: resolver?.(cod),
-    });
+    mapa.set(cod, percentualDaMeta(num(r.TOTAL_VENDIDO_HOJE), num(r.DIARIO)));
   }
   return mapa;
 }
@@ -88,6 +86,7 @@ export function RankingView() {
   // Quem já bateu a meta numa leitura anterior: sem isso a festa se repetiria a
   // cada atualização enquanto o vendedor seguisse acima de 100%.
   const jaBateuRef = useRef<Set<string>>(new Set());
+  const ontemRef = useRef<Map<string, number>>(new Map());
   const primeiraCargaRef = useRef(true);
 
   const tocarSom = () => {
@@ -102,30 +101,31 @@ export function RankingView() {
 
   const carregar = useCallback(async () => {
     try {
-      const hoje = new Date();
-      const ontem = new Date(hoje);
-      ontem.setDate(ontem.getDate() - 1);
-
       if (!resolverRef.current) {
         const { data } = await supabase.from("usuarios").select("operator_code, avatar");
         resolverRef.current = buildAvatarResolver(data || []);
       }
 
-      // Ontem entra só para a variação em pontos percentuais. É uma chamada a
-      // mais por atualização, mas sem ela "está subindo ou caindo?" fica sem
-      // resposta — que é metade da graça de um painel de parede.
-      const [respHoje, respOntem] = await Promise.all([
-        apiDashboardGeral(undefined, diaIso(hoje)),
-        apiDashboardGeral(undefined, diaIso(ontem)).catch(() => [] as VendedorResumo[]),
-      ]);
+      const linhasApi = await apiRankingDia();
+      const ontem = ontemRef.current;
 
-      const deHoje = mapear(respHoje, resolverRef.current);
-      const deOntem = mapear(respOntem, resolverRef.current);
-
-      const lista = [...deHoje.values()]
-        .map((l) => {
-          const o = deOntem.get(l.cod);
-          return { ...l, variacao: o ? l.percentual - o.percentual : null };
+      const lista = (linhasApi || [])
+        .map((r: RankingDiaRow) => {
+          const cod = String(r.COD_VENDEDOR);
+          const vendidoHoje = num(r.VENDIDO_HOJE);
+          // Mesma função do card do vendedor: desconta feriado e não conta hoje.
+          const metaDiaria = calcMetaDiaria(num(r.FALTANTE));
+          const percentual = percentualDaMeta(vendidoHoje, metaDiaria);
+          const base = ontem.get(cod);
+          return {
+            cod,
+            nome: r.NOME_VENDEDOR,
+            vendidoHoje,
+            metaDiaria,
+            percentual,
+            variacao: base === undefined ? null : percentual - base,
+            avatar: resolverRef.current?.(cod),
+          } as Linha;
         })
         .filter((l) => l.vendidoHoje > 0 || l.metaDiaria > 0)
         .sort((a, b) => b.percentual - a.percentual)
@@ -148,6 +148,20 @@ export function RankingView() {
     } catch {
       /* mantém a lista anterior em caso de falha de rede */
     }
+  }, []);
+
+  // Ontem é base fixa da variação: buscar a cada ciclo era desperdício, o dia já
+  // fechou. Uma vez na montagem basta.
+  useEffect(() => {
+    const ontem = new Date();
+    ontem.setDate(ontem.getDate() - 1);
+    apiDashboardGeral(undefined, diaIso(ontem))
+      .then((r) => {
+        ontemRef.current = percentuaisDoDia(r);
+      })
+      .catch(() => {
+        /* sem ontem, a coluna de variação fica em "—" */
+      });
   }, []);
 
   useEffect(() => {
