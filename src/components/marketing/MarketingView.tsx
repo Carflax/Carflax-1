@@ -1,3 +1,4 @@
+import { CoachView } from "@/components/marketing/CoachView";
 import { Megaphone, Calendar } from "lucide-react";
 import { WhatsappApiView } from "./whatsapp/WhatsappApiView";
 import { AutomacaoView } from "./automacao/AutomacaoView";
@@ -61,6 +62,10 @@ export function MarketingView({ activeTab, userProfile }: MarketingViewProps) {
 
   if (activeTab === "Avaliações") {
     return <AvaliacoesView userProfile={userProfile} />;
+  }
+
+  if (activeTab === "Coach IA") {
+    return <CoachView />;
   }
 
   if (activeTab === "Pós-Venda") {

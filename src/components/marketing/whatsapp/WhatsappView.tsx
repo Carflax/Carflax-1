@@ -19,6 +19,7 @@ import {
   Flame,
   Archive,
   Filter,
+  ClipboardCheck,
   ChevronDown,
   DollarSign,
   X,
@@ -54,6 +55,7 @@ import { Package } from "lucide-react";
 import { useNotification } from "@/hooks/useNotification";
 import { ArchiveApprovalModal } from "./ArchiveApprovalModal";
 import { FunilView } from "./FunilView";
+import { CoachView } from "@/components/marketing/CoachView";
 import { GravadorAudio } from "./GravadorAudio";
 import {
   cancelarPedidoPendente,
@@ -1495,6 +1497,9 @@ export function WhatsappView({
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   // Funil de vendas: troca a tela inteira das Mensagens pelo quadro.
   const [showFunil, setShowFunil] = useState(false);
+  // Coach de atendimento: sobreposto, não troca a tela — o supervisor abre,
+  // ajusta uma regra e volta para a conversa que estava lendo.
+  const [showCoach, setShowCoach] = useState(false);
   // Fila de arquivamentos aguardando o supervisor (só aparece para quem aprova).
   const [showApprovalModal, setShowApprovalModal] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState(0);
@@ -5769,6 +5774,18 @@ export function WhatsappView({
                   className={`w-4 h-4 transition-colors ${viewMode === "archived" ? "text-red-500" : "text-muted-foreground hover:text-primary"}`}
                 />
               </button>
+              {/* Regras do coach — só para quem supervisiona. Reaproveita o
+                  mesmo critério do escudo de aprovação ao lado, para não existir
+                  uma segunda definição de "supervisor" na mesma barra. */}
+              {podeAprovar && (
+                <button
+                  onClick={() => setShowCoach(true)}
+                  className="p-2 hover:bg-secondary rounded-xl transition-colors relative"
+                  title="Regras de atendimento (Coach IA)"
+                >
+                  <ClipboardCheck className="w-4 h-4 text-muted-foreground hover:text-primary transition-colors" />
+                </button>
+              )}
               <button
                 // Zera a conversa ao entrar: na tela de Mensagens sempre há uma
                 // aberta (a lista abre a primeira sozinha), e sem isto o funil
@@ -7857,6 +7874,27 @@ export function WhatsappView({
           </div>
         )}
       </div>
+      )}
+
+      {/* Coach de atendimento, sobreposto à tela de Mensagens */}
+      {showCoach && (
+        <div className="absolute inset-0 z-[120] bg-background flex flex-col">
+          <div className="flex items-center gap-3 px-4 py-2 border-b border-border shrink-0">
+            <button
+              onClick={() => setShowCoach(false)}
+              className="p-2 hover:bg-secondary rounded-xl text-muted-foreground hover:text-primary transition-colors"
+              title="Fechar"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <span className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
+              Voltar para as mensagens
+            </span>
+          </div>
+          <div className="flex-1 min-h-0 overflow-hidden">
+            <CoachView />
+          </div>
+        </div>
       )}
 
       {/* Context Menu UI */}

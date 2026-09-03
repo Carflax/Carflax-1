@@ -64,6 +64,8 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Eventos", value: "Eventos Marketing" },
       { label: "Avaliações" },
       { label: "Pós-Venda" },
+      // Regras que a IA verifica nas conversas + os alertas que elas geram.
+      { label: "Coach IA", value: "Coach IA" },
       { label: "Relatórios", value: "Relatórios Mkt" },
     ],
   },
