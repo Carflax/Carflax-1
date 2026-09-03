@@ -140,6 +140,17 @@ export const EXTRA_PERMISSIONS: { group: string; label: string; leaderOnly?: boo
 ];
 
 // Derived permission groups for UsersView — built automatically from NAV_SECTIONS + EXTRA_PERMISSIONS
+// Declarado acima de buildPermissionGroups de propósito: PERMISSION_GROUPS é
+// montado na carga do módulo e precisa desta lista já inicializada.
+const PUBLIC_SECTIONS = [
+  "Meu Perfil", "Aparência", "Assinatura", "Notificações", "Segurança", "Extensão",
+  "Dashboard", "Geral", "Produtos",
+  "Calendário", "Agenda", "Férias",
+  "Esteira", "Minha Esteira", "Sugestões",
+  "Organograma", "Estoque", "Separação", "Conferência", "Retirada", "Furos", "Relatórios Estoque",
+  "Relatórios", "Relatórios Mkt",
+];
+
 function buildPermissionGroups() {
   const map = new Map<string, string[]>();
 
@@ -164,9 +175,20 @@ function buildPermissionGroups() {
     map.get(group)!.push(label);
   });
 
+  // O painel só mostra o que o toggle REALMENTE controla. Módulo em
+  // PUBLIC_SECTIONS é liberado para todo mundo em canAccessSection(), então
+  // exibi-lo daria a impressão de que desmarcar bloqueia — e não bloqueia.
+  //
+  // Antes a exclusão era por GRUPO ("DASHBOARD", "CALENDÁRIO", "ESSENCIAL"),
+  // porque na época todos os itens deles eram públicos. Isso escondeu o Ranking
+  // quando ele entrou no Dashboard: ele não é público, mas o grupo inteiro
+  // estava fora do painel, e não havia como liberar para ninguém.
   return Array.from(map.entries())
-    .filter(([name, modules]) => modules.length > 0 && name !== "DASHBOARD" && name !== "CALENDÁRIO" && name !== "ESSENCIAL")
-    .map(([name, modules]) => ({ name, modules }));
+    .map(([name, modules]) => ({
+      name,
+      modules: modules.filter((m) => !PUBLIC_SECTIONS.includes(m)),
+    }))
+    .filter(({ modules }) => modules.length > 0);
 }
 
 export const PERMISSION_GROUPS = buildPermissionGroups();
@@ -197,14 +219,6 @@ export interface AccessProfile {
 }
 
 // Liberado para todos (configurações pessoais + dashboards + módulos essenciais)
-const PUBLIC_SECTIONS = [
-  "Meu Perfil", "Aparência", "Assinatura", "Notificações", "Segurança", "Extensão",
-  "Dashboard", "Geral", "Produtos",
-  "Calendário", "Agenda", "Férias",
-  "Esteira", "Minha Esteira", "Sugestões",
-  "Organograma", "Estoque", "Separação", "Conferência", "Retirada", "Furos", "Relatórios Estoque",
-  "Relatórios", "Relatórios Mkt",
-];
 
 const VENDEDOR_SECTIONS = [
   "Comercial", "Orçamentos", "Análise FRV", "Carteira", "Ligações", "Campanhas",
