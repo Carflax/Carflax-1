@@ -8,6 +8,7 @@ import {
   Flame,
   Snowflake,
   Thermometer,
+  User,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { apiCrmOrcamentos } from "@/lib/api";
@@ -221,6 +222,12 @@ export function FunilView({
   // em `marketing_vendas`. Sem esta busca o card mostrava valor de venda sem
   // nenhum número ao lado, parecendo que não tinha vínculo com a Citel.
   const [docsVenda, setDocsVenda] = useState<Map<string, string[]>>(new Map());
+  // Nome e foto de quem atende, por id. A tabela de usuários é pequena e quase
+  // estática, então uma busca na montagem basta — não precisa recarregar junto
+  // com o quadro a cada evento de realtime.
+  const [atendentes, setAtendentes] = useState<
+    Map<string, { nome: string; avatar: string | null }>
+  >(new Map());
 
   // `silencioso` = recarga vinda do realtime: atualiza sem acender o spinner
   // nem esvaziar as colunas, senão o quadro pisca a cada mensagem que chega.
@@ -308,6 +315,27 @@ export function FunilView({
   useEffect(() => {
     carregar();
   }, [carregar]);
+
+  useEffect(() => {
+    let vivo = true;
+    supabase
+      .from("usuarios")
+      .select("id, name, avatar")
+      .then(({ data }) => {
+        if (!vivo) return;
+        setAtendentes(
+          new Map(
+            (data || []).map((u) => [
+              String(u.id),
+              { nome: String(u.name || ""), avatar: u.avatar || null },
+            ]),
+          ),
+        );
+      });
+    return () => {
+      vivo = false;
+    };
+  }, []);
 
   // ── Tempo real ────────────────────────────────────────────────────────────
   //
@@ -614,13 +642,43 @@ export function FunilView({
                           )}
 
                           <div className="flex items-center gap-1.5 text-muted-foreground">
-                            <span className="text-[9px] font-bold uppercase tracking-wider">
+                            <span className="text-[9px] font-bold uppercase tracking-wider shrink-0">
                               {dias === null
                                 ? "sem conversa"
                                 : dias === 0
                                   ? "hoje"
                                   : `há ${dias}d`}
                             </span>
+
+                            {/* Quem está atendendo. Sem isto, num quadro do time
+                                inteiro não dava para saber de quem é o card sem
+                                abrir a conversa. */}
+                            {(() => {
+                              const op = c.vendedor_id
+                                ? atendentes.get(String(c.vendedor_id))
+                                : undefined;
+                              if (!op) return null;
+                              const primeiro = op.nome.trim().split(/\s+/)[0] || "";
+                              return (
+                                <span
+                                  className="flex items-center gap-1 min-w-0 pl-0.5 pr-1.5 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20"
+                                  title={`Atendido por ${op.nome}`}
+                                >
+                                  {op.avatar ? (
+                                    <img
+                                      src={op.avatar}
+                                      alt=""
+                                      className="w-3.5 h-3.5 rounded-full object-cover shrink-0"
+                                    />
+                                  ) : (
+                                    <User className="w-3 h-3 text-emerald-500 shrink-0" />
+                                  )}
+                                  <span className="text-[8px] font-black uppercase tracking-wide text-emerald-600 dark:text-emerald-400 truncate">
+                                    {primeiro}
+                                  </span>
+                                </span>
+                              );
+                            })()}
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
