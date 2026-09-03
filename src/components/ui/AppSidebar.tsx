@@ -309,7 +309,14 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
       // O arquivamento aguardando aprovação continua passando: é outro assunto.
       if (n.tipo === "whatsapp_sla" && !slaWhatsappAtivoRef.current) return;
 
-      if (n.tipo === "whatsapp_sla" || n.tipo === "arquivamento_aprovacao") {
+      // `coach_regra` entra aqui para aparecer em QUALQUER tela do HUB — a barra
+      // lateral é o único ponto montado o tempo todo. E fica fora da guarda do
+      // SLA acima de propósito: são alertas diferentes, com toggles diferentes.
+      if (
+        n.tipo === "whatsapp_sla" ||
+        n.tipo === "arquivamento_aprovacao" ||
+        n.tipo === "coach_regra"
+      ) {
         const markAsRead = () => {
           supabase.from("hub_notificacoes").update({ lida: true }).eq("id", n.id).then(() => {});
         };

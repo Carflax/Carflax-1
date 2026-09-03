@@ -44,19 +44,7 @@ interface Alerta {
   explicacao: string | null;
   criado_em: string;
   enviado_em: string | null;
-}
-
-interface Analise {
-  id: string;
-  dia: string;
-  vendedor_nome: string | null;
-  conversas: number;
-  mensagens: number;
-  nota: number | null;
-  resumo: string | null;
-  acertos: string[];
-  pontos_corrigir: string[];
-  exemplos: { trecho: string; problema: string; melhor: string }[];
+  remote_jid: string | null;
 }
 
 interface Usuario {
@@ -65,30 +53,36 @@ interface Usuario {
   permissions?: string[] | null;
 }
 
-export function CoachView() {
+export function CoachView({
+  onAbrirConversa,
+}: {
+  /**
+   * Como abrir a conversa do alerta. O WhatsappView passa a sua própria função
+   * (fecha o painel e seleciona o chat). Sem a prop — quando a tela é aberta
+   * pelo menu Marketing — cai no evento global, que a tela de Mensagens escuta.
+   */
+  onAbrirConversa?: (remoteJid: string) => void;
+} = {}) {
   const [regras, setRegras] = useState<Regra[]>([]);
   const [alertas, setAlertas] = useState<Alerta[]>([]);
-  const [analises, setAnalises] = useState<Analise[]>([]);
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [novaRegra, setNovaRegra] = useState("");
   const [novaRegraVendedor, setNovaRegraVendedor] = useState("");
   const [carregando, setCarregando] = useState(true);
   const [rodando, setRodando] = useState(false);
-  const [aba, setAba] = useState<"regras" | "alertas" | "analises">("regras");
+  const [aba, setAba] = useState<"regras" | "alertas">("regras");
   const [erro, setErro] = useState<string | null>(null);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
-    const [r, a, an, u] = await Promise.all([
+    const [r, a, u] = await Promise.all([
       supabase.from("coach_regras").select("*").order("criado_em", { ascending: false }),
       supabase.from("coach_alertas").select("*").order("criado_em", { ascending: false }).limit(80),
-      supabase.from("coach_atendimento_diario").select("*").order("dia", { ascending: false }).limit(40),
       supabase.from("usuarios").select("id, name, permissions").order("name"),
     ]);
     if (r.error) setErro(`Tabelas do coach ainda não existem no banco (${r.error.message}).`);
     setRegras((r.data as Regra[]) || []);
     setAlertas((a.data as Alerta[]) || []);
-    setAnalises((an.data as Analise[]) || []);
     setUsuarios((u.data as Usuario[]) || []);
     setCarregando(false);
   }, []);
@@ -153,13 +147,21 @@ export function CoachView() {
     (u.permissions || []).some((p) => /whatsapp/i.test(p)),
   );
 
+  const abrirConversa = (jid: string | null) => {
+    if (!jid) return;
+    if (onAbrirConversa) return onAbrirConversa(jid);
+    // Fora do WhatsappView: deixa a conversa pendente e avisa quem estiver
+    // ouvindo. É o mesmo par que o HUB já usa para abrir chat de outras telas.
+    localStorage.setItem("carflax_pending_chat", jid);
+    window.dispatchEvent(new CustomEvent("carflax-open-chat", { detail: jid }));
+  };
+
   const nomeUsuario = (id: string | null) =>
     id ? usuarios.find((u) => u.id === id)?.name || "—" : "Todos os atendentes";
 
   const abas = [
     { id: "regras" as const, label: "Regras", n: regras.filter((r) => r.ativa).length },
     { id: "alertas" as const, label: "Alertas", n: alertas.length },
-    { id: "analises" as const, label: "Análises do dia", n: analises.length },
   ];
 
   return (
@@ -169,7 +171,7 @@ export function CoachView() {
         <div>
           <h1 className="text-2xl font-black uppercase tracking-tight">Coach de Atendimento</h1>
           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-            Regras que a IA verifica nas conversas · notificação na hora e resumo às 20h
+            Regras que a IA verifica nas conversas · notificação assim que a regra é violada
           </p>
         </div>
         <div className="ml-auto flex items-center gap-2">
@@ -177,10 +179,10 @@ export function CoachView() {
             onClick={rodarAgora}
             disabled={rodando}
             className="h-9 px-4 bg-primary text-primary-foreground rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 disabled:opacity-50"
-            title="Roda a análise agora, sem esperar as 20h"
+            title="Verifica as regras agora, sem esperar os 15 min do vigia"
           >
             <Play className={cn("w-3.5 h-3.5", rodando && "animate-pulse")} />
-            {rodando ? "Analisando..." : "Rodar agora"}
+            {rodando ? "Verificando..." : "Verificar agora"}
           </button>
           <button
             onClick={carregar}
@@ -297,7 +299,15 @@ export function CoachView() {
             </p>
           )}
           {alertas.map((a) => (
-            <div key={a.id} className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/5 space-y-2">
+            <div
+              key={a.id}
+              onClick={() => abrirConversa(a.remote_jid)}
+              className={cn(
+                "p-4 rounded-xl border border-amber-500/30 bg-amber-500/5 space-y-2",
+                a.remote_jid && "cursor-pointer hover:border-amber-500/60 hover:bg-amber-500/10 transition-colors",
+              )}
+              title={a.remote_jid ? "Abrir a conversa" : undefined}
+            >
               <div className="flex items-center gap-2">
                 <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
                 <span className="text-[11px] font-black text-foreground">{a.vendedor_nome || "—"}</span>
@@ -318,65 +328,6 @@ export function CoachView() {
         </div>
       )}
 
-      {aba === "analises" && (
-        <div className="space-y-3">
-          {analises.length === 0 && !carregando && (
-            <p className="text-[11px] text-muted-foreground py-8 text-center">
-              Nenhuma análise ainda. Use "Rodar agora" para gerar a de hoje.
-            </p>
-          )}
-          {analises.map((an) => (
-            <div key={an.id} className="p-4 rounded-2xl border border-border bg-card/40 space-y-3">
-              <div className="flex items-center gap-3">
-                <span className="text-sm font-black text-foreground">{an.vendedor_nome || "—"}</span>
-                <span className="text-[10px] text-muted-foreground">
-                  {an.dia.split("-").reverse().join("/")} · {an.conversas} conversas · {an.mensagens} mensagens
-                </span>
-                {an.nota != null && (
-                  <span
-                    className={cn(
-                      "ml-auto text-lg font-black tabular-nums",
-                      an.nota >= 8
-                        ? "text-emerald-500"
-                        : an.nota >= 6
-                          ? "text-amber-500"
-                          : "text-rose-500",
-                    )}
-                  >
-                    {an.nota}
-                  </span>
-                )}
-              </div>
-              {an.resumo && <p className="text-[11px] text-foreground">{an.resumo}</p>}
-              {(an.pontos_corrigir || []).length > 0 && (
-                <div>
-                  <p className="text-[9px] font-black uppercase tracking-widest text-rose-500 mb-1">
-                    Corrigir
-                  </p>
-                  <ul className="space-y-0.5">
-                    {an.pontos_corrigir.map((p, i) => (
-                      <li key={i} className="text-[11px] text-muted-foreground">
-                        • {p}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              {(an.exemplos || []).length > 0 && (
-                <div className="space-y-1.5">
-                  {an.exemplos.map((ex, i) => (
-                    <div key={i} className="p-2.5 rounded-lg bg-secondary/30 border border-border/50">
-                      <p className="text-[10px] text-muted-foreground italic">"{ex.trecho}"</p>
-                      <p className="text-[10px] text-rose-400 mt-1">{ex.problema}</p>
-                      <p className="text-[10px] text-emerald-500 mt-0.5">→ {ex.melhor}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 }
