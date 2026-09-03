@@ -1428,6 +1428,8 @@ interface UserProfile {
   // Usados só para decidir quem aprova arquivamento com o cliente esperando.
   is_admin?: boolean;
   is_leader?: boolean;
+  // Quem enxerga as regras do coach: líder E com acesso ao WhatsApp.
+  permissions?: string[];
 }
 
 // Interface mínima do provider de WhatsApp (só o que esta tela consome). Permite
@@ -1504,6 +1506,12 @@ export function WhatsappView({
   const [showApprovalModal, setShowApprovalModal] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState(0);
   const podeAprovar = useMemo(() => podeAprovarArquivamento(userProfile), [userProfile]);
+  const podeVerCoach = useMemo(
+    () =>
+      userProfile?.is_leader === true &&
+      (userProfile.permissions || []).some((p: string) => /whatsapp/i.test(String(p))),
+    [userProfile],
+  );
   const [customArchiveReason, setCustomArchiveReason] = useState("");
   const [isEnteringCustomReason, setIsEnteringCustomReason] = useState(false);
   const [materialInput, setMaterialInput] = useState("");
@@ -5774,10 +5782,12 @@ export function WhatsappView({
                   className={`w-4 h-4 transition-colors ${viewMode === "archived" ? "text-red-500" : "text-muted-foreground hover:text-primary"}`}
                 />
               </button>
-              {/* Regras do coach — só para quem supervisiona. Reaproveita o
-                  mesmo critério do escudo de aprovação ao lado, para não existir
-                  uma segunda definição de "supervisor" na mesma barra. */}
-              {podeAprovar && (
+              {/* Regras do coach: líder E com acesso ao WhatsApp. As duas
+                  condições juntas importam — só `is_leader` liberaria RH,
+                  Estoque e Administrativo, que lideram as suas áreas mas não
+                  têm o que fazer com conduta em atendimento comercial. É o mesmo
+                  par que define quem RECEBE os avisos, no coachVigiaScheduler. */}
+              {podeVerCoach && (
                 <button
                   onClick={() => setShowCoach(true)}
                   className="p-2 hover:bg-secondary rounded-xl transition-colors relative"
