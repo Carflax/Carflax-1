@@ -9,6 +9,7 @@ import {
   BellOff,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { apiPost } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 /**
@@ -63,8 +64,6 @@ interface Usuario {
   name: string;
   permissions?: string[] | null;
 }
-
-const API = "/api-marketing/api/coach-atendimento";
 
 export function CoachView() {
   const [regras, setRegras] = useState<Regra[]>([]);
@@ -134,12 +133,7 @@ export function CoachView() {
     setRodando(true);
     setErro(null);
     try {
-      const resp = await fetch(`${API}/analises/rodar`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      });
-      if (!resp.ok) throw new Error(await resp.text());
+      await apiPost("/api/coach-atendimento/analises/rodar", {});
       await carregar();
     } catch (e) {
       setErro(`Falha ao rodar a análise: ${e instanceof Error ? e.message : e}`);

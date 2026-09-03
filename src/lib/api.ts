@@ -63,6 +63,14 @@ async function post<T>(path: string, body: unknown, options?: RequestInit): Prom
   return res.json();
 }
 
+/**
+ * POST autenticado, para telas que precisam falar com o backend sem um wrapper
+ * dedicado. Existe porque `post()` é interno: quem chamava `fetch` direto
+ * esquecia o Authorization e tomava "Token de autenticação ausente" — todas as
+ * rotas `/api` passam pelo verificarToken.
+ */
+export const apiPost = <T>(path: string, body: unknown): Promise<T> => post<T>(path, body);
+
 // ── Vendedores & Metas ────────────────────────────────────────────────────────
 
 export interface VendedorResumo {
