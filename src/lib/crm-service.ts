@@ -79,15 +79,19 @@ export const LOSS_REASONS_FALLBACK = [
  * Status para o orçamento que não é venda nem perda comercial: o cliente
  * comprou material com mão de obra junto, coisa que a Carflax não fornece.
  * Fica fora do "em aberto" (não há o que cobrar) e fora do "perdido" (não se
- * perdeu para concorrente) — por isso é status, não motivo de perda.
+ * perdeu para concorrente).
+ *
+ * Existe também como MOTIVO de perda, com o mesmo texto: o status é para o
+ * orçamento que segue vivo mas não é pipeline; o motivo, para o que foi
+ * encerrado. Os dois ficam fora do denominador da conversão.
  */
 export const STATUS_MAO_DE_OBRA = "MÃO DE OBRA E MATERIAL";
 
 /**
  * Motivos de perda que NÃO são perda comercial e por isso não entram no
- * denominador da taxa de conversão. "Mão de obra e material" virou status
- * próprio, mas o texto segue aqui por causa dos orçamentos antigos, marcados
- * como PERDIDO com esse motivo antes da mudança.
+ * denominador da taxa de conversão. Vale para os orçamentos antigos e para os
+ * novos: "Mão de obra e material" é motivo de perda escolhível de novo, mas
+ * continua não sendo venda perdida para concorrente.
  */
 export const MOTIVOS_NAO_COMERCIAIS = new Set([
   "MÃO DE OBRA E MATERIAL",
@@ -112,17 +116,21 @@ export function taxaConversaoValor(faturado: number, perdidoComercial: number): 
 }
 
 /**
- * Motivos aposentados: saíram da lista de perda a pedido do comercial.
- * "Mão de obra e material" virou o status acima; "Comparativo de linhas" foi
- * descontinuado. O cadastro segue existindo no ERP (CADCOC) — filtramos aqui
- * para não precisar mexer no Citel e para que os orçamentos antigos que já
- * usam esses textos continuem legíveis.
+ * Motivos aposentados: saíram da lista de perda a pedido do comercial. Hoje só
+ * "Comparativo de linhas", descontinuado.
+ *
+ * "Mão de obra e material" já esteve aqui e VOLTOU a ser motivo de perda a
+ * pedido do comercial, sem deixar de ser status: são usos diferentes. Como
+ * status, o orçamento sai do "em aberto" sem contar como perda; como motivo,
+ * marca o orçamento que foi de fato encerrado por isso. Nos dois casos ele
+ * continua em MOTIVOS_NAO_COMERCIAIS, então não entra no denominador da taxa
+ * de conversão — perder para quem fornece mão de obra não é perda de venda.
+ *
+ * O cadastro segue existindo no ERP (CADCOC) — filtramos aqui para não precisar
+ * mexer no Citel e para que os orçamentos antigos com esses textos continuem
+ * legíveis.
  */
-const MOTIVOS_APOSENTADOS = new Set([
-  "MÃO DE OBRA E MATERIAL",
-  "MAO DE OBRA E MATERIAL",
-  "COMPARATIVO DE LINHAS",
-]);
+const MOTIVOS_APOSENTADOS = new Set(["COMPARATIVO DE LINHAS"]);
 
 /** Remove da lista de escolha os motivos aposentados. */
 function semAposentados(lista: string[]): string[] {
