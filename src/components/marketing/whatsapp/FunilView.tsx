@@ -9,6 +9,7 @@ import {
   Snowflake,
   Thermometer,
   User,
+  ChevronDown,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { apiCrmOrcamentos } from "@/lib/api";
@@ -40,6 +41,9 @@ export const ETAPAS = [
 
 export type EtapaId = (typeof ETAPAS)[number]["id"];
 const ETAPA_IDS = new Set<string>(ETAPAS.map((e) => e.id));
+
+/** Valor do filtro para "conversa que ainda não tem dono". */
+const SEM_ATENDENTE = "__sem__";
 
 /** Começo do dia de hoje, no fuso local. */
 function inicioDeHoje(): Date {
@@ -198,17 +202,23 @@ export function FunilView({
   onVoltar,
   onAbrirConversa,
   tituloVoltar = "Voltar para as mensagens",
+  usuarioId,
 }: {
   onVoltar: () => void;
   /** Abre a conversa do card na tela de Mensagens. */
   onAbrirConversa: (remoteJid: string) => void;
   /** Dica da seta — muda conforme haja ou não conversa aberta ao lado. */
   tituloVoltar?: string;
+  /** Quem está olhando: sobe para o topo do filtro como "Meus atendimentos". */
+  usuarioId?: string;
 }) {
   const [clientes, setClientes] = useState<ClienteFunil[]>([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
   const [busca, setBusca] = useState("");
+  // "" = todos. `SEM_ATENDENTE` é opção de verdade: lead sem dono é justamente
+  // o que alguém precisa achar para puxar para si.
+  const [filtroAtendente, setFiltroAtendente] = useState("");
   const [arrastando, setArrastando] = useState<string | null>(null);
   const [colunaAlvo, setColunaAlvo] = useState<EtapaId | null>(null);
   const [statusErp, setStatusErp] = useState<Map<string, StatusErp>>(new Map());
@@ -403,10 +413,57 @@ export function FunilView({
     };
   }, []);
 
+  /**
+   * Opções do filtro: só quem realmente tem conversa no quadro.
+   *
+   * Listar a tabela de usuários inteira encheria o menu de gente do estoque, do
+   * RH e de quem já saiu — e cada uma dessas opções abriria um quadro vazio. A
+   * contagem ao lado do nome evita o mesmo em outra forma: dá para ver que tem
+   * card ali antes de escolher.
+   */
+  const opcoesAtendente = useMemo(() => {
+    const contagem = new Map<string, number>();
+    for (const c of clientes) {
+      const chave = c.vendedor_id ? String(c.vendedor_id) : SEM_ATENDENTE;
+      contagem.set(chave, (contagem.get(chave) || 0) + 1);
+    }
+
+    const eu = usuarioId ? String(usuarioId) : null;
+    const lista = [...contagem.entries()]
+      .filter(([id]) => id !== SEM_ATENDENTE && id !== eu)
+      .map(([id, total]) => ({
+        id,
+        nome: atendentes.get(id)?.nome || "Atendente",
+        total,
+      }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"));
+
+    // O próprio usuário sempre em primeiro, e sempre presente: quem ainda não
+    // pegou nenhuma conversa precisa poder selecionar o próprio nome e ver que
+    // está zerado — sumir do menu pareceria bug.
+    if (eu) {
+      lista.unshift({
+        id: eu,
+        nome: atendentes.get(eu)?.nome || "Eu",
+        total: contagem.get(eu) || 0,
+      });
+    }
+
+    const semDono = contagem.get(SEM_ATENDENTE) || 0;
+    if (semDono > 0) {
+      lista.push({ id: SEM_ATENDENTE, nome: "Sem atendente", total: semDono });
+    }
+    return lista;
+  }, [clientes, atendentes, usuarioId]);
+
   const porEtapa = useMemo(() => {
     const termo = busca.trim().toLowerCase();
     const mapa = new Map<EtapaId, ClienteFunil[]>(ETAPAS.map((e) => [e.id, []]));
     for (const c of clientes) {
+      if (filtroAtendente) {
+        const dono = c.vendedor_id ? String(c.vendedor_id) : SEM_ATENDENTE;
+        if (dono !== filtroAtendente) continue;
+      }
       if (termo) {
         const alvo = `${c.nome || ""} ${c.push_name || ""} ${c.remote_jid}`.toLowerCase();
         if (!alvo.includes(termo)) continue;
@@ -414,7 +471,7 @@ export function FunilView({
       mapa.get(etapaDoCliente(c, statusErp))!.push(c);
     }
     return mapa;
-  }, [clientes, busca, statusErp]);
+  }, [clientes, busca, filtroAtendente, statusErp]);
 
   const mover = async (clienteId: string, destino: EtapaId) => {
     const atual = clientes.find((c) => c.id === clienteId);
@@ -456,7 +513,32 @@ export function FunilView({
           <ArrowLeft className="w-4 h-4" />
         </button>
 
-        <div className="relative ml-auto w-56">
+        {/* Filtro por atendente. Fica ANTES da busca porque recorta o quadro
+            inteiro, enquanto a busca só procura dentro do que sobrou. */}
+        <div className="relative ml-auto">
+          <User className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+          <select
+            value={filtroAtendente}
+            onChange={(e) => setFiltroAtendente(e.target.value)}
+            title="Mostrar só as conversas de um atendente"
+            className={cn(
+              "appearance-none bg-secondary/50 border rounded-lg pl-8 pr-7 py-1 text-[11px] font-bold outline-none focus:border-primary/50 transition-all cursor-pointer max-w-[190px]",
+              // Filtro ligado muda a cor da borda: o quadro passa a mostrar um
+              // recorte, e nada mais na tela avisaria que faltam cards.
+              filtroAtendente ? "border-primary/60 text-primary" : "border-border",
+            )}
+          >
+            <option value="">Todos os atendentes</option>
+            {opcoesAtendente.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.nome} ({o.total})
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+        </div>
+
+        <div className="relative w-56">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
           <input
             type="text"

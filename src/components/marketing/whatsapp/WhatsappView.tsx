@@ -5725,6 +5725,7 @@ export function WhatsappView({
           <FunilView
             onVoltar={() => setShowFunil(false)}
             onAbrirConversa={(jid) => openDirectChat(jid)}
+            usuarioId={userProfile?.id || vendedorId}
           />
         </div>
       )}
