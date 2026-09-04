@@ -1454,6 +1454,18 @@ export interface WhatsappApi {
   sendStoreCard?(jid: string): Promise<{ key?: { id?: string } }>;
 }
 
+/**
+ * A partir de quando o autor gravado na mensagem pode ser exibido.
+ *
+ * Antes desta data o eco do socket carimbava `vendedor_id` com o usuário que
+ * estava com o HUB aberto, não com quem enviou — então o histórico tem autoria
+ * trocada e não há como saber quais linhas estão certas. Mensagem anterior ao
+ * corte simplesmente não mostra autor.
+ *
+ * Ajuste para a data em que esta versão subir para produção.
+ */
+const AUTOR_CONFIAVEL_DESDE = new Date("2026-09-04T00:00:00");
+
 export function WhatsappView({
   vendedorId,
   userProfile,
@@ -2828,7 +2840,17 @@ export function WhatsappView({
                   String(message.status) === "2"
                 ? "delivered"
                 : "sent",
-          ...(message.key?.fromMe ? { vendedor_id: vendedorId } : {}),
+          // NÃO carimba vendedor_id aqui. Este é o eco do socket: ele chega em
+          // TODO HUB aberto, inclusive no de quem não enviou nada. Carimbar o
+          // usuário logado fazia a mensagem de um atendente ser gravada no nome
+          // de quem por acaso estava com a tela aberta — três nomes diferentes
+          // numa conversa em que só o João Paulo falou.
+          //
+          // Quem envia grava a autoria no próprio saveMessage do envio, que é a
+          // única fonte que sabe de fato quem digitou. Mensagem mandada pelo
+          // celular fica sem autor, e sem autor é melhor que com o autor errado.
+          // Omitir a coluna no upsert não apaga o que já está lá: o ON CONFLICT
+          // só atualiza as colunas presentes no payload.
           quoted_text: quotedText,
           quoted_sender: quotedSender,
           ...(linkPreview ? { link_preview: linkPreview } : {}),
@@ -6389,8 +6411,11 @@ export function WhatsappView({
                     // duas mãos aparecia inteira no nome de quem falou por
                     // último. `vendedor_id` é gravado por mensagem, então dá
                     // para dizer a verdade em cada bolha.
+                    const autorConfiavel =
+                      !!msg.rawTimestamp &&
+                      new Date(msg.rawTimestamp) >= AUTOR_CONFIAVEL_DESDE;
                     const autorMsg =
-                      msg.sender === "me" && msg.vendedorId
+                      msg.sender === "me" && msg.vendedorId && autorConfiavel
                         ? operators.find((o) => o.id === msg.vendedorId)
                         : undefined;
                     // Só anuncia na TROCA de atendente (ou depois da divisória de
