@@ -3710,6 +3710,39 @@ export function WhatsappView({
     pertoDoFimRef.current = true;
   }, [selectedChat?.id]);
 
+  /**
+   * Rascunho por conversa.
+   *
+   * `inputText` é um estado só para a tela inteira, então o que estava sendo
+   * escrito para um cliente continuava no campo ao abrir a conversa do próximo
+   * — e seguia junto se a pessoa apertasse enviar sem reler. Aqui o texto é
+   * guardado no JID de quem estava aberto e devolvido quando a conversa volta,
+   * como no WhatsApp Web.
+   */
+  const rascunhosRef = useRef<Record<string, string>>({});
+  const jidRascunhoRef = useRef<string | null>(null);
+  // Atribuído na renderização, não num efeito: quando a conversa troca, o efeito
+  // abaixo precisa do texto que estava no campo ANTES da troca, e um efeito de
+  // sincronia poderia rodar depois dele.
+  const inputTextRef = useRef(inputText);
+  inputTextRef.current = inputText;
+
+  useEffect(() => {
+    const jidAtual = selectedChat?.id ?? null;
+    const jidAnterior = jidRascunhoRef.current;
+
+    if (jidAnterior && jidAnterior !== jidAtual) {
+      const pendente = inputTextRef.current;
+      // Rascunho vazio não vira entrada: senão o mapa cresce com uma chave por
+      // conversa aberta durante o dia, sem nada dentro.
+      if (pendente.trim()) rascunhosRef.current[jidAnterior] = pendente;
+      else delete rascunhosRef.current[jidAnterior];
+    }
+
+    jidRascunhoRef.current = jidAtual;
+    setInputText(jidAtual ? rascunhosRef.current[jidAtual] || "" : "");
+  }, [selectedChat?.id]);
+
   const handleSendMessage = async () => {
     if (!inputText.trim() || !selectedChat) return;
 
