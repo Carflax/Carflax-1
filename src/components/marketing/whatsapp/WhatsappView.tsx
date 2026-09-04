@@ -6383,6 +6383,26 @@ export function WhatsappView({
                       currentDateFormatted &&
                       currentDateFormatted !== previousDateFormatted;
 
+                    // Quem, do nosso lado, mandou ESTA mensagem. O cabeçalho da
+                    // conversa mostra só o atendente atual, e ele muda quando
+                    // outra pessoa responde — então uma conversa que passou por
+                    // duas mãos aparecia inteira no nome de quem falou por
+                    // último. `vendedor_id` é gravado por mensagem, então dá
+                    // para dizer a verdade em cada bolha.
+                    const autorMsg =
+                      msg.sender === "me" && msg.vendedorId
+                        ? operators.find((o) => o.id === msg.vendedorId)
+                        : undefined;
+                    // Só anuncia na TROCA de atendente (ou depois da divisória de
+                    // data). Repetir o nome em toda bolha de uma sequência do
+                    // mesmo atendente vira poluição, igual em grupo de WhatsApp.
+                    const autorAnterior =
+                      previousMsg && previousMsg.sender === "me"
+                        ? previousMsg.vendedorId
+                        : undefined;
+                    const mostrarAutor =
+                      !!autorMsg && (msg.vendedorId !== autorAnterior || !!showDateDivider);
+
                     if (msg.tipo === "internal_note") {
                       const op = operators.find((o) => o.id === msg.vendedorId);
                       const isMe =
@@ -6456,6 +6476,23 @@ export function WhatsappView({
                             msg.sender === "me" ? "items-end" : "items-start",
                           )}
                         >
+                          {mostrarAutor && autorMsg && (
+                            <span
+                              className="flex items-center gap-1.5 mb-1 px-1 text-[9px] font-black uppercase tracking-wider text-muted-foreground"
+                              title={`Enviado por ${autorMsg.name}`}
+                            >
+                              {autorMsg.avatar ? (
+                                <img
+                                  src={autorMsg.avatar}
+                                  alt=""
+                                  className="w-4 h-4 rounded-full object-cover"
+                                />
+                              ) : (
+                                <User className="w-3 h-3" />
+                              )}
+                              {autorMsg.name.split(" ")[0]}
+                            </span>
+                          )}
                           <div
                             className="flex items-center gap-2 group/msg-row max-w-[85%]"
                             style={{
