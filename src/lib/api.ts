@@ -1069,6 +1069,29 @@ export interface CarteiraResponse {
 
 export const apiCarteira = () => get<CarteiraResponse>("/api/crm/carteira");
 
+// Prospecção do dia: carteira do vendedor com histórico de 12 meses.
+export interface ProspeccaoCandidato {
+  cliente_id: string;
+  nome_cliente: string;
+  pessoa_fisica: boolean;
+  celular: string | null;
+  telefone: string | null;
+  primeira_compra: string | null;
+  ultima_compra: string | null;
+  primeira_12m: string | null;
+  pedidos_12m: number;
+  valor_12m: number;
+  margem_12m: number;
+  valor_3m: number;
+  valor_3m_anterior: number;
+  marcas_12m: number;
+}
+
+export const apiProspeccaoCandidatos = (codVendedor: string) =>
+  get<{ cod_vendedor: string; clientes: ProspeccaoCandidato[] }>("/api/crm/carteira/prospeccao", {
+    cod_vendedor: codVendedor,
+  });
+
 export interface TransferirClienteResponse {
   ok: boolean;
   cliente_id: string;

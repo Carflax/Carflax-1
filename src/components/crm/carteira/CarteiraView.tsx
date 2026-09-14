@@ -25,9 +25,11 @@ import {
   Sparkles,
   Trophy,
   Medal,
+  Target,
 } from "lucide-react";
 import { cn, formatTeamName } from "@/lib/utils";
 import { ClienteKnowledgeChat } from "./ClienteKnowledgeChat";
+import { ProspeccaoDiaTab } from "./ProspeccaoDiaTab";
 import {
   apiCarteira,
   apiTransferirCliente,
@@ -520,6 +522,8 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
   // Modo "completar cadastro": lista só clientes com nascimento/WhatsApp faltando,
   // com edição inline para preencher e gravar no ERP.
   const [soPendentes, setSoPendentes] = useState(false);
+  // Aba do drill-down: lista de clientes ou os 3 clientes de prospecção do dia.
+  const [abaCarteira, setAbaCarteira] = useState<"clientes" | "prospeccao">("clientes");
   // Filtro por tipo de pessoa dentro da carteira ALTERAR VENDEDOR (888): são ~15 mil
   // clientes sem dono, e o supervisor puxa de lá separando PJ (CNPJ) de PF (CPF).
   const [filtroPessoa, setFiltroPessoa] = useState<"todos" | "pj" | "pf">("todos");
@@ -1135,6 +1139,7 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
 
   // ── Drill-down: carteira de um vendedor ───────────────────────────────────────
   if (carteiraSel) {
+    const emProspeccao = abaCarteira === "prospeccao" && !isCarteiraPool(carteiraSel.cod);
     return (
       <div className="h-full bg-background overflow-y-auto scrollbar-hide p-6 space-y-6">
         {/* Header — tudo numa linha só */}
@@ -1161,6 +1166,27 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
               Análise da carteira de clientes ativos · {MES_LABEL}
             </p>
           </div>
+
+          {/* Carteira-depósito (888) não tem dono para prospectar. */}
+          {!isCarteiraPool(carteiraSel.cod) && (
+            <div className="inline-flex shrink-0 items-center h-10 p-1 rounded-xl border border-border/80 bg-card/50">
+              {([
+                { key: "clientes", label: "Clientes", icon: Users },
+                { key: "prospeccao", label: "Prospecção do dia", icon: Target },
+              ] as const).map((opt) => (
+                <button
+                  key={opt.key}
+                  onClick={() => setAbaCarteira(opt.key)}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-3 h-8 rounded-lg text-[11px] font-black uppercase tracking-widest transition-all cursor-pointer active:scale-95 whitespace-nowrap",
+                    abaCarteira === opt.key ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <opt.icon className="w-3.5 h-3.5" /> {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Filtro CNPJ / CPF — só na carteira ALTERAR VENDEDOR (888) */}
           {isCarteiraPool(carteiraSel.cod) && (
@@ -1201,6 +1227,7 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
             </div>
           )}
 
+          {!emProspeccao && (<>
           <button
             onClick={() => setSoPendentes((v) => !v)}
             title="Clientes sem data de nascimento (pessoa física) ou WhatsApp cadastrado"
@@ -1232,10 +1259,20 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
               className="w-full pl-9 pr-3 h-10 rounded-xl border border-border/80 bg-card/50 text-xs font-semibold text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
             />
           </div>
+          </>)}
         </div>
 
+        {emProspeccao && (
+          <ProspeccaoDiaTab
+            key={carteiraSel.cod}
+            codVendedor={carteiraSel.cod}
+            nomeVendedor={carteiraSel.nome}
+            userId={userProfile?.id}
+          />
+        )}
+
         {/* Tabela de completar cadastro (nascimento / WhatsApp) */}
-        {soPendentes && (
+        {soPendentes && !emProspeccao && (
           <div className="bg-card border border-amber-500/25 rounded-2xl overflow-hidden shadow-sm">
             <div className="flex items-center gap-2 px-5 py-3 border-b border-amber-500/20 bg-amber-500/5">
               <ClipboardList className="w-4 h-4 text-amber-500" />
@@ -1350,7 +1387,7 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
         )}
 
         {/* Tabela de clientes */}
-        {!soPendentes && (
+        {!soPendentes && !emProspeccao && (
         <div className="bg-card border border-border/80 rounded-2xl overflow-hidden shadow-sm">
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
