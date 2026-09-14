@@ -8,7 +8,6 @@ import { ReportsView } from "./ReportsView";
 import { CronogramaView } from "./CronogramaView";
 import { EventosView } from "./eventos/EventosView";
 import { AvaliacoesView } from "./avaliacoes/AvaliacoesView";
-import { PosVendaView } from "./PosVendaView";
 import { CriativoView } from "./criativo/CriativoView";
 import { BlogView } from "./blog/BlogView";
 
@@ -66,10 +65,6 @@ export function MarketingView({ activeTab, userProfile }: MarketingViewProps) {
 
   if (activeTab === "Coach IA") {
     return <CoachView />;
-  }
-
-  if (activeTab === "Pós-Venda") {
-    return <PosVendaView userProfile={userProfile} />;
   }
 
   if (activeTab.includes("Relatórios")) {

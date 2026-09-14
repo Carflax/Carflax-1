@@ -1398,13 +1398,13 @@ function DashboardContent({
     "Meus Pedidos",
     "Comercial",
     "Produtos",
-    "Análise FRV",
     "Carteira",
     "Campanhas",
     "Ligações",
     "Alugueis",
     "Relatórios",
     "Prospecções",
+    "Pós-Venda",
   ].includes(activeItem);
   const isMarketingView = [
     "Marketing",
@@ -1417,7 +1417,6 @@ function DashboardContent({
     "Avaliações",
     "Leads",
     "Criativo",
-    "Pós-Venda",
     "Relatórios Mkt",
   ].includes(activeItem);
   // Só o COMERCIAL vê o painel de métricas; os demais veem "Funcionário do Mês".

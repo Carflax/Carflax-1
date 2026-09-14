@@ -26,7 +26,8 @@ export default defineConfig({
     port: Number(process.env.PORT) || 5173,
     proxy: {
       '/api-marketing': {
-        target: 'https://marketing-carflax.velbav.easypanel.host',
+        // API_MARKETING_TARGET permite apontar para o backend local (db/) no dev.
+        target: process.env.API_MARKETING_TARGET || 'https://marketing-carflax.velbav.easypanel.host',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api-marketing/, '')
       },

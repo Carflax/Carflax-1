@@ -4,11 +4,11 @@ import { CampanhasView } from "./campanhas/CampanhasView";
 import { OrcamentosView } from "./orcamentos/OrcamentosView";
 import { RelatoriosView } from "./relatorios/RelatoriosView";
 import { LigacoesView } from "@/components/crm/ligacoes/LigacoesView";
-import { ClientesFRVView } from "./clientes/ClientesFRVView";
 import { CarteiraView } from "./carteira/CarteiraView";
 import { AlugueisView } from "./alugueis/AlugueisView";
 import { ProspeccoesView } from "./prospeccoes/ProspeccoesView";
 import { MeusPedidosView } from "./pedidos/MeusPedidosView";
+import { PosVendaView } from "./posvenda/PosVendaView";
 import { cn } from "@/lib/utils";
 
 interface UserProfile {
@@ -45,8 +45,6 @@ export function CrmSection({ activeTab, userProfile }: CrmSectionProps) {
             <ProdutosView />
           ) : activeTab === "Meus Pedidos" ? (
             <MeusPedidosView userProfile={userProfile} />
-          ) : activeTab === "Análise FRV" ? (
-            <ClientesFRVView userProfile={userProfile} />
           ) : activeTab === "Carteira" ? (
             <CarteiraView userProfile={userProfile} />
           ) : activeTab === "Campanhas" ? (
@@ -63,6 +61,8 @@ export function CrmSection({ activeTab, userProfile }: CrmSectionProps) {
             <AlugueisView userProfile={userProfile} />
           ) : activeTab === "Prospecções" ? (
             <ProspeccoesView userProfile={userProfile} />
+          ) : activeTab === "Pós-Venda" ? (
+            <PosVendaView userProfile={userProfile} />
           ) : (
             <OrcamentosView userProfile={userProfile} />
           )}

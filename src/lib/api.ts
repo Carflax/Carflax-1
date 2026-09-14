@@ -1000,6 +1000,43 @@ export interface FrvResponse {
 export const apiAnaliseFrv = (meses?: number) =>
   get<FrvResponse>(`/api/crm/clientes-frv${meses ? `?meses=${meses}` : ""}`);
 
+// ── Pós-venda preventivo (vendas do dia + histórico do cliente) ─────────────
+export type PosVendaCategoria = "primeira_compra" | "pouco_historico" | "ativo" | "recorrente";
+
+export interface PosVendaClienteDia {
+  cod_cliente: string;
+  cliente: string;
+  tipo_pessoa: "PJ" | "PF" | null;
+  celular: string | null;
+  telefone: string | null;
+  cidade: string | null;
+  cod_vendedor: string | null;
+  nome_vendedor: string | null;
+  documentos: string[];
+  valor: number;
+  primeira_compra: string | null;
+  ultima_compra_anterior: string | null;
+  pedidos_365d: number;
+  pedidos_janela: number;
+  categoria: PosVendaCategoria;
+}
+
+export interface PosVendaVendasResponse {
+  data: string;
+  clientes: PosVendaClienteDia[];
+}
+
+export const apiPosVendaVendas = (
+  data: string,
+  regras: { recorrencia_pedidos: number; recorrencia_dias: number; pouco_historico: number },
+) =>
+  get<PosVendaVendasResponse>("/api/crm/pos-venda/vendas", {
+    data,
+    recorrencia_pedidos: String(regras.recorrencia_pedidos),
+    recorrencia_dias: String(regras.recorrencia_dias),
+    pouco_historico: String(regras.pouco_historico),
+  });
+
 // ── Carteira de Vendedores (mês atual) ───────────────────────────────────────
 export interface CarteiraCliente {
   cliente_id: string;

@@ -41,6 +41,7 @@ import {
   Puzzle,
   BriefcaseBusiness,
   UserSearch,
+  HeartHandshake,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -78,13 +79,13 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Comercial: BarChart3,
   Orçamentos: FileBadge,
   "Meus Pedidos": Package,
-  "Análise FRV": BarChart3,
   Carteira: Wallet,
   Clientes: Users,
   Prospecções: Crosshair,
   Ligações: PhoneCall,
   Campanhas: Megaphone,
   Alugueis: Key,
+  "Pós-Venda": HeartHandshake,
   Relatórios: FileBarChart,
   "Relatórios Mkt": FileBarChart,
   Marketing: Megaphone,
@@ -349,6 +350,39 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
         return;
       }
 
+      // Pós-venda: caso insatisfeito/crítico vai para o supervisor; interesse de
+      // compra vai para o vendedor. O botão abre a aba certa com o card em destaque.
+      if (n.tipo === "pos_venda_critico" || n.tipo === "pos_venda_insatisfeito" || n.tipo === "pos_venda_interesse") {
+        const markAsRead = () => {
+          supabase.from("hub_notificacoes").update({ lida: true }).eq("id", n.id).then(() => {});
+        };
+        const interesse = n.tipo === "pos_venda_interesse";
+
+        showNotification(
+          interesse ? "info" : "error",
+          n.titulo,
+          n.descricao,
+          true,
+          `hub-notif-${n.id}`,
+          undefined,
+          undefined,
+          {
+            label: interesse ? "Ver oportunidade" : "Ver tratativa",
+            onClick: async () => {
+              await supabase.from("hub_notificacoes").update({ lida: true }).eq("id", n.id);
+              localStorage.setItem(
+                "carflax_pos_venda_destino",
+                JSON.stringify({ aba: interesse ? "oportunidades" : "tratativas", contatoId: n.metadata?.contato_id }),
+              );
+              window.dispatchEvent(new CustomEvent("carflax-change-tab", { detail: "Pós-Venda" }));
+              window.dispatchEvent(new CustomEvent("carflax-pos-venda-destino"));
+            },
+          },
+          markAsRead,
+        );
+        return;
+      }
+
       if (n.tipo === "venda_casada") {
         const pedidos = (n.metadata?.pedidos as Array<{ pedido: string; numPedido: number; empresa: string; futura: boolean }>) || [];
         const pedidosFuturos = pedidos.filter((p) => p.futura);
@@ -478,7 +512,7 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
     // Permissões específicas do departamento de VENDAS/COMERCIAL
     const dept = userProfile?.department?.toUpperCase();
     const isVendasOrComercialDept = dept === 'VENDAS' || dept === 'COMERCIAL';
-    const comercialItems = ["Comercial", "Orçamentos", "Meus Pedidos", "Análise FRV", "Carteira", "Prospecções", "Campanhas", "Alugueis", "Relatórios"];
+    const comercialItems = ["Comercial", "Orçamentos", "Meus Pedidos", "Carteira", "Prospecções", "Campanhas", "Alugueis", "Pós-Venda", "Relatórios"];
     if (isVendasOrComercialDept && comercialItems.includes(label)) return true;
 
     // Líderes têm acesso automático aos módulos de Gestão & Admin, sem precisar de toggle manual

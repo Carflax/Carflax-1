@@ -50,10 +50,10 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Minha Carteira", value: "Carteira" },
       { label: "Orçamentos" },
       { label: "Meus Pedidos" },
-      { label: "Análise FRV" },
       { label: "Prospecções" },
       { label: "Campanhas" },
       { label: "Alugueis" },
+      { label: "Pós-Venda" },
       { label: "Relatórios" },
     ],
   },
@@ -72,7 +72,6 @@ export const NAV_SECTIONS: NavSection[] = [
       // fornecedores sem ninguém ter liberado.
       { label: "Eventos", value: "Eventos Marketing" },
       { label: "Avaliações" },
-      { label: "Pós-Venda" },
       // Regras que a IA verifica nas conversas + os alertas que elas geram.
       { label: "Coach IA", value: "Coach IA" },
       { label: "Relatórios", value: "Relatórios Mkt" },
@@ -221,16 +220,16 @@ export interface AccessProfile {
 // Liberado para todos (configurações pessoais + dashboards + módulos essenciais)
 
 const VENDEDOR_SECTIONS = [
-  "Comercial", "Orçamentos", "Análise FRV", "Carteira", "Ligações", "Campanhas",
+  "Comercial", "Orçamentos", "Carteira", "Ligações", "Campanhas",
   "Alugueis", "Logística", "Romaneios", "Entregas", "Ocorrências Entregas", "Relatórios Entregas", "Mapa Entregas",
 ];
 
 const MARKETING_SECTIONS = [
-  "Marketing", "Whatsapp API", "Automação", "Leads", "Blog Marketing", "Criativo", "Cronograma", "Eventos Marketing", "Avaliações", "Pós-Venda", "Relatórios Mkt",
+  "Marketing", "Whatsapp API", "Automação", "Leads", "Blog Marketing", "Criativo", "Cronograma", "Eventos Marketing", "Avaliações", "Relatórios Mkt",
 ];
 
 const VENDAS_SECTIONS = [
-  "Comercial", "Orçamentos", "Meus Pedidos", "Análise FRV", "Carteira", "Prospecções", "Campanhas", "Alugueis", "Relatórios",
+  "Comercial", "Orçamentos", "Meus Pedidos", "Carteira", "Prospecções", "Campanhas", "Alugueis", "Pós-Venda", "Relatórios",
 ];
 
 // Módulos de Gestão & Admin liberados automaticamente para líderes
