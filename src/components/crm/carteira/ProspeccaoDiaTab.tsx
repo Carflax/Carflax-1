@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import {
-  AlertTriangle, CalendarClock, Check, CheckCircle2, ChevronDown, Copy, Loader2, Phone, RefreshCw, Target, X,
+  AlertTriangle, CalendarClock, Check, CheckCircle2, ChevronDown, Copy, FileText, Lightbulb, Loader2, MessageCircle, PackageCheck, PackageX, Phone, RefreshCw, Sparkles, Target, X,
 } from "lucide-react";
+import { apiProspeccaoContexto, type ProspeccaoContexto } from "@/lib/api";
+import { gerarAbordagem, nomeProduto, promptIA, type Abordagem } from "./abordagem";
 import { cn } from "@/lib/utils";
 import { fmtBRLCompact } from "../clientes/frv-utils";
 import {
@@ -20,7 +22,11 @@ interface Props {
   codVendedor: string;
   nomeVendedor: string;
   userId?: string;
+  /** Abre o chat de IA da carteira para o cliente, com a pergunta já escrita. */
+  onPedirIA?: (clienteId: string, prompt: string) => void;
 }
+
+type ContextoEstado = { ctx: ProspeccaoContexto; abordagem: Abordagem } | "carregando" | "erro";
 
 const fmtData = (iso?: string | null) => {
   if (!iso) return "—";
@@ -30,7 +36,7 @@ const fmtData = (iso?: string | null) => {
 
 const HOJE_LABEL = new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "2-digit" });
 
-export function ProspeccaoDiaTab({ codVendedor, nomeVendedor, userId }: Props) {
+export function ProspeccaoDiaTab({ codVendedor, nomeVendedor, userId, onPedirIA }: Props) {
   const [dia, setDia] = useState<ProspeccaoDia[]>([]);
   const [agenda, setAgenda] = useState<ProspeccaoDia[]>([]);
   const [historico, setHistorico] = useState<ProspeccaoDia[]>([]);
@@ -38,6 +44,7 @@ export function ProspeccaoDiaTab({ codVendedor, nomeVendedor, userId }: Props) {
   const [erro, setErro] = useState<string | null>(null);
   const [aberto, setAberto] = useState<ProspeccaoDia | null>(null);
   const [verHistorico, setVerHistorico] = useState(false);
+  const [contextos, setContextos] = useState<Record<string, ContextoEstado>>({});
 
   const carregar = useCallback(async () => {
     setErro(null);
@@ -55,6 +62,23 @@ export function ProspeccaoDiaTab({ codVendedor, nomeVendedor, userId }: Props) {
   }, [codVendedor]);
 
   useEffect(() => { carregar(); }, [carregar]);
+
+  // O que cada cliente compra: carrega em paralelo depois que os 3 aparecem.
+  useEffect(() => {
+    let cancelado = false;
+    for (const p of dia) {
+      apiProspeccaoContexto(p.cliente_id)
+        .then((ctx) => {
+          if (!cancelado) setContextos((prev) => ({ ...prev, [p.id]: { ctx, abordagem: gerarAbordagem(p, ctx, nomeVendedor) } }));
+        })
+        .catch((err) => {
+          console.error("[Prospecção do dia] contexto:", err);
+          if (!cancelado) setContextos((prev) => ({ ...prev, [p.id]: "erro" }));
+        });
+    }
+    return () => { cancelado = true; };
+    // Recarrega só quando mudam os clientes do dia, não a cada edição dos campos.
+  }, [dia.map((d) => d.id).join(","), nomeVendedor]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const trabalhados = dia.filter((d) => d.concluido_em).length;
   const hoje = hojeIso();
@@ -135,7 +159,19 @@ export function ProspeccaoDiaTab({ codVendedor, nomeVendedor, userId }: Props) {
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {dia.map((p) => <CardDia key={p.id} p={p} onAbrir={() => setAberto(p)} />)}
+          {dia.map((p) => {
+            const c = contextos[p.id] ?? "carregando";
+            const pronto = typeof c === "object" ? c : null;
+            return (
+              <CardDia
+                key={p.id}
+                p={p}
+                contexto={c}
+                onAbrir={() => setAberto(p)}
+                onPedirIA={onPedirIA && pronto ? () => onPedirIA(p.cliente_id, promptIA(p, pronto.abordagem)) : undefined}
+              />
+            );
+          })}
         </div>
       )}
 
@@ -219,6 +255,7 @@ export function ProspeccaoDiaTab({ codVendedor, nomeVendedor, userId }: Props) {
         <RegistroModal
           p={aberto}
           userId={userId}
+          rascunho={(() => { const c = contextos[aberto.id]; return c && typeof c === "object" ? c.abordagem.rascunho : undefined; })()}
           onClose={() => setAberto(null)}
           onSaved={(s) => { atualizar(s); setAberto(null); }}
         />
@@ -227,7 +264,7 @@ export function ProspeccaoDiaTab({ codVendedor, nomeVendedor, userId }: Props) {
   );
 }
 
-function CardDia({ p, onAbrir }: { p: ProspeccaoDia; onAbrir: () => void }) {
+function CardDia({ p, contexto, onAbrir, onPedirIA }: { p: ProspeccaoDia; contexto: ContextoEstado; onAbrir: () => void; onPedirIA?: () => void }) {
   const pilar = PILARES[p.pilar];
   const m = p.metricas;
   const feito = !!p.concluido_em;
@@ -255,6 +292,8 @@ function CardDia({ p, onAbrir }: { p: ProspeccaoDia; onAbrir: () => void }) {
         <Metrica label="Marcas 12m" valor={String(m.marcas_12m)} />
       </div>
 
+      <ContextoCliente contexto={contexto} onPedirIA={onPedirIA} />
+
       {p.telefone && (
         <button
           onClick={() => navigator.clipboard?.writeText(p.telefone!.replace(/\D/g, ""))}
@@ -280,6 +319,135 @@ function CardDia({ p, onAbrir }: { p: ProspeccaoDia; onAbrir: () => void }) {
   );
 }
 
+function ContextoCliente({ contexto, onPedirIA }: { contexto: ContextoEstado; onPedirIA?: () => void }) {
+  const [copiado, setCopiado] = useState(false);
+
+  if (contexto === "carregando") {
+    return (
+      <div className="flex items-center gap-2 text-[11px] text-muted-foreground py-2">
+        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Buscando o que o cliente compra…
+      </div>
+    );
+  }
+  if (contexto === "erro") {
+    return <p className="text-[11px] text-rose-500">Não foi possível carregar as compras do cliente.</p>;
+  }
+
+  const { ctx, abordagem } = contexto;
+  const agora = ctx.comprando_agora.slice(0, 3);
+  // Sem compra no trimestre (reativação): mostra a última compra ou os mais comprados.
+  const referencia = agora.length
+    ? agora
+    : ctx.ultima_compra?.itens.length ? ctx.ultima_compra.itens.slice(0, 3) : ctx.mais_comprados_12m.slice(0, 3);
+  const tituloReferencia = agora.length
+    ? "Comprando agora · últimos 3 meses"
+    : ctx.ultima_compra ? `Última compra · ${fmtData(ctx.ultima_compra.data)}` : "Mais comprados · 12 meses";
+  const parou = ctx.parou_de_comprar.slice(0, 3);
+
+  const copiarAbertura = () => {
+    navigator.clipboard?.writeText(abordagem.abertura);
+    setCopiado(true);
+    setTimeout(() => setCopiado(false), 1500);
+  };
+
+  return (
+    <div className="space-y-3">
+      {abordagem.leitura.length > 0 && (
+        <ul className="space-y-1">
+          {abordagem.leitura.map((l) => (
+            <li key={l} className="flex gap-1.5 text-[11px] text-foreground/85 leading-snug">
+              <FileText className="w-3 h-3 mt-0.5 shrink-0 text-muted-foreground" /> {l}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {referencia.length > 0 && (
+        <ListaProdutos
+          titulo={tituloReferencia}
+          icone={PackageCheck}
+          tom="emerald"
+          itens={referencia.map((i) => ({ nome: nomeProduto(i), marca: i.marca, valor: fmtBRLCompact(agora.length ? i.valor_3m : i.valor_12m) }))}
+        />
+      )}
+
+      {parou.length > 0 && (
+        <ListaProdutos
+          titulo="Parou de comprar · nada nos últimos 3 meses"
+          icone={PackageX}
+          tom="rose"
+          itens={parou.map((i) => ({ nome: nomeProduto(i), marca: i.marca, valor: `últ. ${fmtData(i.ultima_compra)}` }))}
+        />
+      )}
+
+      {referencia.length === 0 && parou.length === 0 && (
+        <p className="text-[11px] text-muted-foreground">Sem compras nos últimos 12 meses.</p>
+      )}
+
+      <div className="rounded-xl border border-primary/25 bg-primary/5 p-3 space-y-2">
+        <p className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-primary">
+          <Lightbulb className="w-3.5 h-3.5" /> Como abordar
+        </p>
+        <ul className="space-y-1.5">
+          {abordagem.sugestoes.map((s) => (
+            <li key={s} className="text-[11px] leading-snug text-foreground/90 flex gap-1.5"><span className="text-primary">•</span>{s}</li>
+          ))}
+        </ul>
+        <div className="rounded-lg bg-card border border-border p-2.5">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <span className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest text-muted-foreground">
+              <MessageCircle className="w-3 h-3" /> Para abrir a conversa
+            </span>
+            <button onClick={copiarAbertura} className="text-[10px] font-bold text-primary inline-flex items-center gap-1">
+              {copiado ? <><Check className="w-3 h-3" /> Copiado</> : <><Copy className="w-3 h-3" /> Copiar</>}
+            </button>
+          </div>
+          <p className="text-[11px] italic leading-snug text-foreground/85">“{abordagem.abertura}”</p>
+        </div>
+        {onPedirIA && (
+          <button
+            onClick={onPedirIA}
+            className="w-full inline-flex items-center justify-center gap-1.5 py-1.5 rounded-lg border border-violet-500/30 text-violet-600 dark:text-violet-400 text-[10px] font-black uppercase tracking-widest hover:bg-violet-500/10"
+          >
+            <Sparkles className="w-3.5 h-3.5" /> Montar roteiro com a IA
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ListaProdutos({ titulo, icone: Icone, tom, itens }: {
+  titulo: string;
+  icone: typeof PackageCheck;
+  tom: "emerald" | "rose";
+  itens: { nome: string; marca: string; valor: string }[];
+}) {
+  return (
+    <div>
+      <p className={cn(
+        "flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest mb-1",
+        tom === "emerald" ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400",
+      )}>
+        <Icone className="w-3.5 h-3.5" /> {titulo}
+      </p>
+      <ul className="divide-y divide-border/50 rounded-lg border border-border/60 bg-muted/20">
+        {itens.map((i) => (
+          <li key={i.nome + i.valor} className="flex items-center justify-between gap-2 px-2.5 py-1.5">
+            <div className="min-w-0">
+              <p className="text-[11px] font-bold truncate" title={i.nome}>{i.nome}</p>
+              {i.marca && i.marca.toUpperCase() !== "VENDA CASADA" && (
+                <p className="text-[9px] text-muted-foreground uppercase tracking-wider truncate">{i.marca}</p>
+              )}
+            </div>
+            <span className="text-[10px] font-black tabular-nums shrink-0 text-muted-foreground">{i.valor}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 function Metrica({ label, valor }: { label: string; valor: string }) {
   return (
     <div className="rounded-lg bg-muted/40 border border-border/60 px-2.5 py-1.5">
@@ -291,7 +459,14 @@ function Metrica({ label, valor }: { label: string; valor: string }) {
 
 type FormCampos = Pick<ProspeccaoDia, "oportunidade" | "risco" | "potencial" | "necessidade" | "acao" | "proximo_passo" | "proximo_contato">;
 
-function RegistroModal({ p, userId, onClose, onSaved }: { p: ProspeccaoDia; userId?: string; onClose: () => void; onSaved: (s: ProspeccaoDia) => void }) {
+function RegistroModal({ p, userId, rascunho, onClose, onSaved }: {
+  p: ProspeccaoDia;
+  userId?: string;
+  /** Sugestões do contexto do ERP, mostradas como placeholder. */
+  rascunho?: Abordagem["rascunho"];
+  onClose: () => void;
+  onSaved: (s: ProspeccaoDia) => void;
+}) {
   const [form, setForm] = useState<FormCampos>({
     oportunidade: p.oportunidade,
     risco: p.risco,
@@ -349,7 +524,7 @@ function RegistroModal({ p, userId, onClose, onSaved }: { p: ProspeccaoDia; user
                 <span className="text-primary mr-1">{i + 1}.</span>{c.label}{c.key === "acao" && <span className="text-rose-500"> *</span>}
               </span>
               <span className="block text-[11px] text-muted-foreground">{c.dica}</span>
-              <textarea rows={2} className={campoCls} value={form[c.key] || ""} onChange={(e) => set(c.key, e.target.value)} />
+              <textarea rows={2} className={campoCls} placeholder={c.key === "acao" ? undefined : rascunho?.[c.key]} value={form[c.key] || ""} onChange={(e) => set(c.key, e.target.value)} />
             </label>
           ))}
           <div className="space-y-1">

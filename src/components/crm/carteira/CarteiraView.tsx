@@ -528,6 +528,8 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
   // clientes sem dono, e o supervisor puxa de lá separando PJ (CNPJ) de PF (CPF).
   const [filtroPessoa, setFiltroPessoa] = useState<"todos" | "pj" | "pf">("todos");
   const [chatCliente, setChatCliente] = useState<CarteiraCliente | null>(null);
+  // Pergunta pronta vinda da Prospecção do dia (o Radar monta a dele no próprio JSX).
+  const [chatPrompt, setChatPrompt] = useState<string | null>(null);
   const [radarAberto, setRadarAberto] = useState(false);
   const [radarDispensado, setRadarDispensado] = useState(false);
   const [showRankingIA, setShowRankingIA] = useState(false);
@@ -1268,6 +1270,12 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
             codVendedor={carteiraSel.cod}
             nomeVendedor={carteiraSel.nome}
             userId={userProfile?.id}
+            onPedirIA={(clienteId, prompt) => {
+              const cli = carteiraSel.clientes.find((c) => c.cliente_id === clienteId);
+              if (!cli) return;
+              setChatPrompt(prompt);
+              setChatCliente(cli);
+            }}
           />
         )}
 
@@ -1577,11 +1585,12 @@ export function CarteiraView({ userProfile }: { userProfile?: UserProfile }) {
             userName={userProfile?.name}
             userAvatar={userProfile?.avatar || getAvatar(chatCliente.cod_vendedor)}
             initialPrompt={
-              radarOportunidade?.cliente.cliente_id === chatCliente.cliente_id
+              chatPrompt ??
+              (radarOportunidade?.cliente.cliente_id === chatCliente.cliente_id
                 ? `Analise a melhor oportunidade de recompra para ${chatCliente.nome_cliente}. Considere que a última compra foi há ${radarOportunidade.recenciaDias} dias e monte uma abordagem comercial objetiva.`
-                : undefined
+                : undefined)
             }
-            onClose={() => setChatCliente(null)}
+            onClose={() => { setChatCliente(null); setChatPrompt(null); }}
           />
         )}
 

@@ -1092,6 +1092,32 @@ export const apiProspeccaoCandidatos = (codVendedor: string) =>
     cod_vendedor: codVendedor,
   });
 
+export interface ProspeccaoProduto {
+  codigo: string;
+  descricao: string;
+  marca: string;
+  valor_3m: number;
+  valor_3m_anterior: number;
+  valor_12m: number;
+  qtd_12m: number;
+  pedidos_12m: number;
+  ultima_compra: string | null;
+}
+
+export interface ProspeccaoContexto {
+  cliente_id: string;
+  data_cadastro: string | null;
+  comprando_agora: ProspeccaoProduto[];
+  parou_de_comprar: ProspeccaoProduto[];
+  mais_comprados_12m: ProspeccaoProduto[];
+  ultima_compra: { data: string; itens: ProspeccaoProduto[] } | null;
+  marcas: { marca: string; valor_3m: number; valor_3m_anterior: number; valor_12m: number }[];
+  orcamentos: { empresa: string; numero: string; data: string | null; valor: number; status: "aberto" | "fechado" | "perdido" | "transferido" }[];
+}
+
+export const apiProspeccaoContexto = (clienteId: string) =>
+  get<ProspeccaoContexto>("/api/crm/carteira/prospeccao/contexto", { cliente: clienteId });
+
 export interface TransferirClienteResponse {
   ok: boolean;
   cliente_id: string;
