@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { ListPlus, Minus, Plus, Printer, Search, Trash2, X } from "lucide-react";
+import { ListPlus, Loader2, Minus, Plus, Printer, Search, Trash2, X } from "lucide-react";
+import { useNotification } from "@/hooks/useNotification";
+import {
+  definirImpressoraEtiquetaPreco,
+  imprimirEtiquetasPreco,
+  impressoraEtiquetaPreco,
+  listarImpressorasLocais,
+  type ImpressoraLocal,
+} from "@/lib/impressao-local";
 
 // Etiqueta de preço da loja: rolo amarelo térmico de 50×30 mm, igual à que já é
 // colada nos produtos. Descrição em 2 linhas, preço no crédito (à vista no
@@ -9,8 +17,10 @@ import { ListPlus, Minus, Plus, Printer, Search, Trash2, X } from "lucide-react"
 // papel, então "letra amarela" na faixa é área sem tinta.
 //
 // Imprime em lote: uma lista de produtos, cada um com a sua quantidade. A
-// impressora da loja usa sempre rolo de 2 colunas: cada página tem 2 etiquetas
-// lado a lado (a última linha pode sair com uma só).
+// impressora da loja usa sempre rolo de 2 colunas: cada linha tem 2 etiquetas
+// lado a lado (a última pode sair com uma só). A impressão vai pelo servidor de
+// impressão local (src/lib/impressao-local.ts), sem a janela do Windows; o
+// servidor desenha o mesmo layout em PDF (etiquetas-main/etiqueta-preco.js).
 
 export interface ProdutoEtiqueta {
   cod: string;
@@ -86,24 +96,48 @@ interface Props {
   produtos: ProdutoEtiqueta[];
   /** Recorte atual da tela (filtros aplicados), para adicionar de uma vez. */
   filtrados: ProdutoEtiqueta[];
-  /** Produto já na lista ao abrir (ícone de impressora da linha). */
-  inicial?: ProdutoEtiqueta | null;
   onClose: () => void;
 }
 
-export function EtiquetaPrecoModal({ produtos, filtrados, inicial, onClose }: Props) {
-  const [lista, setLista] = useState<ItemLista[]>(() => (inicial ? [{ produto: inicial, quantidade: 1 }] : []));
+export function EtiquetaPrecoModal({ produtos, filtrados, onClose }: Props) {
+  const { showNotification } = useNotification();
+  const [lista, setLista] = useState<ItemLista[]>([]);
   const [busca, setBusca] = useState("");
+  const [impressoras, setImpressoras] = useState<ImpressoraLocal[] | null>(null);
+  const [servidorErro, setServidorErro] = useState<string | null>(null);
+  const [impressora, setImpressora] = useState(impressoraEtiquetaPreco);
+  const [imprimindo, setImprimindo] = useState(false);
 
   useEffect(() => {
     const esc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", esc);
-    document.body.classList.add("imprimindo-etiqueta-preco");
-    return () => {
-      window.removeEventListener("keydown", esc);
-      document.body.classList.remove("imprimindo-etiqueta-preco");
-    };
+    return () => window.removeEventListener("keydown", esc);
   }, [onClose]);
+
+  // Confere se o servidor de impressão está aberto e traz as impressoras do Windows.
+  useEffect(() => {
+    listarImpressorasLocais()
+      .then((r) => { setServidorErro(null); setImpressoras(r); })
+      .catch((e: Error) => { setServidorErro(e.message); setImpressoras([]); });
+  }, []);
+
+  const trocarImpressora = (nome: string) => {
+    setImpressora(nome);
+    definirImpressoraEtiquetaPreco(nome);
+  };
+
+  const imprimir = async () => {
+    setImprimindo(true);
+    try {
+      const r = await imprimirEtiquetasPreco(lista.map((i) => ({ ...i.produto, quantidade: i.quantidade })));
+      showNotification("success", "Etiquetas enviadas", `${r.etiquetas} etiqueta${r.etiquetas === 1 ? "" : "s"} para ${r.impressora || "a impressora padrão"}.`);
+      onClose();
+    } catch (e) {
+      showNotification("error", "Não foi possível imprimir", (e as Error).message);
+    } finally {
+      setImprimindo(false);
+    }
+  };
 
   const resultados = useMemo(() => {
     const t = semAcento(busca.trim());
@@ -141,26 +175,7 @@ export function EtiquetaPrecoModal({ produtos, filtrados, inicial, onClose }: Pr
 
   return createPortal(
     <>
-      <style>{`
-        @media print {
-          @page { size: ${LARGURA_PAGINA_MM}mm ${ALTURA_MM}mm; margin: 0; }
-          html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
-          body.imprimindo-etiqueta-preco > *:not(.etiqueta-preco-impressao) { display: none !important; }
-          .etiqueta-preco-impressao { display: block !important; }
-          .etiqueta-preco-impressao * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        }
-      `}</style>
-
-      {/* O que vai para a impressora: papel branco (a cor já é do rolo). */}
-      <div className="etiqueta-preco-impressao" style={{ display: "none" }}>
-        {paginas.map((pagina, i) => (
-          <div key={i} style={{ display: "flex", gap: `${ESPACO_COLUNAS_MM}mm`, width: `${LARGURA_PAGINA_MM}mm`, height: `${ALTURA_MM}mm`, breakAfter: "page", pageBreakAfter: "always" }}>
-            {pagina.map((p, j) => <Etiqueta key={j} produto={p} papel="#fff" />)}
-          </div>
-        ))}
-      </div>
-
-      <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-[2px] flex items-center justify-center p-3 sm:p-6 print:hidden" onClick={onClose}>
+      <div className="fixed inset-0 z-[100] bg-black/60 backdrop-blur-[2px] flex items-center justify-center p-3 sm:p-6" onClick={onClose}>
         <div
           className="w-full max-w-5xl h-[min(88vh,720px)] rounded-2xl bg-card border border-border shadow-2xl flex flex-col overflow-hidden"
           onClick={(e) => e.stopPropagation()}
@@ -291,14 +306,29 @@ export function EtiquetaPrecoModal({ produtos, filtrados, inicial, onClose }: Pr
                 {etiquetas.length % COLUNAS === 1 && (
                   <p className="text-[11px] text-amber-600 dark:text-amber-400">A última linha sai com a coluna da direita vazia.</p>
                 )}
+                <label className="block space-y-1">
+                  <span className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Impressora</span>
+                  <select
+                    value={impressora}
+                    onChange={(e) => trocarImpressora(e.target.value)}
+                    disabled={!impressoras || !!servidorErro}
+                    className="w-full h-9 px-2 rounded-lg border border-border bg-background text-xs outline-none disabled:opacity-50"
+                  >
+                    <option value="">
+                      Padrão do Windows{impressoras?.find((i) => i.default) ? ` (${impressoras.find((i) => i.default)!.name})` : ""}
+                    </option>
+                    {(impressoras || []).map((i) => <option key={i.name} value={i.name}>{i.name}</option>)}
+                    {impressora && impressoras && !impressoras.some((i) => i.name === impressora) && <option value={impressora}>{impressora}</option>}
+                  </select>
+                </label>
+                {servidorErro && <p className="text-[11px] text-destructive leading-snug">{servidorErro}</p>}
                 <button
-                  onClick={() => window.print()}
-                  disabled={etiquetas.length === 0}
+                  onClick={imprimir}
+                  disabled={etiquetas.length === 0 || imprimindo}
                   className="w-full h-11 rounded-xl bg-primary text-primary-foreground text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-40"
                 >
-                  <Printer className="w-4 h-4" /> Imprimir
+                  {imprimindo ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />} Imprimir
                 </button>
-                <p className="text-[10px] text-muted-foreground leading-snug text-center">Na impressão: impressora de etiquetas, sem margens, escala 100%.</p>
               </div>
             </aside>
           </div>

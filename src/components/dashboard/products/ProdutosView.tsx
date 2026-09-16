@@ -7,7 +7,8 @@ import {
   ChevronDown,
   ShoppingBag,
   Upload,
-  Printer
+  Printer,
+  Loader2
 } from "lucide-react";
 import { SiShopify } from "react-icons/si";
 import { cn } from "@/lib/utils";
@@ -15,7 +16,9 @@ import { TinyDropdown } from "@/components/ui/TinyDropdown";
 import { TinyLoader } from "@/components/ui/TinyLoader";
 import { apiDashboardProdutos, type ProductInfo } from "@/lib/api";
 import { ShopifyEnvioModal, type ItemEnvio } from "./ShopifyEnvioModal";
-import { EtiquetaPrecoModal, type ProdutoEtiqueta } from "./EtiquetaPrecoModal";
+import { EtiquetaPrecoModal } from "./EtiquetaPrecoModal";
+import { useNotification } from "@/hooks/useNotification";
+import { imprimirEtiquetasPreco } from "@/lib/impressao-local";
 import {
   getShopifyCatalog,
   normalizeSku,
@@ -165,7 +168,23 @@ export function ProdutosView() {
   const [shopifyMap, setShopifyMap] = useState<Map<string, ShopifyVariantInfo>>(new Map());
   const [shopifyLoading, setShopifyLoading] = useState(true);
   const [envio, setEnvio] = useState<ItemEnvio[] | null>(null);
-  const [etiquetas, setEtiquetas] = useState<{ inicial: ProdutoEtiqueta | null } | null>(null);
+  const [etiquetasAberto, setEtiquetasAberto] = useState(false);
+  // Ícone da linha imprime 1 etiqueta direto, sem abrir a janela de lote.
+  const [imprimindoCod, setImprimindoCod] = useState<string | null>(null);
+  const { showNotification } = useNotification();
+
+  const imprimirEtiqueta = async (p: Product) => {
+    if (imprimindoCod) return;
+    setImprimindoCod(p.cod);
+    try {
+      const r = await imprimirEtiquetasPreco([{ cod: p.cod, desc: p.desc, debit: p.debit, credit: p.credit, quantidade: 1 }]);
+      showNotification("success", "Etiqueta enviada", `${p.desc} → ${r.impressora || "impressora padrão"}.`);
+    } catch (e) {
+      showNotification("error", "Não foi possível imprimir", (e as Error).message);
+    } finally {
+      setImprimindoCod(null);
+    }
+  };
 
   const requestSort = (key: keyof Product) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -426,7 +445,7 @@ export function ProdutosView() {
           />
 
           <button
-            onClick={() => setEtiquetas({ inicial: null })}
+            onClick={() => setEtiquetasAberto(true)}
             title="Imprimir etiquetas de preço"
             className="flex items-center justify-center p-2.5 bg-card border border-border rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-all shadow-sm group shrink-0"
           >
@@ -566,11 +585,12 @@ export function ProdutosView() {
                       </td>
                       <td className="py-3 px-2 text-center">
                         <button
-                          onClick={() => setEtiquetas({ inicial: { cod: p.cod, desc: p.desc, debit: p.debit, credit: p.credit } })}
+                          onClick={() => imprimirEtiqueta(p)}
+                          disabled={imprimindoCod !== null}
                           title="Imprimir etiqueta de preço"
                           className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
                         >
-                          <Printer className="w-4 h-4" />
+                          {imprimindoCod === p.cod ? <Loader2 className="w-4 h-4 animate-spin" /> : <Printer className="w-4 h-4" />}
                         </button>
                       </td>
                     </tr>
@@ -592,12 +612,11 @@ export function ProdutosView() {
         </div>
       </div>
 
-      {etiquetas && (
+      {etiquetasAberto && (
         <EtiquetaPrecoModal
           produtos={products}
           filtrados={filteredProducts}
-          inicial={etiquetas.inicial}
-          onClose={() => setEtiquetas(null)}
+          onClose={() => setEtiquetasAberto(false)}
         />
       )}
 
