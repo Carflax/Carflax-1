@@ -147,8 +147,10 @@ const PUBLIC_SECTIONS = [
   "Dashboard", "Geral", "Produtos",
   "Calendário", "Agenda", "Férias",
   "Esteira", "Minha Esteira", "Sugestões",
-  "Organograma", "Estoque", "Separação", "Conferência", "Retirada", "Furos", "Relatórios Estoque",
-  "Relatórios", "Relatórios Mkt",
+  "Organograma",
+  // Relatórios (Comercial/Marketing) e os módulos de Estoque NÃO são públicos:
+  // o menu lateral nunca os mostrou para todos. Estando aqui, o toggle sumia do
+  // painel de Usuários e não havia como liberar para ninguém.
 ];
 
 function buildPermissionGroups() {
@@ -241,37 +243,50 @@ const LEADER_SECTIONS = ["Scrum", "Relatórios Scrum", "Usuários", "DB Admin"];
 // permissão manual no cadastro do usuário.
 const RH_SECTIONS = ["RH", "Triagem"];
 
-export function canAccessSection(profile: AccessProfile | null | undefined, item: string): boolean {
-  if (!item) return false;
-  if (!profile) return false;
+/**
+ * Por que o usuário tem acesso AUTOMÁTICO ao item — por cargo, setor ou liderança,
+ * sem depender de permissão manual. Devolve null quando o acesso depende só do
+ * toggle. O painel de Usuários usa isto para mostrar o toggle ligado e travado,
+ * em vez de desligado para alguém que mesmo assim entra na tela.
+ */
+export function automaticAccessReason(profile: AccessProfile | null | undefined, item: string): string | null {
+  if (!item || !profile) return null;
 
   const role = profile.role?.toUpperCase() || "";
   // Admin, Diretoria e Gerente veem tudo
-  if (profile.is_admin || role === "ADMIN" || role.includes("GERENTE") || role.includes("DIRETOR")) return true;
+  if (profile.is_admin) return "Admin";
+  if (role === "ADMIN") return "Admin";
+  if (role.includes("DIRETOR")) return "Diretoria";
+  if (role.includes("GERENTE")) return "Gerente";
 
   // Subquadros da Esteira são abertos pra todo mundo, igual a própria Esteira
-  if (item.startsWith(ESTEIRA_SUBQUADRO_PREFIX)) return true;
+  if (item.startsWith(ESTEIRA_SUBQUADRO_PREFIX)) return "Todos";
 
-  if (PUBLIC_SECTIONS.includes(item)) return true;
+  if (PUBLIC_SECTIONS.includes(item)) return "Todos";
 
-  if (profile.is_leader && LEADER_SECTIONS.includes(item)) return true;
+  if (profile.is_leader && LEADER_SECTIONS.includes(item)) return "Líder";
 
-  if (role.includes("VENDEDOR") && VENDEDOR_SECTIONS.includes(item)) return true;
-
-  if (profile.department?.toUpperCase() === "MARKETING" && MARKETING_SECTIONS.includes(item)) return true;
+  if (role.includes("VENDEDOR") && VENDEDOR_SECTIONS.includes(item)) return "Cargo vendedor";
 
   const dept = profile.department?.toUpperCase();
-  if ((dept === "VENDAS" || dept === "COMERCIAL") && VENDAS_SECTIONS.includes(item)) return true;
+  if (dept === "MARKETING" && MARKETING_SECTIONS.includes(item)) return "Setor Marketing";
 
-  if (dept === "COMPRAS" && (item === "Compras" || item === "Relatórios Compras")) return true;
+  if ((dept === "VENDAS" || dept === "COMERCIAL") && VENDAS_SECTIONS.includes(item)) return "Setor Vendas";
+
+  if (dept === "COMPRAS" && (item === "Compras" || item === "Relatórios Compras")) return "Setor Compras";
 
   // "Recursos H" é como o setor de RH é gravado no cadastro (ver UsersView).
-  const ehRhOuDiretoria =
-    dept?.startsWith("RECURSOS") || dept === "DIRETORIA" || role.includes("DIRETOR");
-  if (ehRhOuDiretoria && RH_SECTIONS.includes(item)) return true;
+  if (RH_SECTIONS.includes(item)) {
+    if (dept?.startsWith("RECURSOS")) return "Setor RH";
+    if (dept === "DIRETORIA") return "Diretoria";
+  }
 
+  return null;
+}
+
+export function canAccessSection(profile: AccessProfile | null | undefined, item: string): boolean {
+  if (!item || !profile) return false;
+  if (automaticAccessReason(profile, item)) return true;
   // Permissões manuais atribuídas no cadastro do usuário
-  if (profile.permissions?.includes(item)) return true;
-
-  return false;
+  return !!profile.permissions?.includes(item);
 }

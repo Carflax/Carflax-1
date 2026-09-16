@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { uploadImage } from "@/lib/uploadImage";
-import { PERMISSION_GROUPS } from "@/lib/menu-config";
+import { PERMISSION_GROUPS, EXTRA_PERMISSIONS, automaticAccessReason } from "@/lib/menu-config";
 import {
   UserPlus,
   Search,
@@ -16,7 +16,8 @@ import {
   Briefcase,
   Camera,
   Phone,
-  Puzzle
+  Puzzle,
+  Lock
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TinyDropdown } from "@/components/ui/TinyDropdown";
@@ -424,6 +425,17 @@ export function UsersView() {
       case "logistica": return "bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 border-amber-100 dark:border-amber-900/50";
       default: return "bg-secondary/50 dark:bg-slate-800/50 text-muted-foreground border-border";
     }
+  };
+
+  // Motivo do acesso automático ao módulo (cargo, setor, líder), com o que está
+  // preenchido no formulário agora — muda na hora ao trocar cargo/setor/líder.
+  // Ações (Criar Campanha, Lançar Entrega) só valem por permissão manual.
+  const motivoAutomatico = (module: string) => {
+    if (EXTRA_PERMISSIONS.some((e) => e.label === module)) return null;
+    return automaticAccessReason(
+      { role: newUser.role, department: newUser.department, is_admin: newUser.is_admin, is_leader: newUser.isLeader },
+      module,
+    );
   };
 
   const Switch = ({ enabled, onChange }: { enabled: boolean; onChange: () => void }) => (
@@ -851,7 +863,7 @@ export function UsersView() {
                 <div className="space-y-2">
                   {permissionGroups.map((group) => {
                     const isExpanded = expandedGroups.includes(group.name);
-                    const activeCount = group.modules.filter(m => newUser.permissions.includes(m)).length;
+                    const activeCount = group.modules.filter(m => newUser.permissions.includes(m) || !!motivoAutomatico(m)).length;
                     
                     return (
                       <div key={group.name} className="border border-border rounded-2xl overflow-hidden bg-secondary/10">
@@ -873,14 +885,28 @@ export function UsersView() {
                         {isExpanded && (
                           <div className="p-3 pt-0 grid grid-cols-1 gap-2 border-t border-border/50 animate-in slide-in-from-top-2 duration-200">
                             {group.modules.map((module) => {
-                              const hasAccess = newUser.permissions.includes(module);
+                              const automatico = motivoAutomatico(module);
+                              const hasAccess = !!automatico || newUser.permissions.includes(module);
                               return (
                                 <div key={module} onClick={() => {
+                                  // Acesso que vem do cargo/setor/liderança não se desliga aqui.
+                                  if (automatico) return;
                                   const updated = hasAccess ? newUser.permissions.filter(p => p !== module) : [...newUser.permissions, module];
                                   setNewUser({ ...newUser, permissions: updated });
-                                }} className={cn("flex items-center justify-between p-2.5 rounded-xl border transition-all cursor-pointer", hasAccess ? "bg-blue-500/10 border-blue-600/30" : "bg-background border-border")}>
+                                }}
+                                  title={automatico ? `Liberado automaticamente (${automatico}). Para tirar, mude o cargo, o setor ou a liderança.` : undefined}
+                                  className={cn("flex items-center justify-between p-2.5 rounded-xl border transition-all", automatico ? "cursor-not-allowed" : "cursor-pointer", hasAccess ? "bg-blue-500/10 border-blue-600/30" : "bg-background border-border")}>
                                   <span className={cn("text-[10px] font-bold uppercase tracking-tight", hasAccess ? "text-blue-500" : "text-muted-foreground/60")}>{module}</span>
-                                  <Switch enabled={hasAccess} onChange={() => { }} />
+                                  <div className="flex items-center gap-2">
+                                    {automatico && (
+                                      <span className="flex items-center gap-1 text-[8px] font-black uppercase tracking-widest text-muted-foreground">
+                                        <Lock className="w-2.5 h-2.5" /> {automatico}
+                                      </span>
+                                    )}
+                                    <div className={cn(automatico && "opacity-60 pointer-events-none")}>
+                                      <Switch enabled={hasAccess} onChange={() => { }} />
+                                    </div>
+                                  </div>
                                 </div>
                               );
                             })}

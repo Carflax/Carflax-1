@@ -50,7 +50,7 @@ import { useTheme } from "@/context/theme-provider";
 import { supabase } from "@/lib/supabase";
 import { getNotifPref } from "@/lib/notif-prefs";
 import { useNotification } from "@/hooks/useNotification";
-import { NAV_SECTIONS, ESTEIRA_SUBQUADRO_PREFIX } from "@/lib/menu-config";
+import { NAV_SECTIONS, ESTEIRA_SUBQUADRO_PREFIX, canAccessSection } from "@/lib/menu-config";
 
 // Reexporta para não quebrar imports existentes (ex: App.tsx). A fonte da verdade
 // agora fica em menu-config.ts.
@@ -497,37 +497,9 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
       return !!userDept && sub.name.trim().toLowerCase() === userDept;
     }
 
-    // Itens padrão (que todos vêem) — configurações pessoais + módulos essenciais
-    const alwaysAllowed = [
-      "Meu Perfil", "Aparência", "Assinatura", "Notificações", "Segurança", "Extensão",
-      "Dashboard", "Geral", "Produtos",
-      "Calendário", "Agenda", "Férias",
-      "Esteira", "Minha Esteira", "Sugestões"
-    ];
-    if (alwaysAllowed.includes(label)) return true;
-
-    // Permissões específicas do departamento de MARKETING
-    const isMarketingDept = userProfile?.department?.toUpperCase() === 'MARKETING';
-    const marketingItems = ["Marketing", "Whatsapp API", "Leads", "Blog Marketing", "Blog Cards", "Cronograma", "Eventos Marketing", "Avaliações", "Relatórios Mkt"];
-    if (isMarketingDept && marketingItems.includes(label)) return true;
-
-    // Permissões específicas do departamento de VENDAS/COMERCIAL
-    const dept = userProfile?.department?.toUpperCase();
-    const isVendasOrComercialDept = dept === 'VENDAS' || dept === 'COMERCIAL';
-    const comercialItems = ["Comercial", "Orçamentos", "Meus Pedidos", "Carteira", "Prospecções", "Campanhas", "Alugueis", "Pós-Venda", "Pesquisa Cliente", "Relatórios"];
-    if (isVendasOrComercialDept && comercialItems.includes(label)) return true;
-
-    // Líderes têm acesso automático aos módulos de Gestão & Admin, sem precisar de toggle manual
-    const leaderOnlyItems = ["Scrum", "Usuários", "DB Admin"];
-    if (userProfile?.is_leader && leaderOnlyItems.includes(label)) return true;
-
-    // Permissões manuais (Database) — vale para todos os roles
-    const hasManualPermission = userProfile?.permissions?.includes(label);
-
-    // Seções-pai (dropdowns) aparecem se o usuário tem permissão em pelo menos um sub-item
-    // Isso é tratado pelo filter no render, não precisa de lógica extra aqui
-
-    return hasManualPermission || false;
+    // Mesma regra do bloqueio de tela e do painel de Usuários (menu-config),
+    // para o menu, o acesso e os toggles nunca divergirem.
+    return canAccessSection(userProfile, label);
   };
 
   return (
