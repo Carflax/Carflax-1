@@ -35,6 +35,7 @@ interface EventoRef {
 const PROFISSOES_COMUNS = [
   "Eletricista",
   "Encanador",
+  "Funcionário",
   "Outro"
 ];
 

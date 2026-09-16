@@ -202,6 +202,7 @@ export function ConvidadosTab({ evento, convidados, onChange }: {
           >
             <option value="Eletricista">Eletricista</option>
             <option value="Encanador">Encanador</option>
+            <option value="Funcionário">Funcionário</option>
             <option value="Outro">Outro</option>
           </select>
         </div>
