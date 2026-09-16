@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Plus, Trash2, X, Check, Search, Ticket, UserCheck, FileDown, ExternalLink } from "lucide-react";
+import { Plus, Trash2, X, Check, Search, Ticket, UserCheck, FileDown, ExternalLink, Tv } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import {
@@ -258,6 +258,16 @@ export function ConvidadosTab({ evento, convidados, onChange }: {
           title="Abrir página pública onde clientes e vendedores confirmam presença"
         >
           <ExternalLink className="w-3.5 h-3.5" /> Link Convite Cliente
+        </a>
+
+        <a
+          href="/tv"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="px-3 py-1.5 rounded-full border border-emerald-500/30 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 text-[10px] font-black uppercase tracking-wider hover:bg-emerald-100 dark:hover:bg-emerald-900/40 transition-all flex items-center gap-1.5"
+          title="Abrir tela de apresentação em 1920x1080 para TV/Telão"
+        >
+          <Tv className="w-3.5 h-3.5" /> Modo TV 1920x1080
         </a>
         <div className="relative ml-auto min-w-[200px]">
           <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />

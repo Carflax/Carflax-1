@@ -63,6 +63,7 @@ import { TermsOfServiceView } from "@/components/public/TermsOfServiceView";
 import { FollowUpReminder } from "@/components/ui/FollowUpReminder";
 import { ConviteFornecedorPublicView } from "@/components/public/ConviteFornecedorPublicView";
 import { ConviteClientePublicView } from "@/components/public/ConviteClientePublicView";
+import { ApresentacaoTvView } from "@/components/public/ApresentacaoTvView";
 
 
 export interface UserProfile {
@@ -2107,6 +2108,22 @@ function App() {
         <NotificationProvider>
           <ConviteClientePublicView />
         </NotificationProvider>
+      </ThemeProvider>
+    );
+  }
+
+  // Rota pública de tela de apresentação em 1920x1080 (Modo TV / Telão)
+  const isApresentacaoTvRoute =
+    window.location.pathname.includes("/tv") ||
+    window.location.pathname.includes("/apresentacao") ||
+    window.location.pathname.includes("/telao") ||
+    window.location.search.includes("view=tv") ||
+    window.location.search.includes("view=apresentacao");
+
+  if (isApresentacaoTvRoute) {
+    return (
+      <ThemeProvider defaultTheme="dark" storageKey="carflax-theme">
+        <ApresentacaoTvView />
       </ThemeProvider>
     );
   }
