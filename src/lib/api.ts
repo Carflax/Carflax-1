@@ -548,6 +548,67 @@ export interface ClienteErpBusca {
 export const apiBuscarClientesErp = (q: string) =>
   get<ClienteErpBusca[]>("/api/crm/cliente-por-telefone/buscar", { q });
 
+export interface RelatorioClienteAgregado {
+  valor: number;
+  margem: number;
+  pedidos: number;
+}
+
+/** Relatório completo de compras do cliente (Comercial > Pesquisa do Cliente). */
+export interface RelatorioCliente {
+  cliente: {
+    codigo: string;
+    nome: string;
+    documento: string | null;
+    tipo_pessoa: "PF" | "PJ" | null;
+    endereco: string | null;
+    bairro: string | null;
+    cidade: string | null;
+    uf: string | null;
+    telefone: string | null;
+    email: string | null;
+    cod_vendedor: string | null;
+  };
+  resumo: {
+    total: number;
+    margem: number;
+    margem_pct: number;
+    pedidos: number;
+    ticket_medio: number;
+    itens_distintos: number;
+    qtd_itens: number;
+    marcas: number;
+    primeira_compra: string | null;
+    ultima_compra: string | null;
+    dias_sem_comprar: number | null;
+    intervalo_medio_dias: number | null;
+  };
+  anos: (RelatorioClienteAgregado & { ano: number })[];
+  meses: (RelatorioClienteAgregado & { mes: string })[];
+  marcas: (RelatorioClienteAgregado & { marca: string; ultima_compra: string | null })[];
+  vendedores: (RelatorioClienteAgregado & { codigo: string; nome: string; ultima_venda: string | null })[];
+  produtos: (RelatorioClienteAgregado & {
+    codigo: string; descricao: string; marca: string; qtd: number;
+    primeira_compra: string | null; ultima_compra: string | null;
+  })[];
+  pedidos: {
+    empresa: string;
+    documento: string;
+    especie: string;
+    data: string | null;
+    vendedor: string;
+    prazo_medio: number;
+    valor: number;
+    margem: number;
+    itens: { codigo: string; descricao: string; marca: string; qtd: number; unitario: number; valor: number }[];
+  }[];
+  /** true quando só os pedidos mais recentes vieram na lista (os totais usam todos). */
+  pedidos_truncados: boolean;
+}
+
+export const apiRelatorioCliente = (cliente: string) =>
+  get<RelatorioCliente>("/api/crm/relatorio-cliente", { cliente });
+
 export interface SyncLeadErp {
   /** Valor do orçamento encontrado na Citel dentro da janela do lead, ou null. */
   orcamento: number | null;

@@ -1407,6 +1407,7 @@ function DashboardContent({
     "Relatórios",
     "Prospecções",
     "Pós-Venda",
+    "Pesquisa Cliente",
   ].includes(activeItem);
   const isMarketingView = [
     "Marketing",

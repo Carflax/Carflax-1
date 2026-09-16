@@ -42,6 +42,7 @@ import {
   BriefcaseBusiness,
   UserSearch,
   HeartHandshake,
+  ScanSearch,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -86,6 +87,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Campanhas: Megaphone,
   Alugueis: Key,
   "Pós-Venda": HeartHandshake,
+  "Pesquisa Cliente": ScanSearch,
   Relatórios: FileBarChart,
   "Relatórios Mkt": FileBarChart,
   Marketing: Megaphone,
@@ -512,7 +514,7 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
     // Permissões específicas do departamento de VENDAS/COMERCIAL
     const dept = userProfile?.department?.toUpperCase();
     const isVendasOrComercialDept = dept === 'VENDAS' || dept === 'COMERCIAL';
-    const comercialItems = ["Comercial", "Orçamentos", "Meus Pedidos", "Carteira", "Prospecções", "Campanhas", "Alugueis", "Pós-Venda", "Relatórios"];
+    const comercialItems = ["Comercial", "Orçamentos", "Meus Pedidos", "Carteira", "Prospecções", "Campanhas", "Alugueis", "Pós-Venda", "Pesquisa Cliente", "Relatórios"];
     if (isVendasOrComercialDept && comercialItems.includes(label)) return true;
 
     // Líderes têm acesso automático aos módulos de Gestão & Admin, sem precisar de toggle manual

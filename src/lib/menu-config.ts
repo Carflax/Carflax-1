@@ -54,6 +54,7 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Campanhas" },
       { label: "Alugueis" },
       { label: "Pós-Venda" },
+      { label: "Pesquisa do Cliente", value: "Pesquisa Cliente" },
       { label: "Relatórios" },
     ],
   },
@@ -220,7 +221,7 @@ export interface AccessProfile {
 // Liberado para todos (configurações pessoais + dashboards + módulos essenciais)
 
 const VENDEDOR_SECTIONS = [
-  "Comercial", "Orçamentos", "Carteira", "Ligações", "Campanhas",
+  "Comercial", "Orçamentos", "Carteira", "Ligações", "Campanhas", "Pesquisa Cliente",
   "Alugueis", "Logística", "Romaneios", "Entregas", "Ocorrências Entregas", "Relatórios Entregas", "Mapa Entregas",
 ];
 
@@ -229,7 +230,7 @@ const MARKETING_SECTIONS = [
 ];
 
 const VENDAS_SECTIONS = [
-  "Comercial", "Orçamentos", "Meus Pedidos", "Carteira", "Prospecções", "Campanhas", "Alugueis", "Pós-Venda", "Relatórios",
+  "Comercial", "Orçamentos", "Meus Pedidos", "Carteira", "Prospecções", "Campanhas", "Alugueis", "Pós-Venda", "Pesquisa Cliente", "Relatórios",
 ];
 
 // Módulos de Gestão & Admin liberados automaticamente para líderes
