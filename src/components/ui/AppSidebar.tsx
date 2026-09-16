@@ -43,6 +43,7 @@ import {
   UserSearch,
   HeartHandshake,
   ScanSearch,
+  Cable,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -105,6 +106,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Furos: PackageX,
   Compras: ShoppingCart,
   Painel: ShoppingCart,
+  "Sala de Cabos": Cable,
   "Relatórios Estoque": FileBarChart,
   "Relatórios Compras": FileBarChart,
   Entregas: Truck,

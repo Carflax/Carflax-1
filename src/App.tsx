@@ -33,6 +33,8 @@ import { FurosView } from "@/components/estoque/FurosView";
 import { ComprasView } from "@/components/compras/ComprasView";
 import { RelatoriosComprasView } from "@/components/compras/RelatoriosComprasView";
 import { RelatoriosEstoqueView } from "@/components/estoque/RelatoriosEstoqueView";
+import { SalaCabosView } from "@/components/estoque/salacabos/SalaCabosView";
+import { SalaCabosTablet } from "@/components/estoque/salacabos/SalaCabosTablet";
 import { RelatoriosScrumView } from "@/components/scrum/RelatoriosScrumView";
 import { EntregasView } from "@/components/entregas";
 import { MotoristaView } from "@/components/entregas/motorista/MotoristaView";
@@ -1541,6 +1543,8 @@ function DashboardContent({
             <RetiradaView userProfile={userProfile || undefined} />
           ) : activeItem === "Furos" ? (
             <FurosView />
+          ) : activeItem === "Sala de Cabos" ? (
+            <SalaCabosView />
           ) : activeItem === "Relatórios Estoque" ? (
             <RelatoriosEstoqueView />
           ) : ["RH", "Triagem"].includes(activeItem) ? (
@@ -2176,6 +2180,23 @@ function App() {
       <ThemeProvider defaultTheme="dark" storageKey="carflax-theme">
         <NotificationProvider>
           <RankingCopaView />
+        </NotificationProvider>
+      </ThemeProvider>
+    );
+  }
+
+  // Tablet fixo da sala de cabos: tela cheia, sem barra lateral. Fica logado numa
+  // conta do HUB; quem corta se identifica por PIN dentro da própria tela.
+  const isSalaCabosRoute =
+    window.location.pathname.includes("/sala-cabos") ||
+    window.location.search.includes("view=sala-cabos");
+
+  if (isSalaCabosRoute) {
+    if (loading) return <LoadingScreen />;
+    return (
+      <ThemeProvider defaultTheme="light" storageKey="carflax-theme">
+        <NotificationProvider>
+          {session ? <SalaCabosTablet /> : <LoginView onLogin={() => {}} />}
         </NotificationProvider>
       </ThemeProvider>
     );
