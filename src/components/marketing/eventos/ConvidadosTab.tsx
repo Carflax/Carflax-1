@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Plus, Trash2, X, Check, Search, Ticket, UserCheck, FileDown } from "lucide-react";
+import { Plus, Trash2, X, Check, Search, Ticket, UserCheck, FileDown, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import {
@@ -9,6 +9,12 @@ import {
 import { gerarConviteCliente } from "./convite-pdf";
 
 type Filtro = "todos" | ConvidadoStatus | "presentes";
+
+export function extrairProfissao(observacoes?: string | null): string {
+  if (!observacoes) return "—";
+  const match = observacoes.match(/Profiss[aã]o:\s*([^|]+)/i);
+  return match ? match[1].trim() : "—";
+}
 
 export function ConvidadosTab({ evento, convidados, onChange }: {
   evento: Evento;
@@ -21,6 +27,7 @@ export function ConvidadosTab({ evento, convidados, onChange }: {
   const [novoTelefone, setNovoTelefone] = useState("");
   const [novaCarteira, setNovaCarteira] = useState<Carteira>("B2B");
   const [novoVendedor, setNovoVendedor] = useState("");
+  const [novaProfissao, setNovaProfissao] = useState("Eletricista");
   const [erro, setErro] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
 
@@ -63,6 +70,7 @@ export function ConvidadosTab({ evento, convidados, onChange }: {
       carteira: novaCarteira,
       vendedor_nome: novoVendedor.trim() || null,
       status: "pendente",
+      observacoes: `Profissão: ${novaProfissao} | Inscrição manual no HUB`,
     }]);
     setSalvando(false);
     if (error) { setErro(error.message); return; }
@@ -104,7 +112,8 @@ export function ConvidadosTab({ evento, convidados, onChange }: {
       if (filtro === "presentes" && !c.presente) return false;
       if (filtro !== "todos" && filtro !== "presentes" && c.status !== filtro) return false;
       if (!q) return true;
-      return [c.nome, c.telefone, c.vendedor_nome, c.voucher_numero]
+      const prof = extrairProfissao(c.observacoes);
+      return [c.nome, c.telefone, c.vendedor_nome, c.voucher_numero, prof, c.observacoes]
         .some(v => (v || "").toLowerCase().includes(q));
     });
   }, [convidados, busca, filtro]);
@@ -184,6 +193,18 @@ export function ConvidadosTab({ evento, convidados, onChange }: {
             className="w-full px-3 py-2 text-xs font-bold bg-background border border-border rounded-lg focus:outline-none focus:border-blue-500"
           />
         </div>
+        <div className="min-w-[130px]">
+          <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest block mb-1">Profissão</label>
+          <select
+            value={novaProfissao}
+            onChange={e => setNovaProfissao(e.target.value)}
+            className="w-full px-3 py-2 text-xs font-bold bg-background border border-border rounded-lg focus:outline-none focus:border-blue-500"
+          >
+            <option value="Eletricista">Eletricista</option>
+            <option value="Encanador">Encanador</option>
+            <option value="Outro">Outro</option>
+          </select>
+        </div>
         <div>
           <label className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest block mb-1">Carteira</label>
           <select
@@ -228,6 +249,16 @@ export function ConvidadosTab({ evento, convidados, onChange }: {
             {c.label} ({c.n})
           </button>
         ))}
+
+        <a
+          href="/convite-cliente"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="px-3 py-1.5 rounded-full border border-blue-500/30 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 text-[10px] font-black uppercase tracking-wider hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-all flex items-center gap-1.5"
+          title="Abrir página pública onde clientes e vendedores confirmam presença"
+        >
+          <ExternalLink className="w-3.5 h-3.5" /> Link Convite Cliente
+        </a>
         <div className="relative ml-auto min-w-[200px]">
           <Search className="w-3.5 h-3.5 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
           <input
@@ -245,7 +276,7 @@ export function ConvidadosTab({ evento, convidados, onChange }: {
           <table className="w-full text-left border-collapse min-w-[900px]">
             <thead>
               <tr className="border-b border-border bg-secondary/30">
-                {["Convidado", "Vendedor", "Carteira", "Status", "Voucher", "Sorte", "D-7", "D-2", "Presente", "Convite", ""].map(h => (
+                {["Convidado", "Profissão", "Vendedor", "Carteira", "Status", "Voucher", "Sorte", "D-7", "D-2", "Presente", "Convite", ""].map(h => (
                   <th key={h} className="px-3 py-2.5 text-[9px] font-black text-muted-foreground uppercase tracking-widest whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -253,21 +284,41 @@ export function ConvidadosTab({ evento, convidados, onChange }: {
             <tbody>
               {lista.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-3 py-12 text-center">
+                  <td colSpan={12} className="px-3 py-12 text-center">
                     <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
                       {convidados.length === 0 ? "Nenhum convidado ainda — a meta é convidar ~100" : "Nenhum resultado para esse filtro"}
                     </span>
                   </td>
                 </tr>
-              ) : lista.map(c => (
-                <tr key={c.id} className={cn("border-b border-border/50 transition-colors", c.presente ? "bg-emerald-50/40 dark:bg-emerald-900/10" : "hover:bg-secondary/20")}>
-                  <td className="px-3 py-2.5">
-                    <span className="text-xs font-black text-foreground block whitespace-nowrap">{c.nome}</span>
-                    {c.telefone && <span className="text-[10px] font-bold text-muted-foreground">{c.telefone}</span>}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <span className="text-[11px] font-bold text-muted-foreground whitespace-nowrap">{c.vendedor_nome || "—"}</span>
-                  </td>
+              ) : lista.map(c => {
+                const prof = extrairProfissao(c.observacoes);
+                const obsSemProfissao = c.observacoes
+                  ? c.observacoes.replace(/Profiss[aã]o:\s*[^|]+(\s*\|\s*)?/i, "").trim()
+                  : null;
+
+                return (
+                  <tr key={c.id} className={cn("border-b border-border/50 transition-colors", c.presente ? "bg-emerald-50/40 dark:bg-emerald-900/10" : "hover:bg-secondary/20")}>
+                    <td className="px-3 py-2.5">
+                      <span className="text-xs font-black text-foreground block whitespace-nowrap">{c.nome}</span>
+                      {c.telefone && <span className="text-[10px] font-bold text-muted-foreground block">{c.telefone}</span>}
+                      {obsSemProfissao && (
+                        <span className="text-[9px] font-semibold text-blue-600/90 dark:text-blue-400 block max-w-xs truncate" title={obsSemProfissao}>
+                          {obsSemProfissao}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      {prof !== "—" ? (
+                        <span className="inline-flex items-center text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 whitespace-nowrap">
+                          {prof}
+                        </span>
+                      ) : (
+                        <span className="text-[11px] font-bold text-muted-foreground">—</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <span className="text-[11px] font-bold text-muted-foreground whitespace-nowrap">{c.vendedor_nome || "—"}</span>
+                    </td>
                   <td className="px-3 py-2.5">
                     <span className={cn(
                       "text-[9px] font-black uppercase tracking-wide px-2 py-0.5 rounded-full border whitespace-nowrap",
@@ -356,8 +407,9 @@ export function ConvidadosTab({ evento, convidados, onChange }: {
                     </button>
                   </td>
                 </tr>
-              ))}
-            </tbody>
+              );
+            })}
+          </tbody>
           </table>
         </div>
       </div>

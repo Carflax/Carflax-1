@@ -62,6 +62,7 @@ import { PrivacyPolicyView } from "@/components/public/PrivacyPolicyView";
 import { TermsOfServiceView } from "@/components/public/TermsOfServiceView";
 import { FollowUpReminder } from "@/components/ui/FollowUpReminder";
 import { ConviteFornecedorPublicView } from "@/components/public/ConviteFornecedorPublicView";
+import { ConviteClientePublicView } from "@/components/public/ConviteClientePublicView";
 
 
 export interface UserProfile {
@@ -2087,6 +2088,24 @@ function App() {
       <ThemeProvider defaultTheme="light" storageKey="carflax-theme">
         <NotificationProvider>
           <ConviteFornecedorPublicView />
+        </NotificationProvider>
+      </ThemeProvider>
+    );
+  }
+
+  // Rota pública de convite para clientes e instaladores: abre direto sem a LoadingScreen do HUB
+  const isConviteClienteRoute =
+    window.location.pathname.includes("/convite-cliente") ||
+    window.location.pathname.includes("/convite-instalador") ||
+    window.location.pathname.includes("/cliente-2026") ||
+    window.location.search.includes("view=convite-cliente") ||
+    window.location.search.includes("view=convite-instalador");
+
+  if (isConviteClienteRoute) {
+    return (
+      <ThemeProvider defaultTheme="dark" storageKey="carflax-theme">
+        <NotificationProvider>
+          <ConviteClientePublicView />
         </NotificationProvider>
       </ThemeProvider>
     );
