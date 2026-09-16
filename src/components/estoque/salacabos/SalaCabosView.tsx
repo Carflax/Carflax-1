@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
-import { Cable, Calendar, ChevronDown, Download, Loader2, Plus, Search } from "lucide-react";
+import { Cable, Calendar, ChevronDown, ClipboardList, Download, Plus, Scissors } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MiniCalendar } from "@/components/ui/MiniCalendar";
 import { supabase } from "@/lib/supabase";
@@ -14,9 +13,13 @@ import {
   type CorteCabo,
 } from "./sala-cabos-api";
 import { AdicionarCorteModal } from "./AdicionarCorteModal";
+import { BarraFiltros, Carregando, Filtro, Vazio } from "./ui";
+import { InventarioTab } from "./InventarioTab";
 
-// Estoque › Cabos: lista de cortes lançados por quem está na sala (login da
-// Citel) e o botão para adicionar um corte.
+// Estoque › Cabos: cortes lançados por quem está na sala (login da Citel) e o
+// inventário do gestor (bobina x picado por cabo).
+
+type Aba = "cortes" | "inventario";
 
 const isoLocal = (d: Date) =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -30,31 +33,8 @@ const fmtDataHora = (iso: string) =>
   new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
 const semAcento = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toUpperCase();
 
-function Carregando() {
-  return <div className="flex items-center justify-center py-16 text-muted-foreground gap-2 text-sm"><Loader2 className="w-4 h-4 animate-spin" /> Carregando…</div>;
-}
-
-function Vazio({ texto }: { texto: string }) {
-  return <p className="py-12 text-center text-sm text-muted-foreground">{texto}</p>;
-}
-
-function Filtro({ valor, onChange, placeholder }: { valor: string; onChange: (v: string) => void; placeholder: string }) {
-  return (
-    <div className="relative w-56">
-      <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-      <input value={valor} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="w-full pl-8 pr-3 py-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30" />
-    </div>
-  );
-}
-
-// Os filtros de cada aba ficam na linha das abas, no cabeçalho da tela. Sem
-// cabeçalho (aba reaproveitada em outra tela), aparecem no topo da própria aba.
-function BarraFiltros({ alvo, children }: { alvo?: HTMLElement | null; children: React.ReactNode }) {
-  if (alvo) return createPortal(children, alvo);
-  return <div className="flex flex-wrap items-center gap-2">{children}</div>;
-}
-
 export function SalaCabosView() {
+  const [aba, setAba] = useState<Aba>("cortes");
   const [barra, setBarra] = useState<HTMLDivElement | null>(null);
   const [adicionando, setAdicionando] = useState(false);
   const [recarga, setRecarga] = useState(0);
@@ -67,20 +47,36 @@ export function SalaCabosView() {
             <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center"><Cable className="w-5 h-5" /></div>
             <div>
               <h1 className="text-sm font-black uppercase tracking-tight">Cabos</h1>
-              <p className="text-[11px] text-muted-foreground">Cortes de cabo: pedido, cliente, quem cortou, quantos metros e a hora.</p>
+              <p className="text-[11px] text-muted-foreground">
+                {aba === "cortes" ? "Cortes de cabo: pedido, cliente, quem cortou, quantos metros e a hora." : "Quanto tem de cada cabo na bobina e picado."}
+              </p>
+            </div>
+            <div className="flex gap-1 ml-3">
+              {([
+                { id: "cortes", label: "Cortes", icon: Scissors },
+                { id: "inventario", label: "Inventário", icon: ClipboardList },
+              ] as const).map((a) => (
+                <button key={a.id} onClick={() => setAba(a.id)} className={cn("flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-colors", aba === a.id ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary")}>
+                  <a.icon className="w-3.5 h-3.5" /> {a.label}
+                </button>
+              ))}
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <div ref={setBarra} className="flex flex-wrap items-center gap-2" />
-            <button onClick={() => setAdicionando(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold">
-              <Plus className="w-3.5 h-3.5" /> Adicionar corte
-            </button>
+            {aba === "cortes" && (
+              <button onClick={() => setAdicionando(true)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold">
+                <Plus className="w-3.5 h-3.5" /> Adicionar corte
+              </button>
+            )}
           </div>
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-5">
-        <CortesTab barraFiltros={barra} recarga={recarga} />
+        {aba === "cortes"
+          ? <CortesTab barraFiltros={barra} recarga={recarga} />
+          : <InventarioTab barraFiltros={barra} />}
       </div>
 
       {adicionando && (
@@ -95,14 +91,9 @@ export function SalaCabosView() {
 export function CortesTab({ barraFiltros, recarga = 0 }: { barraFiltros?: HTMLElement | null; recarga?: number }) {
   const [inicio, setInicio] = useState(() => isoLocal(new Date(Date.now() - 7 * 86400000)));
   const [fim, setFim] = useState(() => isoLocal(new Date()));
-  const [pedido, setPedido] = useState("");
-  // O número digitado só vira busca depois de uma pausa: sem isso, cada dígito
-  // disparava uma consulta ("5", "56", "564"...).
-  const [pedidoBusca, setPedidoBusca] = useState("");
   const [filtro, setFiltro] = useState("");
   const [cortes, setCortes] = useState<CorteCabo[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
-  const [buscando, setBuscando] = useState(false);
   // Mesmo seletor de período da tela de Orçamentos. Enquanto só o início foi
   // clicado, a busca continua no período anterior.
   const [calendarioAberto, setCalendarioAberto] = useState(false);
@@ -111,7 +102,6 @@ export function CortesTab({ barraFiltros, recarga = 0 }: { barraFiltros?: HTMLEl
   const selecionarPeriodo = (ini: Date, fimSel: Date | null) => {
     if (!fimSel) { setInicioParcial(ini); return; }
     setInicioParcial(null);
-    setBuscando(true);
     setInicio(isoLocal(ini));
     setFim(isoLocal(fimSel));
     setCalendarioAberto(false);
@@ -121,28 +111,18 @@ export function CortesTab({ barraFiltros, recarga = 0 }: { barraFiltros?: HTMLEl
     ? `${fmtDataCurta(inicioParcial)}...`
     : `${fmtDataCurta(dataDeIso(inicio))} até ${fmtDataCurta(dataDeIso(fim))}`;
 
-  useEffect(() => {
-    const t = setTimeout(() => {
-      setPedidoBusca(pedido);
-      // Voltou ao mesmo número já buscado: não há nova consulta para encerrar o indicador.
-      if (pedido === pedidoBusca) setBuscando(false);
-    }, 400);
-    return () => clearTimeout(t);
-  }, [pedido, pedidoBusca]);
-
   const carregar = useCallback(() => {
-    salaCabosApi.cortes({ inicio, fim, pedido: pedidoBusca || undefined })
+    salaCabosApi.cortes({ inicio, fim })
       .then((r) => { setErro(null); setCortes(r); })
-      .catch((e: Error) => { setErro(e.message); setCortes([]); })
-      .finally(() => setBuscando(false));
-  }, [inicio, fim, pedidoBusca]);
+      .catch((e: Error) => { setErro(e.message); setCortes([]); });
+  }, [inicio, fim]);
 
   // `recarga` muda quando um corte é adicionado na tela: busca de novo.
   useEffect(() => { carregar(); }, [carregar, recarga]);
 
   const lista = useMemo(() => {
     const f = semAcento(filtro.trim());
-    return (cortes || []).filter((c) => !f || semAcento(`${c.descricao} ${c.cod_produto} ${c.cortado_por_nome} ${c.cliente || ""}`).includes(f));
+    return (cortes || []).filter((c) => !f || semAcento(`${fmtPedido(c.pedido)} ${c.descricao} ${c.cod_produto} ${c.cortado_por_nome} ${c.cliente || ""}`).includes(f));
   }, [cortes, filtro]);
 
   // Foto de quem cortou: pelo código de operador da Citel (exato, ver
@@ -168,6 +148,7 @@ export function CortesTab({ barraFiltros, recarga = 0 }: { barraFiltros?: HTMLEl
       Empresa: EMPRESAS[c.empresa] ?? c.empresa,
       Cliente: c.cliente || "",
       "Metros cortados": Number(c.metros),
+      Origem: c.origem === "bobina" ? "Bobina" : c.origem === "picado" ? "Picado" : "",
       "Hora do corte": fmtDataHora(c.created_at),
       Código: c.cod_produto,
       Cabo: c.descricao,
@@ -207,16 +188,7 @@ export function CortesTab({ barraFiltros, recarga = 0 }: { barraFiltros?: HTMLEl
             </>
           )}
         </div>
-        <div className="relative">
-          <input
-            value={pedido}
-            onChange={(e) => { setPedido(e.target.value.replace(/\D/g, "")); setBuscando(true); }}
-            placeholder="Pedido"
-            className="w-28 pl-3 pr-7 py-2 rounded-lg border border-border bg-background text-xs"
-          />
-          {buscando && <Loader2 className="w-3.5 h-3.5 animate-spin absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground" />}
-        </div>
-        <Filtro valor={filtro} onChange={setFiltro} placeholder="Cliente, cabo ou pessoa" />
+        <Filtro valor={filtro} onChange={setFiltro} placeholder="Pedido, cliente, cabo ou pessoa" />
         {lista.length > 0 && (
           <button onClick={exportar} className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border bg-card hover:bg-secondary text-xs font-bold">
             <Download className="w-3.5 h-3.5" /> Excel
@@ -254,7 +226,10 @@ export function CortesTab({ barraFiltros, recarga = 0 }: { barraFiltros?: HTMLEl
                     <p className="text-[10px] text-muted-foreground">{EMPRESAS[c.empresa] ?? c.empresa}</p>
                   </td>
                   <td className="px-3 py-2 min-w-[180px]">{c.cliente || "—"}</td>
-                  <td className="px-3 py-2 text-right tabular-nums font-bold whitespace-nowrap">{fmtMetros(c.metros)}</td>
+                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                    <p className="tabular-nums font-bold">{fmtMetros(c.metros)}</p>
+                    {c.origem && <p className="text-[10px] text-muted-foreground">{c.origem === "bobina" ? "da bobina" : "do picado"}</p>}
+                  </td>
                   <td className="px-3 py-2 whitespace-nowrap tabular-nums">{fmtDataHora(c.created_at)}</td>
                   <td className="px-3 py-2 min-w-[240px]"><p className="font-semibold">{c.descricao}</p><p className="text-muted-foreground">Cód. {c.cod_produto}</p></td>
                 </tr>

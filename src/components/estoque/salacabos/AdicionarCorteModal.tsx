@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Loader2, LogOut, Scissors, X } from "lucide-react";
+import { Loader2, LogOut, Scissors, UserRound, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   EMPRESAS,
@@ -11,6 +11,7 @@ import {
   type OperadorCitel,
   type PedidoCabos,
 } from "./sala-cabos-api";
+import { IlustracaoBobina, IlustracaoPicado } from "./IlustracaoCabo";
 
 // Corte lançado por quem está na sala de cabos: entra com usuário e senha da
 // Citel (validados no servidor), digita o pedido e os metros. O login fica
@@ -54,6 +55,8 @@ export function AdicionarCorteModal({ onClose, onRegistrado }: { onClose: () => 
   const [empresa, setEmpresa] = useState("");
   const [codProduto, setCodProduto] = useState("");
   const [metros, setMetros] = useState("");
+  // De onde o cabo saiu. Obrigatório: é o que desconta o saldo certo do inventário.
+  const [origem, setOrigem] = useState<"bobina" | "picado" | null>(null);
   const [sucesso, setSucesso] = useState<string | null>(null);
 
   useEffect(() => {
@@ -93,6 +96,7 @@ export function AdicionarCorteModal({ onClose, onRegistrado }: { onClose: () => 
     const item = p.itens.find((i) => i.cod_produto === cod);
     const falta = item ? Math.max(item.qtd - item.registrado, 0) : 0;
     setMetros(falta > 0 ? String(falta).replace(".", ",") : "");
+    setOrigem(null);
   };
 
   const buscarPedido = async () => {
@@ -119,6 +123,7 @@ export function AdicionarCorteModal({ onClose, onRegistrado }: { onClose: () => 
     if (!sessao || !pedidoSelecionado || !itemSelecionado) return;
     const m = Number(metros.replace(",", "."));
     if (!(m > 0)) { setErro("Informe os metros cortados."); return; }
+    if (!origem) { setErro("Escolha se o cabo saiu da bobina ou do picado."); return; }
     setOcupado(true);
     setErro(null);
     try {
@@ -128,8 +133,9 @@ export function AdicionarCorteModal({ onClose, onRegistrado }: { onClose: () => 
         pedido: pedidoSelecionado.pedido,
         cod_produto: itemSelecionado.cod_produto,
         metros: m,
+        origem,
       });
-      setSucesso(`Corte registrado: ${fmtMetros(m)} de ${itemSelecionado.descricao} no pedido ${fmtPedido(pedidoSelecionado.pedido)}.`);
+      setSucesso(`Corte registrado: ${fmtMetros(m)} ${origem === "bobina" ? "da bobina" : "do picado"} de ${itemSelecionado.descricao} no pedido ${fmtPedido(pedidoSelecionado.pedido)}.`);
       onRegistrado();
 
       // Mantém o pedido aberto: pedido com mais de um cabo não obriga a digitar
@@ -161,7 +167,7 @@ export function AdicionarCorteModal({ onClose, onRegistrado }: { onClose: () => 
 
   return createPortal(
     <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-2xl bg-card border border-border shadow-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+      <div className={cn("w-full rounded-2xl bg-card border border-border shadow-2xl max-h-[90vh] overflow-y-auto", sessao ? "max-w-lg" : "max-w-sm")} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-border">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-primary/10 text-primary flex items-center justify-center"><Scissors className="w-5 h-5" /></div>
@@ -182,20 +188,62 @@ export function AdicionarCorteModal({ onClose, onRegistrado }: { onClose: () => 
 
         <div className="p-5 space-y-4">
           {!sessao ? (
-            <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); entrar(); }}>
-              <p className="text-xs text-muted-foreground">Entre com o seu código e senha da Citel, os mesmos do Coletor. O corte fica registrado no seu nome.</p>
-              <label className="block space-y-1">
-                <span className="text-[10px] font-bold uppercase text-muted-foreground">Usuário</span>
-                <input autoFocus inputMode="numeric" placeholder="Ex.: 001" value={usuario} onChange={(e) => setUsuario(e.target.value.replace(/\D/g, ""))} className={campo} autoComplete="off" />
-              </label>
-              <label className="block space-y-1">
-                <span className="text-[10px] font-bold uppercase text-muted-foreground">Senha</span>
-                <input type="password" inputMode="numeric" value={senha} onChange={(e) => setSenha(e.target.value.replace(/\D/g, ""))} className={campo} autoComplete="off" />
-              </label>
-              {erro && <p className="text-xs font-semibold text-destructive">{erro}</p>}
-              <button type="submit" disabled={ocupado || !usuario.trim() || !senha} className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-bold disabled:opacity-40 flex items-center justify-center gap-2">
-                {ocupado && <Loader2 className="w-4 h-4 animate-spin" />} Entrar
-              </button>
+            <form className="py-2" autoComplete="off" onSubmit={(e) => { e.preventDefault(); entrar(); }}>
+              <div className="mx-auto w-full max-w-[240px] space-y-5">
+                <div className="text-center space-y-1">
+                  <div className="w-12 h-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mx-auto">
+                    <UserRound className="w-6 h-6" />
+                  </div>
+                  <p className="text-sm font-black pt-2">Identifique-se</p>
+                  <p className="text-[11px] text-muted-foreground leading-snug">Use o código e a senha da Citel, os mesmos do Coletor.</p>
+                </div>
+
+                {/* Campos sem type="password": o navegador não reconhece como login
+                    e não preenche com o e-mail/senha salvos do HUB. A senha fica
+                    mascarada por CSS (-webkit-text-security). */}
+                <div className="space-y-3">
+                  <label className="block">
+                    <span className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">Usuário</span>
+                    <input
+                      autoFocus
+                      type="text"
+                      name="cabos-operador"
+                      inputMode="numeric"
+                      maxLength={3}
+                      placeholder="000"
+                      value={usuario}
+                      onChange={(e) => { setUsuario(e.target.value.replace(/\D/g, "").slice(0, 3)); setErro(null); }}
+                      autoComplete="off"
+                      data-lpignore="true"
+                      data-1p-ignore="true"
+                      className="w-full h-12 rounded-xl border border-border bg-background text-center text-xl font-black tracking-[0.4em] placeholder:text-muted-foreground/30 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition"
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="block text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1.5">Senha</span>
+                    <input
+                      type="text"
+                      name="cabos-pin"
+                      inputMode="numeric"
+                      maxLength={4}
+                      placeholder="••••"
+                      value={senha}
+                      onChange={(e) => { setSenha(e.target.value.replace(/\D/g, "").slice(0, 4)); setErro(null); }}
+                      autoComplete="off"
+                      data-lpignore="true"
+                      data-1p-ignore="true"
+                      style={{ WebkitTextSecurity: "disc" } as React.CSSProperties}
+                      className="w-full h-12 rounded-xl border border-border bg-background text-center text-xl font-black tracking-[0.4em] placeholder:text-muted-foreground/30 outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition"
+                    />
+                  </label>
+                </div>
+
+                {erro && <p className="text-xs font-semibold text-destructive text-center">{erro}</p>}
+
+                <button type="submit" disabled={ocupado || !usuario || !senha} className="w-full h-11 rounded-xl bg-primary text-primary-foreground text-sm font-bold disabled:opacity-40 flex items-center justify-center gap-2 transition">
+                  {ocupado && <Loader2 className="w-4 h-4 animate-spin" />} Entrar
+                </button>
+              </div>
             </form>
           ) : (
             <>
@@ -243,6 +291,63 @@ export function AdicionarCorteModal({ onClose, onRegistrado }: { onClose: () => 
 
               {itemSelecionado && (
                 <form className="space-y-3" onSubmit={(e) => { e.preventDefault(); registrar(); }}>
+                  {/* De onde o cabo sai: bobina ou picado, com o saldo estimado do inventário. */}
+                  <div className="space-y-2">
+                    <span className="text-[10px] font-bold uppercase text-muted-foreground">De onde vai tirar?</span>
+                    <div className="grid grid-cols-2 gap-3">
+                      {(["bobina", "picado"] as const).map((o) => {
+                        const inv = itemSelecionado.inventario;
+                        const saldo = inv ? (o === "bobina" ? inv.saldo_bobina : inv.saldo_picado) : null;
+                        const contado = inv ? (o === "bobina" ? inv.metros_bobina : inv.metros_picado) : null;
+                        const ativo = origem === o;
+                        const semSaldo = saldo !== null && saldo <= 0;
+                        return (
+                          <button
+                            key={o}
+                            type="button"
+                            onClick={() => { setOrigem(o); setErro(null); }}
+                            className={cn(
+                              "relative rounded-2xl border-2 p-3 text-left transition-all",
+                              ativo ? "border-primary bg-primary/10 shadow-[0_0_0_4px] shadow-primary/10" : "border-border hover:border-primary/40 hover:bg-secondary/40",
+                            )}
+                          >
+                            <div className={cn("rounded-xl bg-secondary/60 flex items-center justify-center h-20 mb-2", semSaldo && "opacity-40")}>
+                              {o === "bobina"
+                                ? <IlustracaoBobina descricao={itemSelecionado.descricao} className="h-16" />
+                                : <IlustracaoPicado descricao={itemSelecionado.descricao} className="h-16" />}
+                            </div>
+                            <p className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">{o === "bobina" ? "Bobina" : "Picado"}</p>
+                            {saldo !== null ? (
+                              <>
+                                <p className={cn("text-xl font-black tabular-nums leading-tight", semSaldo && "text-destructive")}>{fmtMetros(saldo)}</p>
+                                {saldo !== contado && <p className="text-[10px] text-muted-foreground">contado {fmtMetros(contado || 0)}</p>}
+                              </>
+                            ) : (
+                              <p className="text-xs text-muted-foreground">sem inventário</p>
+                            )}
+                            {ativo && <span className="absolute top-2 right-2 w-2.5 h-2.5 rounded-full bg-primary" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {itemSelecionado.inventario && (
+                      <p className="text-[11px] text-muted-foreground">
+                        Inventário de {new Date(itemSelecionado.inventario.contado_em).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })} por {itemSelecionado.inventario.contado_por_nome}
+                      </p>
+                    )}
+                    {(() => {
+                      const inv = itemSelecionado.inventario;
+                      const m = Number(metros.replace(",", "."));
+                      if (!inv || !origem || !(m > 0)) return null;
+                      const saldo = origem === "bobina" ? inv.saldo_bobina : inv.saldo_picado;
+                      if (m <= saldo) return null;
+                      return (
+                        <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-400">
+                          {fmtMetros(m)} é mais do que o saldo {origem === "bobina" ? "da bobina" : "do picado"} ({fmtMetros(saldo)}). Confira antes de registrar.
+                        </p>
+                      );
+                    })()}
+                  </div>
                   <label className="block space-y-1">
                     <span className="text-[10px] font-bold uppercase text-muted-foreground">Metros cortados</span>
                     <input
@@ -252,7 +357,7 @@ export function AdicionarCorteModal({ onClose, onRegistrado }: { onClose: () => 
                       className={cn(campo, "text-lg font-black")}
                     />
                   </label>
-                  <button type="submit" disabled={ocupado || !metros} className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-bold disabled:opacity-40 flex items-center justify-center gap-2">
+                  <button type="submit" disabled={ocupado || !metros || !origem} className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-bold disabled:opacity-40 flex items-center justify-center gap-2">
                     {ocupado && <Loader2 className="w-4 h-4 animate-spin" />} Registrar corte
                   </button>
                 </form>
