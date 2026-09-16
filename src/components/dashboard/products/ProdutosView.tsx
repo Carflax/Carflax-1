@@ -5,20 +5,17 @@ import {
   Tag,
   ChevronUp,
   ChevronDown,
-  FileSpreadsheet,
-  Settings2,
   ShoppingBag,
   Upload,
-  Loader2,
-  RefreshCw
+  Printer
 } from "lucide-react";
 import { SiShopify } from "react-icons/si";
 import { cn } from "@/lib/utils";
 import { TinyDropdown } from "@/components/ui/TinyDropdown";
 import { TinyLoader } from "@/components/ui/TinyLoader";
 import { apiDashboardProdutos, type ProductInfo } from "@/lib/api";
-import { FornecedoresModal } from "./FornecedoresModal";
 import { ShopifyEnvioModal, type ItemEnvio } from "./ShopifyEnvioModal";
+import { EtiquetaPrecoModal, type ProdutoEtiqueta } from "./EtiquetaPrecoModal";
 import {
   getShopifyCatalog,
   normalizeSku,
@@ -164,12 +161,11 @@ export function ProdutosView() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [sortConfig, setSortConfig] = useState<{ key: keyof Product; direction: 'asc' | 'desc' } | null>({ key: 'cod', direction: 'asc' });
-  const [fornecedoresAberto, setFornecedoresAberto] = useState(false);
   const [filterShopify, setFilterShopify] = useState<string>(SHOPIFY_FILTROS[0]);
   const [shopifyMap, setShopifyMap] = useState<Map<string, ShopifyVariantInfo>>(new Map());
   const [shopifyLoading, setShopifyLoading] = useState(true);
   const [envio, setEnvio] = useState<ItemEnvio[] | null>(null);
-  const [atualizando, setAtualizando] = useState(false);
+  const [etiquetas, setEtiquetas] = useState<{ inicial: ProdutoEtiqueta | null } | null>(null);
 
   const requestSort = (key: keyof Product) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -199,7 +195,9 @@ export function ProdutosView() {
               sales: typeof p.TOTAL_VENDIDO === 'string' ? parseFloat(p.TOTAL_VENDIDO) : Number(p.TOTAL_VENDIDO || 0),
               media: typeof p.MEDIA === 'string' ? parseFloat(p.MEDIA) : Number(p.MEDIA || 0),
               debit: precoVenda,
-              credit: precoVenda * 1.0466,
+              // 4,67% sobre o à vista: é o fator do ERP (ITE_PREUVE/ITE_PREVE1 na
+              // maioria dos itens) e o que sai na etiqueta da loja (359,90 → 376,71).
+              credit: Math.round(precoVenda * 1.0467 * 100) / 100,
               brand: p.MARCA || "GERAL",
               location: "---",
               codFornecedor: p.COD_FORNECEDOR || "",
@@ -270,16 +268,6 @@ export function ProdutosView() {
       return proximo;
     });
   }, []);
-
-  const atualizarTudo = async () => {
-    if (atualizando) return;
-    setAtualizando(true);
-    try {
-      await Promise.all([carregarProdutos(true), carregarShopify(true, true)]);
-    } finally {
-      setAtualizando(false);
-    }
-  };
 
   const brands = useMemo(() => ["Todas as Marcas", ...Array.from(new Set(products.map(p => p.brand))).sort()], [products]);
 
@@ -371,136 +359,6 @@ export function ProdutosView() {
     existente: syncPorCod.get(p.cod)?.loja,
   });
 
-  /** Envia o recorte atual da tela, pulando o que já está em dia com a loja. */
-  const abrirEnvioLote = () => {
-    const pendentes = filteredProducts.filter(
-      (p) => syncPorCod.get(p.cod)?.status !== "sincronizado",
-    );
-    if (pendentes.length === 0) {
-      alert("Nenhum produto pendente de envio nos filtros atuais.");
-      return;
-    }
-    setEnvio(pendentes.map(montarItem));
-  };
-
-  const handleExportExcel = async () => {
-    const items = filteredProducts;
-    if (items.length === 0) {
-      alert("Nenhum produto para exportar com os filtros atuais.");
-      return;
-    }
-
-    const XLSX = (await import("xlsx-js-style")).default;
-
-    const HEADERS = ["Código", "Descrição", "Marca", "Cód. Fornecedor", "Fornecedor", "Estoque", "Média (3m)", "Total Vendido", "Preço de Venda"];
-    const NUM_COLS = 9;
-
-    const activeFilters =
-      [
-        filterBrand !== "Todas as Marcas" ? `Marca: ${filterBrand}` : "",
-        filterStock !== "TODOS" ? `Estoque: ${filterStock}` : "",
-        searchTerm ? `Busca: "${searchTerm}"` : "",
-      ]
-        .filter(Boolean)
-        .join("  |  ") || "Nenhum";
-
-    // Monta a matriz de valores (título, meta, cabeçalho, dados)
-    const aoa: (string | number)[][] = [
-      ["RELATÓRIO DE PRODUTOS — CARFLAX"],
-      [`Gerado em ${new Date().toLocaleString("pt-BR")}   ·   Filtros: ${activeFilters}   ·   Total: ${items.length}`],
-      [],
-      HEADERS,
-      ...items.map((p) => [
-        p.cod,
-        p.desc,
-        p.brand,
-        p.codFornecedor,
-        p.fornecedor,
-        Number(p.stock.toFixed(3)),
-        Number(p.media.toFixed(2)),
-        Number(p.sales.toFixed(3)),
-        Number(p.debit.toFixed(2)),
-      ]),
-    ];
-
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-
-    // ── Estilos ──────────────────────────────────────────────────────────────
-    const BORDER = { style: "thin", color: { rgb: "E2E8F0" } };
-    const borderAll = { top: BORDER, bottom: BORDER, left: BORDER, right: BORDER };
-
-    // Cor de destaque por coluna (cabeçalho) + cor suave para as células
-    // Índices: 0 Código · 1 Descrição · 2 Marca · 3 Cód.Forn · 4 Fornecedor
-    //          5 Estoque · 6 Média · 7 Total Vendido · 8 Preço
-    const COL_HEAD = ["1E293B", "1E293B", "7C3AED", "0F766E", "0F766E", "2563EB", "1D4ED8", "D97706", "059669"];
-    const COL_TINT = ["FFFFFF", "FFFFFF", "F5F3FF", "F0FDFA", "F0FDFA", "EFF6FF", "EFF6FF", "FFFBEB", "ECFDF5"];
-    const COL_TEXTO_ESQ = [1, 2, 4];
-    const PRIMEIRA_COL_NUMERICA = 5;
-
-    const titleCell = ws["A1"];
-    if (titleCell) {
-      titleCell.s = {
-        font: { bold: true, sz: 16, color: { rgb: "FFFFFF" } },
-        fill: { fgColor: { rgb: "0F172A" } },
-        alignment: { horizontal: "center", vertical: "center" },
-      };
-    }
-    const metaCell = ws["A2"];
-    if (metaCell) {
-      metaCell.s = {
-        font: { italic: true, sz: 10, color: { rgb: "475569" } },
-        alignment: { horizontal: "center", vertical: "center" },
-      };
-    }
-
-    const HEADER_ROW = 3; // 0-based (linha 4)
-    for (let c = 0; c < NUM_COLS; c++) {
-      const ref = XLSX.utils.encode_cell({ r: HEADER_ROW, c });
-      if (!ws[ref]) continue;
-      ws[ref].s = {
-        font: { bold: true, sz: 11, color: { rgb: "FFFFFF" } },
-        fill: { fgColor: { rgb: COL_HEAD[c] } },
-        alignment: { horizontal: c === 1 ? "left" : "center", vertical: "center" },
-        border: borderAll,
-      };
-    }
-
-    for (let i = 0; i < items.length; i++) {
-      const r = HEADER_ROW + 1 + i;
-      const zebra = i % 2 === 1;
-      for (let c = 0; c < NUM_COLS; c++) {
-        const ref = XLSX.utils.encode_cell({ r, c });
-        if (!ws[ref]) continue;
-        const isNum = c >= PRIMEIRA_COL_NUMERICA;
-        ws[ref].s = {
-          font: { sz: 10, color: { rgb: "0F172A" }, bold: c === 0 },
-          fill: { fgColor: { rgb: zebra ? "F8FAFC" : COL_TINT[c] } },
-          alignment: {
-            horizontal: COL_TEXTO_ESQ.includes(c) ? "left" : isNum ? "right" : "center",
-            vertical: "center",
-          },
-          border: borderAll,
-        };
-        if (c === 8) ws[ref].z = '"R$" #,##0.00';
-        else if (c === 6) ws[ref].z = "#,##0.00";
-        else if (isNum) ws[ref].z = "#,##0.000";
-      }
-    }
-
-    ws["!cols"] = [{ wch: 12 }, { wch: 54 }, { wch: 22 }, { wch: 16 }, { wch: 32 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 16 }];
-    ws["!rows"] = [{ hpt: 26 }, { hpt: 18 }, { hpt: 6 }, { hpt: 22 }];
-    ws["!merges"] = [
-      { s: { r: 0, c: 0 }, e: { r: 0, c: NUM_COLS - 1 } },
-      { s: { r: 1, c: 0 }, e: { r: 1, c: NUM_COLS - 1 } },
-    ];
-    ws["!autofilter"] = { ref: XLSX.utils.encode_range({ s: { r: HEADER_ROW, c: 0 }, e: { r: HEADER_ROW + items.length, c: NUM_COLS - 1 } }) };
-    // Congela o cabeçalho ao rolar
-    ws["!freeze"] = { xSplit: 0, ySplit: HEADER_ROW + 1 };
-
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "Produtos");
-    XLSX.writeFile(wb, `Produtos_Carflax_${new Date().toISOString().slice(0, 10)}.xlsx`);
-  };
 
   return (
     <div className="flex-1 flex flex-col gap-4 pt-4 pb-6 px-3 sm:px-6 overflow-hidden h-full max-h-screen bg-background">
@@ -568,42 +426,11 @@ export function ProdutosView() {
           />
 
           <button
-            onClick={abrirEnvioLote}
-            disabled={shopifyLoading}
-            title="Enviar para a Shopify os produtos filtrados que ainda não estão em dia"
-            className="flex items-center gap-2 px-3 py-2.5 bg-card border border-border rounded-xl text-[9px] font-black uppercase tracking-widest text-muted-foreground hover:text-emerald-500 hover:border-emerald-500/30 transition-all shadow-sm shrink-0 disabled:opacity-40"
-          >
-            {shopifyLoading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <SiShopify className="w-4 h-4 text-[#95BF47]" />
-            )}
-            Enviar p/ Shopify
-          </button>
-
-          <button
-            onClick={atualizarTudo}
-            disabled={atualizando}
-            title="Atualizar produtos e catálogo da loja"
-            className="flex items-center justify-center p-2.5 bg-card border border-border rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-all shadow-sm group shrink-0 disabled:opacity-40"
-          >
-            <RefreshCw className={cn("w-4 h-4 text-muted-foreground group-hover:text-blue-500 transition-colors", atualizando && "animate-spin")} />
-          </button>
-
-          <button
-            onClick={handleExportExcel}
-            title="Exportar produtos para Excel"
+            onClick={() => setEtiquetas({ inicial: null })}
+            title="Imprimir etiquetas de preço"
             className="flex items-center justify-center p-2.5 bg-card border border-border rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-all shadow-sm group shrink-0"
           >
-            <FileSpreadsheet className="w-4 h-4 text-muted-foreground group-hover:text-emerald-500 transition-colors" />
-          </button>
-
-          <button
-            onClick={() => setFornecedoresAberto(true)}
-            title="Ver fornecedor de cada produto"
-            className="flex items-center justify-center p-2.5 bg-card border border-border rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-all shadow-sm group shrink-0"
-          >
-            <Settings2 className="w-4 h-4 text-muted-foreground group-hover:text-blue-500 transition-colors" />
+            <Printer className="w-4 h-4 text-muted-foreground group-hover:text-blue-500 transition-colors" />
           </button>
         </div>
 
@@ -668,6 +495,7 @@ export function ProdutosView() {
                 <th className="py-2.5 px-3 sm:px-6 text-[9px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest text-center">
                   Shopify
                 </th>
+                <th className="py-2.5 px-2 w-10" aria-label="Etiqueta" />
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -682,6 +510,7 @@ export function ProdutosView() {
                     <td className="py-4 px-3 sm:px-6 text-right"><div className="h-2 w-12 bg-secondary rounded ml-auto" /></td>
                     <td className="py-4 px-3 sm:px-6 text-right"><div className="h-2 w-16 bg-secondary/50 rounded ml-auto" /></td>
                     <td className="py-4 px-3 sm:px-6"><div className="h-5 w-20 bg-secondary/50 rounded-lg mx-auto" /></td>
+                    <td className="py-4 px-2" />
                   </tr>
                 ))
               ) : (
@@ -735,12 +564,21 @@ export function ProdutosView() {
                           onEnviar={() => setEnvio([montarItem(p)])}
                         />
                       </td>
+                      <td className="py-3 px-2 text-center">
+                        <button
+                          onClick={() => setEtiquetas({ inicial: { cod: p.cod, desc: p.desc, debit: p.debit, credit: p.credit } })}
+                          title="Imprimir etiqueta de preço"
+                          className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                        >
+                          <Printer className="w-4 h-4" />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                   
                   {visibleCount < filteredProducts.length && (
                     <tr>
-                      <td colSpan={8} className="py-6">
+                      <td colSpan={9} className="py-6">
                         <div className="flex justify-center w-full">
                           <TinyLoader size="sm" />
                         </div>
@@ -754,11 +592,12 @@ export function ProdutosView() {
         </div>
       </div>
 
-      {fornecedoresAberto && (
-        <FornecedoresModal
-          brands={brands}
-          marcaInicial={filterBrand}
-          onClose={() => setFornecedoresAberto(false)}
+      {etiquetas && (
+        <EtiquetaPrecoModal
+          produtos={products}
+          filtrados={filteredProducts}
+          inicial={etiquetas.inicial}
+          onClose={() => setEtiquetas(null)}
         />
       )}
 

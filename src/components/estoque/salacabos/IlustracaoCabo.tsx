@@ -2,7 +2,7 @@
 // produtos no ERP; a cor sai da sigla na descrição ("... 2,5MM VD CORFIO").
 
 const CORES: Record<string, { fio: string; brilho: string }> = {
-  PT: { fio: "#1f2937", brilho: "#4b5563" },
+  PT: { fio: "#27272a", brilho: "#a1a1aa" },
   VD: { fio: "#16a34a", brilho: "#4ade80" },
   AZ: { fio: "#2563eb", brilho: "#60a5fa" },
   VM: { fio: "#dc2626", brilho: "#f87171" },
@@ -28,13 +28,14 @@ export function IlustracaoBobina({ descricao, className }: { descricao: string; 
       <ellipse cx="30" cy="45" rx="12" ry="38" fill="#a16207" />
       <ellipse cx="30" cy="45" rx="7" ry="24" fill="#854d0e" />
       {/* cabo enrolado */}
-      <rect x="30" y="17" width="60" height="56" fill={fio} />
+      <rect x="30" y="17" width="60" height="56" fill={fio} stroke="#ffffff" strokeOpacity="0.25" strokeWidth="1" />
       {Array.from({ length: 9 }).map((_, i) => (
         <line key={i} x1={33 + i * 6.5} y1="17" x2={33 + i * 6.5} y2="73" stroke={brilho} strokeOpacity="0.55" strokeWidth="2" />
       ))}
       <ellipse cx="90" cy="45" rx="12" ry="38" fill="#ca8a04" />
       <ellipse cx="90" cy="45" rx="5" ry="15" fill="#713f12" />
       {/* ponta solta */}
+      <path d="M60 73 Q 70 86 104 84" stroke="#ffffff" strokeOpacity="0.3" strokeWidth="7" fill="none" strokeLinecap="round" />
       <path d="M60 73 Q 70 86 104 84" stroke={fio} strokeWidth="5" fill="none" strokeLinecap="round" />
     </svg>
   );
@@ -52,6 +53,8 @@ export function IlustracaoPicado({ descricao, className }: { descricao: string; 
     <svg viewBox="0 0 120 90" className={className} aria-hidden>
       {pedacos.map((p, i) => (
         <g key={i}>
+          {/* contorno claro: cabo preto some no fundo escuro sem ele */}
+          <path d={p.d} stroke="#ffffff" strokeOpacity="0.3" strokeWidth={p.w + 2} fill="none" strokeLinecap="round" />
           <path d={p.d} stroke={fio} strokeWidth={p.w} fill="none" strokeLinecap="round" />
           <path d={p.d} stroke={brilho} strokeOpacity="0.5" strokeWidth="1.5" fill="none" strokeLinecap="round" />
         </g>
