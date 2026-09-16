@@ -4,12 +4,15 @@ import {
   PackageX,
   ClipboardList,
   Construction,
+  Scissors,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { CortesTab } from "./salacabos/SalaCabosView";
 
-type TabId = "giro" | "separacoes" | "furos";
+type TabId = "cortes" | "giro" | "separacoes" | "furos";
 
 const TABS: { id: TabId; label: string; icon: React.ElementType; desc: string }[] = [
+  { id: "cortes", label: "Cortes de Cabo", icon: Scissors, desc: "Pedido, cliente, quem cortou, quanto, a hora e o cabo — lançados em Estoque › Cabos" },
   { id: "giro", label: "Giro de Estoque", icon: BarChart3, desc: "Curva ABC, itens parados e análise de giro por produto/marca" },
   { id: "separacoes", label: "Histórico Separações", icon: ClipboardList, desc: "Separações realizadas, tempos e volumes por período" },
   { id: "furos", label: "Furos e Divergências", icon: PackageX, desc: "Histórico de furos de estoque, ajustes e divergências" },
@@ -31,7 +34,8 @@ function EmDev({ tab }: { tab: typeof TABS[number] }) {
 }
 
 export function RelatoriosEstoqueView() {
-  const [tab, setTab] = useState<TabId>("giro");
+  const [tab, setTab] = useState<TabId>("cortes");
+  const [barra, setBarra] = useState<HTMLDivElement | null>(null);
 
   return (
     <div className="h-full bg-background flex flex-col overflow-hidden">
@@ -45,7 +49,8 @@ export function RelatoriosEstoqueView() {
           </p>
         </div>
 
-        <div className="flex items-center gap-1 p-1 rounded-xl border border-border/80 bg-card/50 w-fit">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-1 p-1 rounded-xl border border-border/80 bg-card/50 w-fit max-w-full overflow-x-auto">
           {TABS.map((t) => {
             const Icon = t.icon;
             return (
@@ -65,10 +70,16 @@ export function RelatoriosEstoqueView() {
             );
           })}
         </div>
+        <div ref={setBarra} className="flex flex-wrap items-center gap-2" />
+        </div>
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto scrollbar-hide p-6">
-        <EmDev tab={TABS.find((t) => t.id === tab)!} />
+        {tab === "cortes" ? (
+          <CortesTab barraFiltros={barra} />
+        ) : (
+          <EmDev tab={TABS.find((t) => t.id === tab)!} />
+        )}
       </div>
     </div>
   );

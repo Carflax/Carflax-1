@@ -86,8 +86,8 @@ export const NAV_SECTIONS: NavSection[] = [
       { label: "Conferência" },
       { label: "Retirada" },
       { label: "Furos" },
-      // Saldo por bobina e registro de cada corte (quem, quanto, para qual pedido).
-      { label: "Sala de Cabos" },
+      // Cortes de cabo: quem cortou, quanto e para qual pedido.
+      { label: "Cabos" },
       { label: "Relatórios", value: "Relatórios Estoque" },
     ],
   },
