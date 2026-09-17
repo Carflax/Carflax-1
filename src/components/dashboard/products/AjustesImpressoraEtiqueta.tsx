@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Loader2, Minus, Plus, RotateCcw, ScanLine, Save } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Crosshair, Loader2, Minus, Plus, RotateCcw, ScanLine, Save } from "lucide-react";
 import { useNotification } from "@/hooks/useNotification";
 import {
   CALIBRACAO_PADRAO,
+  calibrarSensorEtiqueta,
   carregarCalibracao,
   imprimirTesteEtiqueta,
   salvarCalibracao,
@@ -12,6 +13,8 @@ import {
 // Ajuste fino da posição e da escuridão da etiqueta, salvo no Supabase por
 // impressora. Fluxo: imprime o teste (moldura em cada etiqueta), move em mm até a
 // moldura ficar dentro da etiqueta e salva — as próximas impressões já usam.
+// Se cada teste sai numa altura diferente, a impressora não está achando o
+// espaço entre as etiquetas: primeiro "Calibrar sensor", depois a posição.
 
 const PASSO_MM = 0.5;
 const LIMITE_MM = 20;
@@ -28,7 +31,7 @@ export function AjustesImpressoraEtiqueta({ impressora }: Props) {
   const { showNotification } = useNotification();
   const [cal, setCal] = useState<CalibracaoEtiqueta | null>(null);
   const [salvo, setSalvo] = useState<CalibracaoEtiqueta | null>(null);
-  const [acao, setAcao] = useState<"teste" | "salvar" | null>(null);
+  const [acao, setAcao] = useState<"teste" | "salvar" | "sensor" | null>(null);
 
   useEffect(() => {
     let ativo = true;
@@ -59,6 +62,18 @@ export function AjustesImpressoraEtiqueta({ impressora }: Props) {
     }
   };
 
+  const calibrarSensor = async () => {
+    setAcao("sensor");
+    try {
+      const r = await calibrarSensorEtiqueta(impressora);
+      showNotification("success", "Calibrando o sensor", `A ${r.impressora} vai avançar algumas etiquetas em branco. Depois imprima o teste.`);
+    } catch (e) {
+      showNotification("error", "Não foi possível calibrar", (e as Error).message);
+    } finally {
+      setAcao(null);
+    }
+  };
+
   const salvar = async () => {
     setAcao("salvar");
     try {
@@ -80,6 +95,20 @@ export function AjustesImpressoraEtiqueta({ impressora }: Props) {
       <p className="text-[11px] text-muted-foreground leading-snug">
         Imprima o teste: a moldura tem que ficar inteira dentro de cada etiqueta. Mova e teste de novo até acertar, depois salve.
       </p>
+
+      {/* Sensor: sem ele sincronizado, a altura muda a cada impressão e nenhum ajuste segura */}
+      <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 flex items-center justify-between gap-3">
+        <p className="text-[11px] text-muted-foreground leading-snug">
+          <b className="text-foreground">Cada teste sai numa altura diferente?</b> Calibre o sensor antes de mexer na posição.
+        </p>
+        <button
+          onClick={calibrarSensor}
+          disabled={acao !== null}
+          className="h-9 px-3 rounded-lg border border-border bg-background hover:bg-secondary text-[11px] font-bold flex items-center gap-1.5 whitespace-nowrap disabled:opacity-40"
+        >
+          {acao === "sensor" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Crosshair className="w-3.5 h-3.5" />} Calibrar sensor
+        </button>
+      </div>
 
       {/* Posição: setas movem a impressão na direção da seta */}
       <div className="rounded-xl border border-border bg-background/40 p-3 flex items-center gap-4">

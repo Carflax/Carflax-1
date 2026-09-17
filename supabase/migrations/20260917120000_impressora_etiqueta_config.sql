@@ -7,8 +7,8 @@
 
 create table if not exists public.impressora_etiqueta_config (
   impressora text primary key,
-  offset_x numeric(5,1) not null default 2 check (offset_x between -20 and 20),
-  offset_y numeric(5,1) not null default -6 check (offset_y between -20 and 20),
+  offset_x numeric(5,1) not null default 0 check (offset_x between -20 and 20),
+  offset_y numeric(5,1) not null default 0 check (offset_y between -20 and 20),
   densidade smallint not null default 12 check (densidade between 0 and 15),
   velocidade smallint not null default 4 check (velocidade between 1 and 10),
   atualizado_por text,

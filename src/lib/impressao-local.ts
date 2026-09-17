@@ -77,7 +77,7 @@ export interface CalibracaoEtiqueta {
   velocidade: number;
 }
 
-export const CALIBRACAO_PADRAO: CalibracaoEtiqueta = { offsetX: 2, offsetY: -6, densidade: 12, velocidade: 4 };
+export const CALIBRACAO_PADRAO: CalibracaoEtiqueta = { offsetX: 0, offsetY: 0, densidade: 12, velocidade: 4 };
 
 const chaveImpressora = (nome: string) => nome || "padrao";
 
@@ -103,6 +103,15 @@ export async function salvarCalibracao(impressora: string, cal: CalibracaoEtique
     updated_at: new Date().toISOString(),
   });
   if (error) throw new Error(`Não foi possível salvar os ajustes: ${error.message}`);
+}
+
+/** A impressora avança algumas etiquetas medindo o rolo (sensor de espaço). */
+export async function calibrarSensorEtiqueta(impressora = impressoraEtiquetaPreco()) {
+  return chamar<{ impressora: string }>("/calibrar-sensor", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ impressora: impressora || undefined }),
+  });
 }
 
 /** Imprime uma linha de molduras para conferir a posição. */
