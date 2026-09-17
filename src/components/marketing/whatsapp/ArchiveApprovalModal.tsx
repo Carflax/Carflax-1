@@ -99,7 +99,10 @@ export function ArchiveApprovalModal({
       onDecidido?.(pedido, aprovado);
     } catch (err) {
       console.error("[ArchiveApproval] Erro ao decidir:", err);
-      setErro("Não foi possível registrar a decisão. Tente novamente.");
+      // Mensagens de regra (ex.: convertido sem vínculo na Citel) precisam chegar
+      // ao supervisor — só o erro técnico vira o texto genérico.
+      const msg = err instanceof Error && err.message ? err.message : "";
+      setErro(msg.startsWith("Vincule") ? msg : "Não foi possível registrar a decisão. Tente novamente.");
     } finally {
       setProcessando(null);
       setRecusando(null);

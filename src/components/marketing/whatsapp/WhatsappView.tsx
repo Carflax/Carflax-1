@@ -1520,6 +1520,9 @@ export function WhatsappView({
   const [showFollowUpModal, setShowFollowUpModal] = useState(false);
   const [followUpDateInput, setFollowUpDateInput] = useState("");
   const [showArchiveModal, setShowArchiveModal] = useState(false);
+  // Vínculo com a Citel da conversa que o modal vai arquivar: sem ele, não dá
+  // para marcar "Convertido" (a venda ficaria sem dono no ERP).
+  const [vinculoDoArquivamento, setVinculoDoArquivamento] = useState<"checando" | "sim" | "nao">("checando");
   // Funil de vendas: troca a tela inteira das Mensagens pelo quadro.
   const [showFunil, setShowFunil] = useState(false);
   // Coach de atendimento: sobreposto, não troca a tela — o supervisor abre,
@@ -1671,6 +1674,22 @@ export function WhatsappView({
     selectedChatRef.current = selectedChat;
     viewModeRef.current = viewMode;
   }, [selectedChat, viewMode]);
+
+  // Ao abrir o modal, confere se a conversa alvo já está vinculada na Citel.
+  useEffect(() => {
+    if (!showArchiveModal) return;
+    const alvo = archiveTargetRef.current || contextMenu?.chat || selectedChat;
+    if (!alvo) return;
+    let ativo = true;
+    setVinculoDoArquivamento("checando");
+    marketingService
+      .temVinculoErp(alvo.id)
+      .then((tem) => { if (ativo) setVinculoDoArquivamento(tem ? "sim" : "nao"); })
+      // Sem conseguir checar, não trava a tela: a gravação confere de novo.
+      .catch(() => { if (ativo) setVinculoDoArquivamento("sim"); });
+    return () => { ativo = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showArchiveModal]);
 
   useEffect(() => {
     if (!showArchiveModal) {
@@ -2478,6 +2497,24 @@ export function WhatsappView({
     const finalReason = reasonText || selectedReason;
     const finalPayment = finalReason === "Convertido" ? paymentMethod : "";
     const finalObs = finalReason === "Convertido" ? archiveObservation : "";
+
+    // Venda só conta com cliente vinculado na Citel. A checagem vem antes da
+    // atualização otimista: sem isso a tela mostrava "Convertido" e o banco recusava.
+    if (finalReason === ARCHIVE_REASON_GANHO) {
+      try {
+        if (!(await marketingService.temVinculoErp(targetId))) {
+          showNotification(
+            "error",
+            "Vincule o cliente na Citel",
+            "Antes de marcar como convertido, vincule esta conversa ao cadastro do cliente na aba Cadastro.",
+          );
+          return;
+        }
+      } catch (err) {
+        showNotification("error", "Não foi possível conferir o vínculo", (err as Error).message);
+        return;
+      }
+    }
 
     // ── Dívida aberta: arquivar não pode apagar o cliente esperando ───────────
     // Se a última mensagem é do cliente (ou há não lidas), o atendente não arquiva:
@@ -5768,6 +5805,13 @@ export function WhatsappView({
                     {ARCHIVE_REASONS_PERDA.map((r) => (
                       <button
                         key={r.text}
+                        // Convertido = venda: exige a conversa vinculada ao cliente na Citel.
+                        disabled={r.text === ARCHIVE_REASON_GANHO && vinculoDoArquivamento === "nao"}
+                        title={
+                          r.text === ARCHIVE_REASON_GANHO && vinculoDoArquivamento === "nao"
+                            ? "Vincule a conversa ao cliente na Citel (aba Cadastro) para marcar como convertido"
+                            : undefined
+                        }
                         onClick={() => {
                           if (r.text === "Outros") {
                             setIsEnteringCustomReason(true);
@@ -5777,12 +5821,19 @@ export function WhatsappView({
                             handleArchiveChat(r.text);
                           }
                         }}
-                        className="w-full px-4 py-3 flex items-center gap-2.5 text-left rounded-xl text-xs font-semibold border border-border/40 text-muted-foreground hover:text-foreground hover:bg-secondary/50 hover:border-border transition-all duration-200 active:scale-[0.99] group"
+                        className="w-full px-4 py-3 flex items-center gap-2.5 text-left rounded-xl text-xs font-semibold border border-border/40 text-muted-foreground hover:text-foreground hover:bg-secondary/50 hover:border-border transition-all duration-200 active:scale-[0.99] group disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-muted-foreground disabled:cursor-not-allowed disabled:active:scale-100"
                       >
                         <span className="opacity-70 group-hover:opacity-100 transition-opacity shrink-0">
                           {r.icon}
                         </span>
-                        <span className="flex-1 leading-tight">{r.text}</span>
+                        <span className="flex-1 leading-tight">
+                          {r.text}
+                          {r.text === ARCHIVE_REASON_GANHO && vinculoDoArquivamento === "nao" && (
+                            <span className="block text-[10px] font-bold text-amber-500 mt-0.5">
+                              Vincule o cliente na Citel primeiro (aba Cadastro)
+                            </span>
+                          )}
+                        </span>
                         {/* Reticências avisam que ainda vai pedir mais informação
                             antes de arquivar, em vez de arquivar no clique. */}
                         {(r.text === "Outros" || r.text === "Não vendemos o material") && (

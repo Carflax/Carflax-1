@@ -702,6 +702,17 @@ export const marketingService = {
    * silencia mais nada, já que o escalador ignora `arquivado`. Ao desarquivar,
    * limpa o carimbo e o degrau de escalonamento, e a cobrança volta do zero.
    */
+  /** A conversa está vinculada a um cliente do ERP (vínculo manual ou por telefone)? */
+  async temVinculoErp(remoteJid: string): Promise<boolean> {
+    const { data, error } = await supabase
+      .from("marketing_clientes")
+      .select("cod_cliente_erp")
+      .eq("remote_jid", remoteJid)
+      .maybeSingle();
+    if (error) throw new Error(`Não foi possível conferir o vínculo com a Citel: ${error.message}`);
+    return !!data?.cod_cliente_erp;
+  },
+
   async toggleArchived(
     remoteJid: string,
     archived: boolean,
@@ -710,6 +721,15 @@ export const marketingService = {
     observacao?: string,
     actorId?: string
   ) {
+    // "Convertido" é venda: só pode ser marcado depois que a conversa estiver
+     // vinculada ao cliente na Citel, senão a venda não tem dono no ERP e o
+     // relatório de conversão conta um número que ninguém consegue auditar.
+    if (archived && motivo === "Convertido" && !(await this.temVinculoErp(remoteJid))) {
+      throw new Error(
+        "Vincule a conversa ao cliente na Citel antes de marcar como convertido (aba Cadastro, botão de vincular).",
+      );
+    }
+
     const nowIso = new Date().toISOString();
     const updatePayload: Record<string, unknown> = {
       arquivado: archived,

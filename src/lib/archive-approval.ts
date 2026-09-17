@@ -264,6 +264,13 @@ export async function decidirAprovacao(
   aprovador: ArchiveApprovalUser,
   decisaoObservacao?: string,
 ): Promise<boolean> {
+  // "Convertido" exige a conversa vinculada ao cliente na Citel. A checagem vem
+  // antes de decidir o pedido: aprovar e falhar no arquivamento deixaria o pedido
+  // aprovado com a conversa ainda aberta.
+  if (aprovado && pedido.motivo === "Convertido" && !(await marketingService.temVinculoErp(pedido.remote_jid))) {
+    throw new Error("Vincule a conversa ao cliente na Citel antes de aprovar como convertido.");
+  }
+
   const { data, error } = await supabase
     .from(TABELA)
     .update({
