@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { getNotifSection } from "@/lib/notif-prefs";
-import { uploadImage } from "@/lib/uploadImage";
+import { prepararImagem, uploadImage } from "@/lib/uploadImage";
 import { Button } from "@/components/ui/button";
 import { TinyDropdown } from "@/components/ui/TinyDropdown";
 import { useNotification } from "@/hooks/useNotification";
@@ -1491,7 +1491,9 @@ export function CommunicationSection({
           newPost._imageFile,
           "Comunicados",
         );
-        if (uploadedUrl) finalImageUrl = uploadedUrl;
+        // Antes o comunicado salvava sem a foto e ninguém percebia.
+        if (!uploadedUrl) throw new Error("Não foi possível enviar a imagem. Tente de novo.");
+        finalImageUrl = uploadedUrl;
       }
 
       const payload = {
@@ -1536,11 +1538,11 @@ export function CommunicationSection({
       setUserSearchResults([]);
     } catch (err) {
       console.error(err);
-      showNotification(
-        "error",
-        "Erro ao Salvar",
-        "Ocorreu um problema ao sincronizar com o banco.",
-      );
+      // Erro da imagem já vem com a explicação (formato, conversão); o resto é do banco.
+      const msg = err instanceof Error && /imagem|foto|HEIC|sessão/i.test(err.message)
+        ? err.message
+        : "Ocorreu um problema ao sincronizar com o banco.";
+      showNotification("error", "Erro ao Salvar", msg);
     } finally {
       setSaving(false);
     }
@@ -1594,14 +1596,21 @@ export function CommunicationSection({
     setIsModalOpen(true);
   };
 
-  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setNewPost((p) => ({
-      ...p,
-      image: URL.createObjectURL(file),
-      _imageFile: file,
-    }));
+  const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const original = e.target.files?.[0];
+    e.target.value = ""; // permite escolher o mesmo arquivo de novo
+    if (!original) return;
+    try {
+      // Foto do iPhone (HEIC) vira JPG aqui, para a pré-visualização aparecer.
+      const file = await prepararImagem(original);
+      setNewPost((p) => ({
+        ...p,
+        image: URL.createObjectURL(file),
+        _imageFile: file,
+      }));
+    } catch (err) {
+      showNotification("error", "Imagem não suportada", (err as Error).message);
+    }
   };
 
   // Preferências de notificação do usuário (o que ele quer ver no feed).

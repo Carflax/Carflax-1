@@ -33,6 +33,7 @@
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "framer-motion": "^12.42.2",
+    "heic2any": "^0.0.4",
     "html2canvas-pro": "^2.2.0",
     "jspdf": "^4.2.1",
     "jspdf-autotable": "^5.0.7",

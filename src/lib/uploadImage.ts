@@ -3,6 +3,28 @@ import { supabase } from "./supabase";
 const MAX_DIMENSION = 512;
 const JPEG_QUALITY = 0.8;
 
+const ehHeic = (file: File) =>
+  /image\/hei[cf]/i.test(file.type) || /\.(heic|heif)$/i.test(file.name);
+
+/**
+ * Deixa a foto num formato que o navegador abre, antes de pré-visualizar ou
+ * enviar. Foto do iPhone vem em HEIC, que o Chrome não decodifica: antes isso
+ * estourava "Falha ao carregar imagem" e o comunicado não salvava. HEIC/HEIF é
+ * convertido para JPG (heic2any, carregado só quando precisa); os demais formatos
+ * passam direto.
+ */
+export async function prepararImagem(file: File): Promise<File> {
+  if (!ehHeic(file)) return file;
+  try {
+    const { default: heic2any } = await import("heic2any");
+    const convertido = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 });
+    const blob = Array.isArray(convertido) ? convertido[0] : convertido;
+    return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch {
+    throw new Error("Não foi possível converter a foto do iPhone (HEIC). Salve como JPG ou PNG e tente de novo.");
+  }
+}
+
 function compressImage(file: File): Promise<File> {
   return new Promise((resolve, reject) => {
     if (!file.type.startsWith("image/")) {
@@ -43,7 +65,10 @@ function compressImage(file: File): Promise<File> {
       );
     };
 
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Falha ao carregar imagem")); };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("O navegador não conseguiu abrir essa imagem. Use uma foto JPG, PNG ou WEBP."));
+    };
     img.src = url;
   });
 }
@@ -65,7 +90,8 @@ export async function uploadImage(file: File, bucket: string, skipCompression: b
     return null;
   }
 
-  const compressed = skipCompression ? file : await compressImage(file);
+  const pronta = await prepararImagem(file);
+  const compressed = skipCompression ? pronta : await compressImage(pronta);
   const ext = compressed.name.split(".").pop() ?? "jpg";
   const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
 
