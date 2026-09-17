@@ -314,8 +314,11 @@ export function EtiquetaPrecoModal({ produtos, filtrados, onClose }: Props) {
                     disabled={!impressoras || !!servidorErro}
                     className="w-full h-9 px-2 rounded-lg border border-border bg-background text-xs outline-none disabled:opacity-50"
                   >
+                    {/* Vazio: o servidor escolhe a etiquetadora Elgin instalada, senão a padrão. */}
                     <option value="">
-                      Padrão do Windows{impressoras?.find((i) => i.default) ? ` (${impressoras.find((i) => i.default)!.name})` : ""}
+                      Automática{impressoras?.find((i) => /elgin|l42/i.test(i.name))
+                        ? ` (${impressoras.find((i) => /elgin|l42/i.test(i.name))!.name})`
+                        : impressoras?.find((i) => i.default) ? ` (${impressoras.find((i) => i.default)!.name})` : ""}
                     </option>
                     {(impressoras || []).map((i) => <option key={i.name} value={i.name}>{i.name}</option>)}
                     {impressora && impressoras && !impressoras.some((i) => i.name === impressora) && <option value={impressora}>{impressora}</option>}
