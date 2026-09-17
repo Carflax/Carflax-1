@@ -55,6 +55,29 @@ interface PushSubscription {
   auth: string;
 }
 
+// ─── Aciona a Isabela de forma assíncrona (fire-and-forget) ─────────────────
+// Não bloqueia o webhook — a Evolution API recebe 200 imediatamente e
+// a Isabela processa em background, gerando e enviando a resposta.
+function acionarIsabela(payload: {
+  remoteJid: string;
+  msgId: string;
+  senderName: string;
+  text: string;
+  tipo: string;
+  mediaBase64?: string;
+  mediaMime?: string;
+}) {
+  const isabelaUrl = `${SUPABASE_URL}/functions/v1/isabela-responde`;
+  fetch(isabelaUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+    },
+    body: JSON.stringify(payload),
+  }).catch(e => console.error('[webhook] Erro ao acionar Isabela:', e));
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') {
     return new Response('Method not allowed', { status: 405 });
@@ -146,6 +169,24 @@ Deno.serve(async (req: Request) => {
         (tipo !== 'text' ? '📎 Mídia recebida' : '')
       );
 
+      // Extrai base64 da mídia (para a Isabela processar áudio/imagem)
+      interface EvoMsg {
+        base64?: string;
+        message?: {
+          base64?: string;
+          imageMessage?: { mimetype?: string };
+          videoMessage?: { mimetype?: string };
+          documentMessage?: { mimetype?: string };
+          audioMessage?: { mimetype?: string };
+        };
+      }
+      const msgParsed = msg as unknown as EvoMsg;
+      const mediaBase64 = msgParsed.base64 || msgParsed.message?.base64;
+      const mimetype = msgParsed.message?.imageMessage?.mimetype
+        || msgParsed.message?.videoMessage?.mimetype
+        || msgParsed.message?.documentMessage?.mimetype
+        || msgParsed.message?.audioMessage?.mimetype;
+
       // Persiste a mensagem no banco (upsert para evitar duplicatas)
       try {
         await supabase
@@ -199,6 +240,19 @@ Deno.serve(async (req: Request) => {
               updated_at: new Date().toISOString(),
               ...origemData,
             }, { onConflict: 'remote_jid', ignoreDuplicates: false });
+
+          // ── Aciona a Isabela (fire-and-forget, não bloqueia) ─────────────
+          // Stickers não geram resposta (não fazem sentido para IA responder)
+          if (tipo !== 'sticker') {
+            acionarIsabela({
+              remoteJid,
+              msgId,
+              senderName,
+              text: text || '',
+              tipo,
+              ...(mediaBase64 && mimetype ? { mediaBase64, mediaMime: mimetype } : {}),
+            });
+          }
         }
       } catch (e) {
         console.error('Erro ao salvar mensagem no banco:', e);
@@ -232,20 +286,6 @@ Deno.serve(async (req: Request) => {
       );
 
       // Salva a mídia no Storage se o base64 estiver presente
-      interface EvoMsg {
-        base64?: string;
-        message?: {
-          base64?: string;
-          imageMessage?: { mimetype?: string };
-          videoMessage?: { mimetype?: string };
-          documentMessage?: { mimetype?: string };
-          audioMessage?: { mimetype?: string };
-        };
-      }
-      const msgParsed = msg as unknown as EvoMsg;
-      const mediaBase64 = msgParsed.base64 || msgParsed.message?.base64;
-      const mimetype = msgParsed.message?.imageMessage?.mimetype || msgParsed.message?.videoMessage?.mimetype || msgParsed.message?.documentMessage?.mimetype || msgParsed.message?.audioMessage?.mimetype;
-
       if (mediaBase64 && mimetype) {
         try {
           const ext = mimetype.split('/')[1]?.split(';')[0] || 'bin';
