@@ -83,12 +83,8 @@ async function evoSendText(remoteJid: string, text: string): Promise<string | nu
 }
 
 // ─── Gemini helper ───────────────────────────────────────────────────────────
-// Tenta gemini-2.5-flash até 3x com backoff. Se persistir 503 (alta demanda),
-// cai para gemini-1.5-flash que tem mais disponibilidade.
-const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-1.5-flash'];
-
-async function geminiGenerateWithModel(model: string, parts: unknown[]): Promise<string> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_KEY}`;
+async function geminiGenerate(parts: unknown[]): Promise<string> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`;
   const body = {
     contents: [{ role: 'user', parts }],
     generationConfig: {
@@ -105,7 +101,7 @@ async function geminiGenerateWithModel(model: string, parts: unknown[]): Promise
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Gemini ${model} error ${res.status}: ${err}`);
+    throw new Error(`Gemini error ${res.status}: ${err}`);
   }
 
   const data = await res.json() as {
@@ -113,41 +109,6 @@ async function geminiGenerateWithModel(model: string, parts: unknown[]): Promise
   };
   return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
 }
-
-async function geminiGenerate(parts: unknown[]): Promise<string> {
-  for (const model of GEMINI_MODELS) {
-    let lastError: Error | null = null;
-    for (let attempt = 1; attempt <= 3; attempt++) {
-      try {
-        const result = await geminiGenerateWithModel(model, parts);
-        if (attempt > 1 || model !== GEMINI_MODELS[0]) {
-          console.log(`[Isabela] Gemini respondeu com ${model} (tentativa ${attempt})`);
-        }
-        return result;
-      } catch (e) {
-        lastError = e as Error;
-        const is503 = String(e).includes('503') || String(e).includes('UNAVAILABLE') || String(e).includes('high demand');
-        const is429 = String(e).includes('429') || String(e).includes('RESOURCE_EXHAUSTED');
-        if ((is503 || is429) && attempt < 3) {
-          // Backoff: 1s, 2s, 4s
-          const delay = 1000 * Math.pow(2, attempt - 1);
-          console.warn(`[Isabela] ${model} indisponível (tentativa ${attempt}), aguardando ${delay}ms...`);
-          await new Promise(r => setTimeout(r, delay));
-          continue;
-        }
-        // Não é 503/429 ou esgotou tentativas — passa para o próximo modelo
-        console.warn(`[Isabela] Falhou com ${model}: ${String(e).substring(0, 100)}`);
-        break;
-      }
-    }
-    // Se chegou aqui com o último modelo, lança o erro
-    if (model === GEMINI_MODELS[GEMINI_MODELS.length - 1] && lastError) {
-      throw lastError;
-    }
-  }
-  throw new Error('[Isabela] Todos os modelos Gemini falharam');
-}
-
 
 async function transcribeAudio(base64: string, mime: string): Promise<string> {
   const parts = [
