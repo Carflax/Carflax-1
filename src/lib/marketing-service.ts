@@ -285,6 +285,8 @@ export interface MarketingMessage {
   media_url?: string;
   reacao?: string;
   vendedor_id?: string;
+  /** "isabela" = enviada pela atendente virtual. */
+  autor?: string | null;
   created_at?: string;
   editado?: boolean;
   quoted_text?: string;
@@ -523,7 +525,7 @@ export const marketingService = {
   async getMessagesByJid(remoteJid: string, limit = 50, sinceDate?: string, beforeDate?: string, vendedorId?: string) {
     let query = supabase
       .from("marketing_whatsapp")
-      .select("message_id, remote_jid, sender, texto, tipo, status, timestamp, media_url, reacao, vendedor_id, editado, quoted_text, quoted_sender, link_preview")
+      .select("message_id, remote_jid, sender, texto, tipo, status, timestamp, media_url, reacao, vendedor_id, autor, editado, quoted_text, quoted_sender, link_preview")
       .eq("remote_jid", remoteJid);
 
     if (vendedorId) {

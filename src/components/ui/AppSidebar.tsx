@@ -326,6 +326,7 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
       // SLA acima de propósito: são alertas diferentes, com toggles diferentes.
       if (
         n.tipo === "whatsapp_sla" ||
+        n.tipo === "whatsapp_isabela" ||
         n.tipo === "arquivamento_aprovacao" ||
         n.tipo === "coach_regra"
       ) {

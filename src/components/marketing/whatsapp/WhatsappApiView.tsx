@@ -20,6 +20,7 @@ export function WhatsappApiView({ userProfile }: { userProfile?: UserProfile | n
       api={whatsappOfficialApi as unknown as WhatsappApi}
       vendedorId={userProfile?.id}
       userProfile={userProfile}
+      isabelaDisponivel
     />
   );
 }

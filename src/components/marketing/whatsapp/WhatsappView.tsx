@@ -19,7 +19,7 @@ import {
   Flame,
   Archive,
   Filter,
-  ClipboardCheck,
+  Bot,
   ChevronDown,
   DollarSign,
   X,
@@ -55,7 +55,8 @@ import { Package } from "lucide-react";
 import { useNotification } from "@/hooks/useNotification";
 import { ArchiveApprovalModal } from "./ArchiveApprovalModal";
 import { FunilView } from "./FunilView";
-import { CoachView } from "@/components/marketing/CoachView";
+import { IsabelaConfigView } from "./IsabelaConfigView";
+import { IsabelaConversaStatus } from "./IsabelaConversaStatus";
 import { GravadorAudio } from "./GravadorAudio";
 import {
   cancelarPedidoPendente,
@@ -116,6 +117,9 @@ interface LinkPreview {
   image?: string | null; // base64 (sem prefixo) ou data URL completo
 }
 
+/** Autora das mensagens enviadas pela atendente virtual (marketing_whatsapp.autor). */
+const AUTORA_ISABELA = { id: "isabela", name: "Isabela", avatar: undefined as string | undefined };
+
 interface Message {
   id: string;
   text: string;
@@ -134,6 +138,8 @@ interface Message {
   editado?: boolean;
   linkPreview?: LinkPreview | null;
   vendedorId?: string;
+  /** "isabela" quando a mensagem foi enviada pela atendente virtual. */
+  autor?: string;
   /** Dados de localização (presente quando tipo === "location") */
   locationData?: {
     latitude: number;
@@ -1472,10 +1478,13 @@ export function WhatsappView({
   vendedorId,
   userProfile,
   api = evolutionApi as unknown as WhatsappApi,
+  isabelaDisponivel = false,
 }: {
   vendedorId?: string;
   userProfile?: UserProfile | null;
   api?: WhatsappApi;
+  /** Isabela (atendente virtual) só existe no número da API oficial. */
+  isabelaDisponivel?: boolean;
 }) {
   const { showNotification } = useNotification();
   const [chats, setChats] = useState<Chat[]>([]);
@@ -1515,12 +1524,12 @@ export function WhatsappView({
   const [showFunil, setShowFunil] = useState(false);
   // Coach de atendimento: sobreposto, não troca a tela — o supervisor abre,
   // ajusta uma regra e volta para a conversa que estava lendo.
-  const [showCoach, setShowCoach] = useState(false);
+  const [showIsabela, setShowIsabela] = useState(false);
   // Fila de arquivamentos aguardando o supervisor (só aparece para quem aprova).
   const [showApprovalModal, setShowApprovalModal] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState(0);
   const podeAprovar = useMemo(() => podeAprovarArquivamento(userProfile), [userProfile]);
-  const podeVerCoach = useMemo(
+  const podeConfigurarIsabela = useMemo(
     () =>
       userProfile?.is_leader === true &&
       (userProfile.permissions || []).some((p: string) => /whatsapp/i.test(String(p))),
@@ -3580,6 +3589,7 @@ export function WhatsappView({
             quoted_sender?: "me" | "contact";
             link_preview?: LinkPreview | null;
             vendedor_id?: string;
+            autor?: string | null;
           }
           const m = payload.new as SupabaseMessageInsert;
           if (
@@ -3603,6 +3613,7 @@ export function WhatsappView({
               quotedSender: m.quoted_sender,
               linkPreview: m.link_preview ?? null,
               vendedorId: m.vendedor_id,
+              autor: m.autor ?? undefined,
               ...(normalized.locationData ? { locationData: normalized.locationData } : {}),
             };
             setMessages((prev) => {
@@ -3674,6 +3685,7 @@ export function WhatsappView({
                   quotedSender: m.quoted_sender,
                   linkPreview: m.link_preview ?? null,
                   vendedorId: m.vendedor_id,
+                  autor: m.autor ?? undefined,
                   ...(normalized.locationData ? { locationData: normalized.locationData } : {}),
                 };
               }) as Message[];
@@ -4764,6 +4776,7 @@ export function WhatsappView({
           quotedSender: m.quoted_sender,
           linkPreview: m.link_preview ?? null,
           vendedorId: m.vendedor_id,
+          autor: m.autor ?? undefined,
           ...(normalized.locationData ? { locationData: normalized.locationData } : {}),
         };
       });
@@ -4835,6 +4848,7 @@ export function WhatsappView({
           quotedSender: m.quoted_sender,
           linkPreview: m.link_preview ?? null,
           vendedorId: m.vendedor_id,
+          autor: m.autor ?? undefined,
           ...(normalized.locationData ? { locationData: normalized.locationData } : {}),
         };
       });
@@ -5990,18 +6004,17 @@ export function WhatsappView({
                   className={`w-4 h-4 transition-colors ${viewMode === "archived" ? "text-red-500" : "text-muted-foreground hover:text-primary"}`}
                 />
               </button>
-              {/* Regras do coach: líder E com acesso ao WhatsApp. As duas
-                  condições juntas importam — só `is_leader` liberaria RH,
-                  Estoque e Administrativo, que lideram as suas áreas mas não
-                  têm o que fazer com conduta em atendimento comercial. É o mesmo
-                  par que define quem RECEBE os avisos, no coachVigiaScheduler. */}
-              {podeVerCoach && (
+              {/* Isabela (atendente virtual): líder E com acesso ao WhatsApp —
+                  só `is_leader` liberaria RH, Estoque e Administrativo, que
+                  lideram as suas áreas mas não cuidam do atendimento comercial.
+                  Substituiu o botão do Coach de atendimento. */}
+              {isabelaDisponivel && podeConfigurarIsabela && (
                 <button
-                  onClick={() => setShowCoach(true)}
+                  onClick={() => setShowIsabela(true)}
                   className="p-2 hover:bg-secondary rounded-xl transition-colors relative"
-                  title="Regras de atendimento (Coach IA)"
+                  title="Isabela (atendente virtual)"
                 >
-                  <ClipboardCheck className="w-4 h-4 text-muted-foreground hover:text-primary transition-colors" />
+                  <Bot className="w-4 h-4 text-muted-foreground hover:text-primary transition-colors" />
                 </button>
               )}
               <button
@@ -6604,6 +6617,8 @@ export function WhatsappView({
               </div>
             )}
 
+            {isabelaDisponivel && selectedChat && <IsabelaConversaStatus remoteJid={selectedChat.id} />}
+
             <div
               onDragEnter={handleDragEnter}
               onDragOver={handleDragOver}
@@ -6690,18 +6705,21 @@ export function WhatsappView({
                       !!msg.rawTimestamp &&
                       new Date(msg.rawTimestamp) >= AUTOR_CONFIAVEL_DESDE;
                     const autorMsg =
-                      msg.sender === "me" && msg.vendedorId && autorConfiavel
-                        ? operators.find((o) => o.id === msg.vendedorId)
-                        : undefined;
+                      msg.sender === "me" && msg.autor === "isabela"
+                        ? AUTORA_ISABELA
+                        : msg.sender === "me" && msg.vendedorId && autorConfiavel
+                          ? operators.find((o) => o.id === msg.vendedorId)
+                          : undefined;
                     // Só anuncia na TROCA de atendente (ou depois da divisória de
                     // data). Repetir o nome em toda bolha de uma sequência do
                     // mesmo atendente vira poluição, igual em grupo de WhatsApp.
+                    const chaveAutor = (m: Message) => (m.autor === "isabela" ? "isabela" : m.vendedorId);
                     const autorAnterior =
                       previousMsg && previousMsg.sender === "me"
-                        ? previousMsg.vendedorId
+                        ? chaveAutor(previousMsg)
                         : undefined;
                     const mostrarAutor =
-                      !!autorMsg && (msg.vendedorId !== autorAnterior || !!showDateDivider);
+                      !!autorMsg && (chaveAutor(msg) !== autorAnterior || !!showDateDivider);
 
                     if (msg.tipo === "internal_note") {
                       const op = operators.find((o) => o.id === msg.vendedorId);
@@ -6710,7 +6728,9 @@ export function WhatsappView({
                         msg.vendedorId === userProfile?.id ||
                         msg.vendedorId === vendedorId ||
                         msg.sender === "me";
-                      const senderName = op
+                      const senderName = msg.autor === "isabela"
+                        ? "Isabela"
+                        : op
                         ? op.name
                         : isMe
                           ? userProfile?.name || "Atendente"
@@ -6781,7 +6801,9 @@ export function WhatsappView({
                               className="flex items-center gap-1.5 mb-1 px-1 text-[9px] font-black uppercase tracking-wider text-muted-foreground"
                               title={`Enviado por ${autorMsg.name}`}
                             >
-                              {autorMsg.avatar ? (
+                              {autorMsg.id === AUTORA_ISABELA.id ? (
+                                <Bot className="w-3 h-3 text-violet-500" />
+                              ) : autorMsg.avatar ? (
                                 <img
                                   src={autorMsg.avatar}
                                   alt=""
@@ -8223,12 +8245,12 @@ export function WhatsappView({
       </div>
       )}
 
-      {/* Coach de atendimento, sobreposto à tela de Mensagens */}
-      {showCoach && (
+      {/* Isabela (atendente virtual), sobreposta à tela de Mensagens */}
+      {showIsabela && (
         <div className="absolute inset-0 z-[120] bg-background flex flex-col">
           <div className="flex items-center gap-3 px-4 py-2 border-b border-border shrink-0">
             <button
-              onClick={() => setShowCoach(false)}
+              onClick={() => setShowIsabela(false)}
               className="p-2 hover:bg-secondary rounded-xl text-muted-foreground hover:text-primary transition-colors"
               title="Fechar"
             >
@@ -8239,9 +8261,10 @@ export function WhatsappView({
             </span>
           </div>
           <div className="flex-1 min-h-0 overflow-hidden">
-            <CoachView
+            <IsabelaConfigView
+              autor={userProfile?.email || userProfile?.name || null}
               onAbrirConversa={(jid) => {
-                setShowCoach(false);
+                setShowIsabela(false);
                 openDirectChat(jid);
               }}
             />
