@@ -13,6 +13,8 @@ const GEMINI_KEY = Deno.env.get('GEMINI_IA') || '';
 const EVO_URL = Deno.env.get('EVO_URL') || '';
 const EVO_API_KEY = Deno.env.get('EVO_API_KEY') || '';
 const EVO_INSTANCE = Deno.env.get('EVO_INSTANCE') || 'Trafego';
+// URL do backend que conecta ao ERP Oracle (mesmo servidor que o HUB usa)
+const BACKEND_URL = Deno.env.get('BACKEND_URL') || 'https://marketing-carflax.velbav.easypanel.host';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -127,71 +129,115 @@ async function describeImage(base64: string, mime: string, caption: string): Pro
 // Stop words do português que não ajudam na busca de produtos
 const STOP_WORDS = new Set([
   'de', 'da', 'do', 'das', 'dos', 'em', 'na', 'no', 'nas', 'nos', 'para',
-  'com', 'sem', 'por', 'que', 'nao', 'nao', 'sim', 'tem', 'ter', 'ter',
+  'com', 'sem', 'por', 'que', 'nao', 'sim', 'tem', 'ter',
   'uma', 'uns', 'umas', 'isso', 'esse', 'essa', 'este', 'esta', 'aqui',
   'ali', 'la', 'mais', 'menos', 'muito', 'pouco', 'nada', 'tudo', 'algo',
   'voce', 'vc', 'vcs', 'ele', 'ela', 'eles', 'elas', 'meu', 'minha',
   'seu', 'sua', 'seus', 'suas', 'pra', 'pro', 'pras', 'pros',
   'porque', 'qual', 'quais', 'onde', 'quando', 'como', 'quem',
-  'tinha', 'tinha', 'quero', 'queria', 'preciso', 'precisa',
-  'pode', 'consigo', 'daria', 'seria', 'seria', 'sabe',
-])
+  'tinha', 'quero', 'queria', 'preciso', 'precisa',
+  'pode', 'consigo', 'daria', 'seria', 'sabe',
+]);
 
-// ─── Busca produtos no Supabase / ERP ────────────────────────────────────────
-// Usa OR entre termos (qualquer um encontra) e busca em descricao E marca.
+// Cache em memória do catálogo (válido por 10 minutos por instância)
+let catalogoCache: Array<{ cod: string; descricao: string; marca: string; preco: number; disponivel: number }> | null = null;
+let catalogoCacheTs = 0;
+const CATALOGO_TTL_MS = 10 * 60 * 1000; // 10 minutos
+
+// ─── Busca catálogo do ERP via backend ────────────────────────────────────────
+// A API do backend conecta ao Oracle (ERP Citel) e retorna TOTAL_DISPONIVEL
+// já consolidado de TODAS as empresas (001 + 002 + 003 = total real do estoque).
+async function carregarCatalogo(): Promise<typeof catalogoCache> {
+  const agora = Date.now();
+  if (catalogoCache && agora - catalogoCacheTs < CATALOGO_TTL_MS) return catalogoCache;
+
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/dashboard/produtos`, {
+      headers: {
+        'Authorization': `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    if (!res.ok) {
+      console.error('[Isabela] Erro ao carregar catálogo do ERP:', res.status, await res.text());
+      return catalogoCache; // retorna cache antigo se houver
+    }
+    const data = await res.json() as Array<{
+      COD_ITEM: string;
+      DESCRICAO: string;
+      MARCA: string;
+      PRECO_VENDA: string | number;
+      TOTAL_DISPONIVEL: string | number;
+    }>;
+
+    const parseBrl = (v: string | number | null | undefined) => {
+      if (v === undefined || v === null || v === '') return 0;
+      const s = String(v).trim();
+      if (s.includes(',')) return parseFloat(s.replace(/\./g, '').replace(',', '.')) || 0;
+      return parseFloat(s) || 0;
+    };
+
+    catalogoCache = data.map(p => ({
+      cod: p.COD_ITEM,
+      descricao: p.DESCRICAO || '',
+      marca: p.MARCA || '',
+      preco: parseBrl(p.PRECO_VENDA),
+      disponivel: parseBrl(p.TOTAL_DISPONIVEL),
+    }));
+    catalogoCacheTs = agora;
+    console.log('[Isabela] Catálogo carregado do ERP:', catalogoCache.length, 'produtos');
+    return catalogoCache;
+  } catch (e) {
+    console.error('[Isabela] Exceção ao carregar catálogo:', e);
+    return catalogoCache;
+  }
+}
+
+// ─── Busca produtos no catálogo ──────────────────────────────────────────────────
 async function buscarProdutos(query: string): Promise<string> {
   try {
-    // Tenta RPC especializada primeiro
-    const { data: rpcData, error: rpcError } = await supabase
-      .rpc('buscar_produtos_isabela', { query_text: query });
+    const catalogo = await carregarCatalogo();
+    if (!catalogo || catalogo.length === 0) return '';
 
-    if (!rpcError && rpcData && Array.isArray(rpcData) && rpcData.length > 0) {
-      return rpcData
-        .slice(0, 6)
-        .map((p: { descricao?: string; marca?: string; preco?: number; disponivel?: number }) =>
-          `• ${p.descricao} (${p.marca || ''}) — R$ ${(p.preco || 0).toFixed(2).replace('.', ',')} | Estoque: ${p.disponivel ?? 0}`
-        )
-        .join('\n');
-    }
-
-    // Fallback: tabela produtos com OR entre termos (não AND).
-    // Remove stop words para não poluir: "e da steck nao tem" → ["steck"]
     const normalize = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+    // Extrai termos úteis (sem stop words, sem símbolos, mín 2 chars)
     const termos = query
       .split(/\s+/)
       .map(t => t.replace(/[^\w]/g, '').trim())
-      .filter(t => t.length > 2 && !STOP_WORDS.has(normalize(t)))
-      .slice(0, 6);
+      .filter(t => t.length >= 2 && !STOP_WORDS.has(normalize(t)))
+      .slice(0, 8);
 
     if (termos.length === 0) return '';
 
-    // Monta condição OR: descricao ilike %t% OR marca ilike %t% para cada termo
-    const orConditions = termos.flatMap(t => [
-      `descricao.ilike.%${t}%`,
-      `marca.ilike.%${t}%`,
-    ]).join(',');
+    // Pontua cada produto: quantos termos da busca casam (descricao + marca)
+    const resultados = catalogo
+      .map(p => {
+        const desc = normalize(p.descricao);
+        const marc = normalize(p.marca);
+        const score = termos.reduce(
+          (acc, t) => acc + (desc.includes(normalize(t)) || marc.includes(normalize(t)) ? 1 : 0),
+          0
+        );
+        return { p, score };
+      })
+      .filter(r => r.score > 0) // ao menos 1 termo casou
+      .sort((a, b) => {
+        // Desempate: mais termos casados primeiro; depois disponibilidade
+        if (b.score !== a.score) return b.score - a.score;
+        return b.p.disponivel - a.p.disponivel;
+      })
+      .slice(0, 6);
 
-    const { data, error } = await supabase
-      .from('produtos')
-      .select('descricao, marca, preco, disponivel, cod')
-      .gt('disponivel', 0)
-      .or(orConditions)
-      .order('disponivel', { ascending: false })
-      .limit(8);
+    if (resultados.length === 0) return '';
 
-    if (error || !data || data.length === 0) return '';
-
-    // Quando há múltiplos termos, prioriza resultados que casam com mais deles
-    type ProdRow = { descricao?: string; marca?: string; preco?: number; disponivel?: number };
-    const scored = (data as ProdRow[]).map(p => {
-      const desc = normalize(p.descricao || '');
-      const marc = normalize(p.marca || '');
-      const score = termos.reduce((acc, t) => acc + (desc.includes(normalize(t)) || marc.includes(normalize(t)) ? 1 : 0), 0);
-      return { p, score };
-    }).sort((a, b) => b.score - a.score).slice(0, 6);
-
-    return scored
-      .map(({ p }) => `• ${p.descricao} (${p.marca || ''}) — R$ ${(p.preco || 0).toFixed(2).replace('.', ',')} | Estoque: ${p.disponivel ?? 0}`)
+    return resultados
+      .map(({ p }) => {
+        const estoqueLabel = p.disponivel > 0
+          ? `Em estoque: ${p.disponivel}`
+          : 'Sem estoque';
+        return `• ${p.descricao} (${p.marca}) — R$ ${p.preco.toFixed(2).replace('.', ',')} | ${estoqueLabel}`;
+      })
       .join('\n');
   } catch (e) {
     console.error('[Isabela] Erro ao buscar produtos:', e);
