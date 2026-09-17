@@ -124,7 +124,21 @@ async function describeImage(base64: string, mime: string, caption: string): Pro
   return geminiGenerate(parts);
 }
 
+// Stop words do português que não ajudam na busca de produtos
+const STOP_WORDS = new Set([
+  'de', 'da', 'do', 'das', 'dos', 'em', 'na', 'no', 'nas', 'nos', 'para',
+  'com', 'sem', 'por', 'que', 'nao', 'nao', 'sim', 'tem', 'ter', 'ter',
+  'uma', 'uns', 'umas', 'isso', 'esse', 'essa', 'este', 'esta', 'aqui',
+  'ali', 'la', 'mais', 'menos', 'muito', 'pouco', 'nada', 'tudo', 'algo',
+  'voce', 'vc', 'vcs', 'ele', 'ela', 'eles', 'elas', 'meu', 'minha',
+  'seu', 'sua', 'seus', 'suas', 'pra', 'pro', 'pras', 'pros',
+  'porque', 'qual', 'quais', 'onde', 'quando', 'como', 'quem',
+  'tinha', 'tinha', 'quero', 'queria', 'preciso', 'precisa',
+  'pode', 'consigo', 'daria', 'seria', 'seria', 'sabe',
+])
+
 // ─── Busca produtos no Supabase / ERP ────────────────────────────────────────
+// Usa OR entre termos (qualquer um encontra) e busca em descricao E marca.
 async function buscarProdutos(query: string): Promise<string> {
   try {
     // Tenta RPC especializada primeiro
@@ -140,24 +154,44 @@ async function buscarProdutos(query: string): Promise<string> {
         .join('\n');
     }
 
-    // Fallback: tabela produtos direta
-    const termos = query.split(/\s+/).filter(t => t.length > 2).slice(0, 4);
+    // Fallback: tabela produtos com OR entre termos (não AND).
+    // Remove stop words para não poluir: "e da steck nao tem" → ["steck"]
+    const normalize = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const termos = query
+      .split(/\s+/)
+      .map(t => t.replace(/[^\w]/g, '').trim())
+      .filter(t => t.length > 2 && !STOP_WORDS.has(normalize(t)))
+      .slice(0, 6);
+
     if (termos.length === 0) return '';
 
-    let q = supabase
+    // Monta condição OR: descricao ilike %t% OR marca ilike %t% para cada termo
+    const orConditions = termos.flatMap(t => [
+      `descricao.ilike.%${t}%`,
+      `marca.ilike.%${t}%`,
+    ]).join(',');
+
+    const { data, error } = await supabase
       .from('produtos')
       .select('descricao, marca, preco, disponivel, cod')
-      .gt('disponivel', 0);
+      .gt('disponivel', 0)
+      .or(orConditions)
+      .order('disponivel', { ascending: false })
+      .limit(8);
 
-    for (const t of termos) {
-      q = q.ilike('descricao', `%${t}%`);
-    }
-
-    const { data, error } = await q.order('disponivel', { ascending: false }).limit(6);
     if (error || !data || data.length === 0) return '';
 
-    return (data as { descricao?: string; marca?: string; preco?: number; disponivel?: number }[])
-      .map(p => `• ${p.descricao} (${p.marca || ''}) — R$ ${(p.preco || 0).toFixed(2).replace('.', ',')} | Estoque: ${p.disponivel ?? 0}`)
+    // Quando há múltiplos termos, prioriza resultados que casam com mais deles
+    type ProdRow = { descricao?: string; marca?: string; preco?: number; disponivel?: number };
+    const scored = (data as ProdRow[]).map(p => {
+      const desc = normalize(p.descricao || '');
+      const marc = normalize(p.marca || '');
+      const score = termos.reduce((acc, t) => acc + (desc.includes(normalize(t)) || marc.includes(normalize(t)) ? 1 : 0), 0);
+      return { p, score };
+    }).sort((a, b) => b.score - a.score).slice(0, 6);
+
+    return scored
+      .map(({ p }) => `• ${p.descricao} (${p.marca || ''}) — R$ ${(p.preco || 0).toFixed(2).replace('.', ',')} | Estoque: ${p.disponivel ?? 0}`)
       .join('\n');
   } catch (e) {
     console.error('[Isabela] Erro ao buscar produtos:', e);
@@ -418,25 +452,36 @@ async function processarMensagem(payload: IsabelaPayload): Promise<void> {
     }
   }
 
-  // 5. Busca produtos se a mensagem pedir
+  // 5. Carrega histórico (antes da busca para poder enriquecer o contexto)
+  const historico = await carregarHistorico(remoteJid);
+
+  // 6. Busca produtos se a mensagem pedir
   let produtosEncontrados: string | undefined;
   const textoParaBusca = contextoMidia || text;
 
   if (precisaBuscarProduto(textoParaBusca)) {
-    // Extrai termos principais para busca
-    const termoBusca = textoParaBusca
-      .replace(/[^\w\s]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .substring(0, 100);
+    // Enriquece a busca com contexto do histórico quando a mensagem é curta.
+    // Ex: cliente disse antes "disjuntor steck 125a" e agora diz "e da steck nao tem?"
+    // → combina os dois para buscar "disjuntor steck 125a e da steck nao tem"
+    let termoBusca = textoParaBusca.replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (termoBusca.split(/\s+/).length <= 5 && historico.length > 0) {
+      // Pega as últimas 4 mensagens do cliente para contexto adicional
+      const ctxCliente = historico
+        .filter(m => m.sender === 'contact')
+        .slice(-4)
+        .map(m => m.texto || '')
+        .filter(Boolean)
+        .join(' ');
+      if (ctxCliente) termoBusca = `${ctxCliente} ${termoBusca}`;
+    }
+    termoBusca = termoBusca.substring(0, 200);
     produtosEncontrados = await buscarProdutos(termoBusca);
     if (produtosEncontrados) {
-      console.log('[Isabela] Produtos encontrados para:', termoBusca);
+      console.log('[Isabela] Produtos encontrados para:', termoBusca.substring(0, 80));
+    } else {
+      console.log('[Isabela] Nenhum produto encontrado para:', termoBusca.substring(0, 80));
     }
   }
-
-  // 6. Carrega histórico
-  const historico = await carregarHistorico(remoteJid);
 
   // 7. Gera resposta com Gemini
   let resposta: string;
