@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { ListPlus, Loader2, Minus, Plus, Printer, Search, Trash2, X } from "lucide-react";
+import { ListPlus, Loader2, Minus, Plus, Printer, Search, SlidersHorizontal, Trash2, X } from "lucide-react";
+import { AjustesImpressoraEtiqueta } from "./AjustesImpressoraEtiqueta";
 import { useNotification } from "@/hooks/useNotification";
 import {
   definirImpressoraEtiquetaPreco,
@@ -20,7 +21,8 @@ import {
 // impressora da loja usa sempre rolo de 2 colunas: cada linha tem 2 etiquetas
 // lado a lado (a última pode sair com uma só). A impressão vai pelo servidor de
 // impressão local (src/lib/impressao-local.ts), sem a janela do Windows; o
-// servidor desenha o mesmo layout em PDF (etiquetas-main/etiqueta-preco.js).
+// servidor desenha o mesmo layout (etiquetas-main/etiqueta-preco-tspl.js). A
+// posição e a escuridão se ajustam em "Ajustar impressão" e ficam no Supabase.
 
 export interface ProdutoEtiqueta {
   cod: string;
@@ -107,6 +109,7 @@ export function EtiquetaPrecoModal({ produtos, filtrados, onClose }: Props) {
   const [servidorErro, setServidorErro] = useState<string | null>(null);
   const [impressora, setImpressora] = useState(impressoraEtiquetaPreco);
   const [imprimindo, setImprimindo] = useState(false);
+  const [ajustando, setAjustando] = useState(false);
 
   useEffect(() => {
     const esc = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
@@ -274,8 +277,17 @@ export function EtiquetaPrecoModal({ produtos, filtrados, onClose }: Props) {
 
             {/* Rolo e impressão */}
             <aside className="md:w-[380px] shrink-0 min-h-0 flex flex-col border-t md:border-t-0 md:border-l border-border bg-secondary/20">
-              <p className="px-5 pt-4 pb-3 text-[10px] font-black uppercase tracking-widest text-muted-foreground shrink-0">Pré-visualização do rolo</p>
+              <div className="px-5 pt-4 pb-3 flex items-center justify-between gap-2 shrink-0">
+                <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">{ajustando ? "Ajustar impressão" : "Pré-visualização do rolo"}</p>
+                <button
+                  onClick={() => setAjustando((v) => !v)}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold whitespace-nowrap ${ajustando ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-secondary"}`}
+                >
+                  <SlidersHorizontal className="w-3.5 h-3.5" /> {ajustando ? "Voltar" : "Ajustar impressão"}
+                </button>
+              </div>
               <div className="flex-1 min-h-[140px] overflow-y-auto px-5">
+                {ajustando ? <AjustesImpressoraEtiqueta impressora={impressora} /> : (
                 <div className="rounded-xl bg-slate-200 p-2.5 min-h-full">
                   {paginas.length === 0 ? (
                     <p className="text-[11px] text-slate-500 text-center py-10">As etiquetas aparecem aqui.</p>
@@ -293,6 +305,7 @@ export function EtiquetaPrecoModal({ produtos, filtrados, onClose }: Props) {
                     </div>
                   )}
                 </div>
+                )}
               </div>
               <div className="p-5 space-y-3 border-t border-border shrink-0">
                 <div className="flex items-center justify-between text-xs">
