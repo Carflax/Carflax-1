@@ -20,6 +20,20 @@ export function IsabelaConversaStatus({ remoteJid }: { remoteJid: string }) {
   const { showNotification } = useNotification();
   const [conversa, setConversa] = useState<IsabelaConversa | null>(null);
   const [salvando, setSalvando] = useState(false);
+  const [nomeVendedor, setNomeVendedor] = useState<string | null>(null);
+  const transferidaPara = conversa?.transferida_para ?? null;
+
+  useEffect(() => {
+    if (!transferidaPara) return;
+    let ativo = true;
+    supabase
+      .from("usuarios")
+      .select("name")
+      .eq("id", transferidaPara)
+      .maybeSingle()
+      .then(({ data }) => { if (ativo) setNomeVendedor(data?.name ?? null); });
+    return () => { ativo = false; };
+  }, [transferidaPara]);
 
   useEffect(() => {
     let ativo = true;
@@ -72,6 +86,7 @@ export function IsabelaConversaStatus({ remoteJid }: { remoteJid: string }) {
       <div className="min-w-0 flex-1">
         <p className="font-bold truncate">
           {TEXTOS[conversa.status]}
+          {conversa.status === "transferida" && transferidaPara && nomeVendedor ? ` (${nomeVendedor})` : ""}
           {conversa.status === "transferida" && conversa.motivo_transferencia ? `: ${conversa.motivo_transferencia}` : ""}
         </p>
         {conversa.ultimo_erro && atendendo && (

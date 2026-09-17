@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { Bot, Loader2, Plus, Save, X } from "lucide-react";
+import { Bot, Check, Loader2, Plus, Save, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useNotification } from "@/hooks/useNotification";
-import { carregarConfigIsabela, salvarConfigIsabela, type IsabelaConfig, type IsabelaConversa } from "@/lib/isabela";
+import { carregarConfigIsabela, listarVendedoresWhatsapp, salvarConfigIsabela, type IsabelaConfig, type IsabelaConversa, type VendedorWhatsapp } from "@/lib/isabela";
 import { formatBrDate, formatBrTime } from "@/lib/utils";
+import { IsabelaAprendizadoCard } from "./IsabelaAprendizadoCard";
 
 // Configuração da Isabela (atendente virtual) e as últimas conversas dela.
 // Lançamento em duas fases: "teste" responde só aos números cadastrados; "todos"
@@ -42,6 +43,7 @@ export function IsabelaConfigView({ autor, onAbrirConversa }: Props) {
   const [novoNumero, setNovoNumero] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [conversas, setConversas] = useState<ConversaLista[]>([]);
+  const [vendedores, setVendedores] = useState<VendedorWhatsapp[]>([]);
 
   useEffect(() => {
     carregarConfigIsabela()
@@ -51,11 +53,12 @@ export function IsabelaConfigView({ autor, onAbrirConversa }: Props) {
         setAtualizado({ por: atualizado_por, em: updated_at });
       })
       .catch((e: Error) => showNotification("error", "Isabela", e.message));
+    listarVendedoresWhatsapp().then(setVendedores).catch(() => setVendedores([]));
 
     (async () => {
       const { data } = await supabase
         .from("isabela_conversas")
-        .select("remote_jid, status, iniciada_em, transferida_em, motivo_transferencia, resumo, respostas, ultimo_erro, updated_at")
+        .select("remote_jid, status, iniciada_em, transferida_em, motivo_transferencia, transferida_para, resumo, respostas, ultimo_erro, updated_at")
         .order("updated_at", { ascending: false })
         .limit(30);
       const lista = (data || []) as ConversaLista[];
@@ -87,6 +90,10 @@ export function IsabelaConfigView({ autor, onAbrirConversa }: Props) {
   };
 
   const salvar = async () => {
+    if (config.ativo && config.vendedores_ids.length === 0) {
+      showNotification("error", "Escolha quem recebe", "Marque pelo menos um vendedor para receber as conversas que a Isabela transferir.");
+      return;
+    }
     if (config.ativo && config.modo === "teste" && config.numeros_teste.length === 0) {
       showNotification("error", "Cadastre um número de teste", "No modo teste a Isabela só responde aos números da lista.");
       return;
@@ -180,6 +187,41 @@ export function IsabelaConfigView({ autor, onAbrirConversa }: Props) {
             )}
           </div>
 
+          {/* Quem recebe as transferências */}
+          <div className="rounded-2xl border border-border bg-card p-4">
+            <span className={rotulo}>Quem recebe as conversas transferidas</span>
+            <p className="text-[11px] text-muted-foreground mb-3">
+              A conversa vai para quem tiver menos conversas abertas (não arquivadas, com movimento nos últimos 7 dias). Quem recebe é avisado no HUB.
+            </p>
+            <div className="grid sm:grid-cols-2 gap-1.5">
+              {vendedores.map((v) => {
+                const marcado = config.vendedores_ids.includes(v.id);
+                return (
+                  <button
+                    key={v.id}
+                    onClick={() =>
+                      setConfig({
+                        ...config,
+                        vendedores_ids: marcado ? config.vendedores_ids.filter((id) => id !== v.id) : [...config.vendedores_ids, v.id],
+                      })
+                    }
+                    className={`flex items-center gap-2.5 rounded-xl border px-3 py-2 text-left transition-colors ${marcado ? "border-violet-500 bg-violet-500/10" : "border-border hover:bg-secondary"}`}
+                  >
+                    {v.avatar ? (
+                      <img src={v.avatar} alt="" className="w-6 h-6 rounded-full object-cover shrink-0" />
+                    ) : (
+                      <span className="w-6 h-6 rounded-full bg-secondary flex items-center justify-center text-[10px] font-black shrink-0">{v.name.charAt(0)}</span>
+                    )}
+                    <span className="text-xs font-bold truncate flex-1">{v.name}</span>
+                    <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${marcado ? "bg-violet-500 border-violet-500 text-white" : "border-border"}`}>
+                      {marcado && <Check className="w-3 h-3" />}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="rounded-2xl border border-border bg-card p-4 space-y-4">
             <label className="block">
               <span className={rotulo}>O que ela precisa saber da loja</span>
@@ -216,6 +258,8 @@ export function IsabelaConfigView({ autor, onAbrirConversa }: Props) {
               {salvando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} {alterado ? "Salvar" : "Salvo"}
             </button>
           </div>
+
+          <IsabelaAprendizadoCard autor={autor} />
         </section>
 
         {/* Últimas conversas */}
@@ -235,7 +279,11 @@ export function IsabelaConfigView({ autor, onAbrirConversa }: Props) {
                   <span className={`shrink-0 px-1.5 py-0.5 rounded-md text-[10px] font-bold ${STATUS[c.status].cor}`}>{STATUS[c.status].rotulo}</span>
                 </div>
                 <p className="text-[11px] text-muted-foreground line-clamp-2">
-                  {c.ultimo_erro ? `Erro: ${c.ultimo_erro}` : c.motivo_transferencia || `${c.respostas} resposta${c.respostas === 1 ? "" : "s"}`}
+                  {c.ultimo_erro
+                    ? `Erro: ${c.ultimo_erro}`
+                    : c.motivo_transferencia
+                      ? `${vendedores.find((v) => v.id === c.transferida_para)?.name.split(" ")[0] ?? "Sem vendedor"} · ${c.motivo_transferencia}`
+                      : `${c.respostas} resposta${c.respostas === 1 ? "" : "s"}`}
                 </p>
               </button>
             ))

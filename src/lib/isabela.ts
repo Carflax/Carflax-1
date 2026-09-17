@@ -2,6 +2,7 @@
 // (db/src/lib/isabela); o HUB só configura e acompanha pelo Supabase.
 
 import { supabase } from "@/lib/supabase";
+import { apiPost } from "@/lib/api";
 
 export interface IsabelaConfig {
   ativo: boolean;
@@ -9,6 +10,8 @@ export interface IsabelaConfig {
   numeros_teste: string[];
   informacoes_loja: string;
   instrucoes_extras: string;
+  /** Vendedores que recebem as conversas transferidas (vai para quem tem menos abertas). */
+  vendedores_ids: string[];
   atualizado_por: string | null;
   updated_at: string;
 }
@@ -21,6 +24,7 @@ export interface IsabelaConversa {
   iniciada_em: string;
   transferida_em: string | null;
   motivo_transferencia: string | null;
+  transferida_para: string | null;
   resumo: string | null;
   respostas: number;
   ultimo_erro: string | null;
@@ -29,7 +33,7 @@ export interface IsabelaConversa {
 export async function carregarConfigIsabela(): Promise<IsabelaConfig> {
   const { data, error } = await supabase
     .from("isabela_config")
-    .select("ativo, modo, numeros_teste, informacoes_loja, instrucoes_extras, atualizado_por, updated_at")
+    .select("ativo, modo, numeros_teste, informacoes_loja, instrucoes_extras, vendedores_ids, atualizado_por, updated_at")
     .eq("id", 1)
     .single();
   if (error) throw new Error(`Não foi possível carregar a Isabela: ${error.message}`);
@@ -44,10 +48,30 @@ export async function salvarConfigIsabela(config: Omit<IsabelaConfig, "atualizad
   if (error) throw new Error(`Não foi possível salvar: ${error.message}`);
 }
 
+export interface VendedorWhatsapp {
+  id: string;
+  name: string;
+  avatar: string | null;
+}
+
+/** Mesmo critério da lista de atendentes do WhatsApp: permissão "Whatsapp API" ou admin/gerente/diretor. */
+export async function listarVendedoresWhatsapp(): Promise<VendedorWhatsapp[]> {
+  const { data, error } = await supabase.from("usuarios").select("id, name, avatar, permissions, is_admin, role").order("name");
+  if (error) throw new Error(error.message);
+  return (data || [])
+    .filter((u) => {
+      if (u.is_admin) return true;
+      const role = String(u.role || "").toUpperCase();
+      if (role === "ADMIN" || role.includes("GERENTE") || role.includes("DIRETOR")) return true;
+      return Array.isArray(u.permissions) && u.permissions.includes("Whatsapp API");
+    })
+    .map((u) => ({ id: String(u.id), name: u.name, avatar: u.avatar ?? null }));
+}
+
 export async function carregarConversaIsabela(remoteJid: string): Promise<IsabelaConversa | null> {
   const { data } = await supabase
     .from("isabela_conversas")
-    .select("remote_jid, status, iniciada_em, transferida_em, motivo_transferencia, resumo, respostas, ultimo_erro")
+    .select("remote_jid, status, iniciada_em, transferida_em, motivo_transferencia, transferida_para, resumo, respostas, ultimo_erro")
     .eq("remote_jid", remoteJid)
     .maybeSingle();
   return (data as IsabelaConversa | null) ?? null;
@@ -62,5 +86,58 @@ export async function mudarStatusIsabela(remoteJid: string, status: "pausada" | 
       { remote_jid: remoteJid, status, updated_at: agora, ...(status === "ativa" ? { iniciada_em: agora } : {}) },
       { onConflict: "remote_jid" },
     );
+  if (error) throw new Error(error.message);
+}
+
+// ─── Aprendizado com as conversas dos vendedores ─────────────────────────────
+
+export interface IsabelaAprendizado {
+  id: string;
+  status: "processando" | "rascunho" | "aprovado" | "descartado" | "erro";
+  conteudo: string | null;
+  conversas_venda: number;
+  conversas_sem_venda: number;
+  erro: string | null;
+  aprovado_por: string | null;
+  aprovado_em: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+const CAMPOS_APRENDIZADO =
+  "id, status, conteudo, conversas_venda, conversas_sem_venda, erro, aprovado_por, aprovado_em, created_at, updated_at";
+
+/** Guia em uso (aprovado mais recente) e a última análise ainda não resolvida. */
+export async function carregarAprendizados(): Promise<{ aprovado: IsabelaAprendizado | null; pendente: IsabelaAprendizado | null }> {
+  const [aprovado, pendente] = await Promise.all([
+    supabase.from("isabela_aprendizados").select(CAMPOS_APRENDIZADO).eq("status", "aprovado")
+      .order("aprovado_em", { ascending: false }).limit(1).maybeSingle(),
+    supabase.from("isabela_aprendizados").select(CAMPOS_APRENDIZADO).in("status", ["processando", "rascunho", "erro"])
+      .order("created_at", { ascending: false }).limit(1).maybeSingle(),
+  ]);
+  if (aprovado.error) throw new Error(aprovado.error.message);
+  if (pendente.error) throw new Error(pendente.error.message);
+  return { aprovado: aprovado.data as IsabelaAprendizado | null, pendente: pendente.data as IsabelaAprendizado | null };
+}
+
+/** Dispara a análise no backend (roda em segundo plano, 1–3 min). */
+export async function analisarConversasIsabela(autor: string | null) {
+  return apiPost<{ success: boolean; id: string; jaEmAndamento: boolean }>("/api/whatsapp/isabela/aprender", { autor });
+}
+
+export async function aprovarAprendizado(id: string, conteudo: string, autor: string | null) {
+  const agora = new Date().toISOString();
+  const { error } = await supabase
+    .from("isabela_aprendizados")
+    .update({ status: "aprovado", conteudo: conteudo.trim(), aprovado_por: autor, aprovado_em: agora, updated_at: agora })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+}
+
+export async function descartarAprendizado(id: string) {
+  const { error } = await supabase
+    .from("isabela_aprendizados")
+    .update({ status: "descartado", updated_at: new Date().toISOString() })
+    .eq("id", id);
   if (error) throw new Error(error.message);
 }
