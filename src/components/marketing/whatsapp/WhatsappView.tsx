@@ -4730,6 +4730,13 @@ export function WhatsappView({
       0,
     );
 
+    // Sempre 2 casas: o crédito é débito × 1,0467 e saía "R$ 7,054".
+    const reais = (v: number) =>
+      v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // Parcela mínima de R$ 100 e só até 3x sem juros (regra comercial): abaixo de
+    // R$ 200 não parcela — antes oferecia "3x de R$ 2,35" num item de R$ 7.
+    const parcelas = Math.min(3, Math.floor(totalCredito / 100));
+
     let text = `📦 *ORÇAMENTO:*\n`;
     text += `━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
     text += `📋 *ITENS DO PEDIDO:*\n\n`;
@@ -4740,20 +4747,20 @@ export function WhatsappView({
       text += `   ▫️ *Quantidade:* ${qty}\n`;
 
       if (qty > 1) {
-        text += `   ▫️ *Unitário:* R$ ${p.debito.toLocaleString("pt-BR", { minimumFractionDigits: 2 })} (Pix)\n`;
+        text += `   ▫️ *Unitário:* R$ ${reais(p.debito)} (Pix)\n`;
       }
 
-      text += `   ▫️ *Subtotal:* R$ ${(p.debito * qty).toLocaleString("pt-BR", { minimumFractionDigits: 2 })} (Pix)\n\n`;
+      text += `   ▫️ *Subtotal:* R$ ${reais(p.debito * qty)} (Pix)\n\n`;
     });
 
     text += `━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
     text += `💰 *VALORES TOTAIS:* \n\n`;
     text += `💵 *À VISTA (PIX/DÉBITO):*\n`;
-    text += `👉 *R$ ${totalDebito.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}*\n\n`;
+    text += `👉 *R$ ${reais(totalDebito)}*\n\n`;
 
     text += `💳 *CARTÃO DE CRÉDITO:*\n`;
-    text += `👉 *R$ ${totalCredito.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}*\n`;
-    text += `*(Ou 3x de R$ ${(totalCredito / 3).toLocaleString("pt-BR", { minimumFractionDigits: 2 })} s/ juros)*\n\n`;
+    text += `👉 *R$ ${reais(totalCredito)}*\n`;
+    text += parcelas >= 2 ? `*(Ou ${parcelas}x de R$ ${reais(totalCredito / parcelas)} s/ juros)*\n\n` : `\n`;
 
     text += `━━━━━━━━━━━━━━━━━━━━━━━━\n`;
     text += `⚠️ _Valores sujeitos a alteração de estoque._\n`;
