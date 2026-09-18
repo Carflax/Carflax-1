@@ -20,6 +20,7 @@ import {
   Archive,
   Filter,
   Bot,
+  Ban,
   ChevronDown,
   DollarSign,
   X,
@@ -47,7 +48,7 @@ import { evolutionApi } from "@/lib/evolution-v2";
 import { supabase } from "@/lib/supabase";
 import { marketingService } from "@/lib/marketing-service";
 import { cn, formatBrTime, formatBrDate } from "@/lib/utils";
-import { apiDashboardProdutos, apiGetLinkPreview, apiCrmOrcamentos, apiClientePorTelefone, apiBuscarClientesErp, apiSincronizarLeadErp } from "@/lib/api";
+import { apiDashboardProdutos, apiGetLinkPreview, apiCrmOrcamentos, apiClientePorTelefone, apiBuscarClientesErp, apiSincronizarLeadErp, apiBloquearContatoWhatsapp } from "@/lib/api";
 import type { ClienteErp, ClienteErpBusca } from "@/lib/api";
 import { parseOrcamentoPdf } from "@/lib/pdf-orcamento";
 import { transcribeAudio, classifyByRules } from "@/lib/gemini-service";
@@ -2612,6 +2613,28 @@ export function WhatsappView({
     marketingService
       .toggleArchived(targetId, true, finalReason, finalPayment, finalObs, userProfile?.id)
       .catch((err) => console.error("Erro ao arquivar chat:", err));
+  };
+
+  // Bloqueio na Meta (só número oficial): o contato não consegue mais mandar
+  // mensagem. Para cobrança/robô que escreve todo dia e cai no SLA do time.
+  const handleBloquearChat = async () => {
+    const chat = selectedChat;
+    if (!chat) return;
+    if (
+      !window.confirm(
+        `Bloquear ${chat.name}? Ele não vai conseguir mais mandar mensagem para o número da Carflax e a conversa sai da lista.`,
+      )
+    )
+      return;
+    try {
+      const r = await apiBloquearContatoWhatsapp(chat.id);
+      if (!r?.success) throw new Error(r?.message || "Falha ao bloquear");
+      setChats((prev) => prev.filter((c) => c.id !== chat.id));
+      if (selectedChatRef.current?.id === chat.id) setSelectedChat(null);
+      showNotification("success", "Contato bloqueado", `${chat.name} não consegue mais mandar mensagem.`);
+    } catch (err) {
+      showNotification("error", "Não foi possível bloquear", (err as Error).message);
+    }
   };
 
   const handleUnarchiveChat = async () => {
@@ -6580,6 +6603,15 @@ export function WhatsappView({
                     className="w-4 h-4 object-contain opacity-70 group-hover:opacity-100 transition-opacity"
                   />
                 </button>
+                )}
+                {isabelaDisponivel && podeConfigurarIsabela && (
+                  <button
+                    onClick={handleBloquearChat}
+                    className="p-2.5 hover:bg-secondary rounded-xl text-muted-foreground hover:text-rose-500 transition-colors"
+                    title="Bloquear contato (cobrança, spam): ele não consegue mais mandar mensagem"
+                  >
+                    <Ban className="w-4 h-4" />
+                  </button>
                 )}
                 {viewMode === "active" ? (
                   <button

@@ -77,8 +77,18 @@ export async function carregarConversaIsabela(remoteJid: string): Promise<Isabel
   return (data as IsabelaConversa | null) ?? null;
 }
 
+/**
+ * Coloca a Isabela na conversa (ou reativa). Vai pelo backend, e não direto no
+ * Supabase, para ela já responder a mensagem do cliente que estiver esperando.
+ */
+export async function ativarIsabela(remoteJid: string) {
+  const r = await apiPost<{ success: boolean; message?: string }>("/api/whatsapp/isabela/ativar", { remoteJid });
+  if (!r?.success) throw new Error(r?.message || "Falha ao ativar a Isabela");
+}
+
 /** Pausar tira a Isabela da conversa; reativar recomeça a contagem de "vendedor respondeu" a partir de agora. */
 export async function mudarStatusIsabela(remoteJid: string, status: "pausada" | "ativa") {
+  if (status === "ativa") return ativarIsabela(remoteJid);
   const agora = new Date().toISOString();
   const { error } = await supabase
     .from("isabela_conversas")

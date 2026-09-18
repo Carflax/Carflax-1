@@ -10,6 +10,7 @@ import {
   Thermometer,
   User,
   ChevronDown,
+  Bot,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { apiCrmOrcamentos } from "@/lib/api";
@@ -44,6 +45,14 @@ const ETAPA_IDS = new Set<string>(ETAPAS.map((e) => e.id));
 
 /** Valor do filtro para "conversa que ainda não tem dono". */
 const SEM_ATENDENTE = "__sem__";
+
+/**
+ * Valor do filtro para as conversas que a Isabela (IA) está atendendo.
+ *
+ * Ela não é usuária — responde com `vendedor_id` nulo — então sem isto o lead
+ * que ela está conversando caía em "Sem atendente" e parecia abandonado.
+ */
+const ISABELA = "__isabela__";
 
 /** Começo do dia de hoje, no fuso local. */
 function inicioDeHoje(): Date {
@@ -113,6 +122,8 @@ export function etapaDoCliente(
     data_venda?: string | null;
   },
   statusErp?: Map<string, StatusErp>,
+  /** A Isabela está respondendo esta conversa agora (isabela_conversas.status = 'ativa'). */
+  comIsabela = false,
 ): EtapaId {
   const doc = String(c.orcamento_documento || "").trim();
   const erp = doc ? statusErp?.get(doc) : undefined;
@@ -134,7 +145,7 @@ export function etapaDoCliente(
   if (vendeuHoje) return "GANHO";
   if (erp === "PERDIDO" || c.temperatura === "Perdido") return "PERDIDO";
   if (c.valor_orcamento != null) return "ORCAMENTO";
-  if (c.vendedor_id) return "ATENDIMENTO";
+  if (c.vendedor_id || comIsabela) return "ATENDIMENTO";
   return "NOVO";
 }
 
@@ -238,6 +249,20 @@ export function FunilView({
   const [atendentes, setAtendentes] = useState<
     Map<string, { nome: string; avatar: string | null }>
   >(new Map());
+  // Conversas em que a Isabela está ativa. Só 'ativa' conta: transferida e
+  // assumida já têm vendedor, pausada é ela desligada à mão.
+  const [comIsabela, setComIsabela] = useState<Set<string>>(new Set());
+
+  /** Dono do card: vendedor gravado vence; senão a Isabela, se estiver ativa. */
+  const donoDe = useCallback(
+    (c: ClienteFunil) =>
+      c.vendedor_id
+        ? String(c.vendedor_id)
+        : comIsabela.has(c.remote_jid)
+          ? ISABELA
+          : SEM_ATENDENTE,
+    [comIsabela],
+  );
 
   // `silencioso` = recarga vinda do realtime: atualiza sem acender o spinner
   // nem esvaziar as colunas, senão o quadro pisca a cada mensagem que chega.
@@ -288,6 +313,14 @@ export function FunilView({
     } else {
       const lista = (data || []) as ClienteFunil[];
       setClientes(lista);
+
+      supabase
+        .from("isabela_conversas")
+        .select("remote_jid")
+        .eq("status", "ativa")
+        .then(({ data: ativas }) =>
+          setComIsabela(new Set((ativas || []).map((r) => String(r.remote_jid)))),
+        );
 
       // O ERP é consultado depois e em separado: se ele estiver fora do ar, o
       // quadro já apareceu com a derivação local em vez de ficar preso no
@@ -390,6 +423,12 @@ export function FunilView({
           { event: "INSERT", schema: "public", table: "marketing_whatsapp" },
           agendarRecarga,
         )
+        // Isabela transferindo/sendo pausada muda o dono do card.
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "isabela_conversas" },
+          agendarRecarga,
+        )
         .subscribe((status) => {
           // Sem tratar o status o canal morre calado e o quadro congela sem
           // ninguém perceber — foi o que já aconteceu na tela de conversas.
@@ -424,13 +463,13 @@ export function FunilView({
   const opcoesAtendente = useMemo(() => {
     const contagem = new Map<string, number>();
     for (const c of clientes) {
-      const chave = c.vendedor_id ? String(c.vendedor_id) : SEM_ATENDENTE;
+      const chave = donoDe(c);
       contagem.set(chave, (contagem.get(chave) || 0) + 1);
     }
 
     const eu = usuarioId ? String(usuarioId) : null;
     const lista = [...contagem.entries()]
-      .filter(([id]) => id !== SEM_ATENDENTE && id !== eu)
+      .filter(([id]) => id !== SEM_ATENDENTE && id !== ISABELA && id !== eu)
       .map(([id, total]) => ({
         id,
         nome: atendentes.get(id)?.nome || "Atendente",
@@ -449,19 +488,28 @@ export function FunilView({
       });
     }
 
+    // Isabela logo depois de quem está olhando: é o que o gestor procura para
+    // acompanhar a IA, e fica sempre no menu (mesmo zerada) para não parecer
+    // que ela sumiu quando não há conversa com ela no momento.
+    lista.splice(eu ? 1 : 0, 0, {
+      id: ISABELA,
+      nome: "Isabela (IA)",
+      total: contagem.get(ISABELA) || 0,
+    });
+
     const semDono = contagem.get(SEM_ATENDENTE) || 0;
     if (semDono > 0) {
       lista.push({ id: SEM_ATENDENTE, nome: "Sem atendente", total: semDono });
     }
     return lista;
-  }, [clientes, atendentes, usuarioId]);
+  }, [clientes, atendentes, usuarioId, donoDe]);
 
   const porEtapa = useMemo(() => {
     const termo = busca.trim().toLowerCase();
     const mapa = new Map<EtapaId, ClienteFunil[]>(ETAPAS.map((e) => [e.id, []]));
     for (const c of clientes) {
       if (filtroAtendente) {
-        const dono = c.vendedor_id ? String(c.vendedor_id) : SEM_ATENDENTE;
+        const dono = donoDe(c);
         // Lead sem atendente aparece em QUALQUER filtro (menos no filtro
         // "Sem atendente" propriamente, que já bate certo por igualdade):
         // ele é de todo mundo até alguém pegar, e escondê-lo atrás do filtro
@@ -472,14 +520,15 @@ export function FunilView({
         const alvo = `${c.nome || ""} ${c.push_name || ""} ${c.remote_jid}`.toLowerCase();
         if (!alvo.includes(termo)) continue;
       }
-      mapa.get(etapaDoCliente(c, statusErp))!.push(c);
+      mapa.get(etapaDoCliente(c, statusErp, comIsabela.has(c.remote_jid)))!.push(c);
     }
     return mapa;
-  }, [clientes, busca, filtroAtendente, statusErp]);
+  }, [clientes, busca, filtroAtendente, statusErp, donoDe, comIsabela]);
 
   const mover = async (clienteId: string, destino: EtapaId) => {
     const atual = clientes.find((c) => c.id === clienteId);
-    if (!atual || etapaDoCliente(atual, statusErp) === destino) return;
+    if (!atual || etapaDoCliente(atual, statusErp, comIsabela.has(atual.remote_jid)) === destino)
+      return;
 
     // Otimista: o card salta na hora e volta sozinho se o banco recusar.
     const anterior = atual.funil_etapa;
@@ -740,6 +789,19 @@ export function FunilView({
                                 inteiro não dava para saber de quem é o card sem
                                 abrir a conversa. */}
                             {(() => {
+                              if (!c.vendedor_id && comIsabela.has(c.remote_jid)) {
+                                return (
+                                  <span
+                                    className="flex items-center gap-1 min-w-0 pl-1 pr-1.5 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/20"
+                                    title="Atendido pela Isabela (IA)"
+                                  >
+                                    <Bot className="w-3 h-3 text-violet-500 shrink-0" />
+                                    <span className="text-[8px] font-black uppercase tracking-wide text-violet-600 dark:text-violet-400 truncate">
+                                      Isabela
+                                    </span>
+                                  </span>
+                                );
+                              }
                               const op = c.vendedor_id
                                 ? atendentes.get(String(c.vendedor_id))
                                 : undefined;

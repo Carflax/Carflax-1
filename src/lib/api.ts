@@ -71,6 +71,10 @@ async function post<T>(path: string, body: unknown, options?: RequestInit): Prom
  */
 export const apiPost = <T>(path: string, body: unknown): Promise<T> => post<T>(path, body);
 
+/** Bloqueia (ou desbloqueia) o contato no número oficial do WhatsApp (Meta Block Users API). */
+export const apiBloquearContatoWhatsapp = (remoteJid: string, desbloquear = false) =>
+  post<{ success: boolean; message?: string }>("/api/whatsapp/bloquear", { remoteJid, desbloquear });
+
 // ── Vendedores & Metas ────────────────────────────────────────────────────────
 
 export interface VendedorResumo {

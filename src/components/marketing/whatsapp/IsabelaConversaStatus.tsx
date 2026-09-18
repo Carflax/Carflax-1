@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Bot, Loader2, Pause, Play } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useNotification } from "@/hooks/useNotification";
-import { carregarConversaIsabela, mudarStatusIsabela, type IsabelaConversa } from "@/lib/isabela";
+import { ativarIsabela, carregarConversaIsabela, mudarStatusIsabela, type IsabelaConversa } from "@/lib/isabela";
 
 // Faixa no topo da conversa quando a Isabela participou dela: mostra se ela está
 // atendendo, se transferiu (e por quê) ou se foi pausada, e deixa pausar/reativar.
@@ -59,7 +59,34 @@ export function IsabelaConversaStatus({ remoteJid }: { remoteJid: string }) {
     };
   }, [remoteJid]);
 
-  if (!conversa) return null;
+  // Conversa em que ela nunca entrou: faixa discreta só com o botão para ativar.
+  if (!conversa) {
+    const ativar = async () => {
+      if (!window.confirm("Ativar a Isabela nesta conversa? Ela passa a responder o cliente até um vendedor escrever de novo.")) return;
+      setSalvando(true);
+      try {
+        await ativarIsabela(remoteJid);
+        setConversa(await carregarConversaIsabela(remoteJid));
+      } catch (e) {
+        showNotification("error", "Não foi possível ativar a Isabela", (e as Error).message);
+      } finally {
+        setSalvando(false);
+      }
+    };
+    return (
+      <div className="shrink-0 flex items-center justify-end gap-2 px-4 py-1 border-b border-border bg-secondary/30 text-[10px]">
+        <button
+          onClick={ativar}
+          disabled={salvando}
+          className="flex items-center gap-1.5 px-2 py-0.5 rounded-md text-muted-foreground hover:text-violet-500 hover:bg-violet-500/10 font-bold whitespace-nowrap disabled:opacity-50 transition-colors"
+          title="A Isabela passa a responder esta conversa"
+        >
+          {salvando ? <Loader2 className="w-3 h-3 animate-spin" /> : <Bot className="w-3 h-3" />}
+          Ativar Isabela
+        </button>
+      </div>
+    );
+  }
 
   const alternar = async () => {
     const novo = conversa.status === "ativa" ? "pausada" : "ativa";
