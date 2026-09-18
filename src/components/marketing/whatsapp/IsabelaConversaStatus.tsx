@@ -10,10 +10,10 @@ import { ativarIsabela, carregarConversaIsabela, mudarStatusIsabela, type Isabel
 // mensagem do vendedor), então "Pausar" serve para quem só quer ler antes.
 
 const TEXTOS: Record<IsabelaConversa["status"], string> = {
-  ativa: "Isabela está atendendo esta conversa",
-  transferida: "Isabela passou esta conversa para atendimento",
+  ativa: "Carlinhos está atendendo esta conversa",
+  transferida: "Carlinhos passou esta conversa para atendimento",
   assumida: "Um vendedor assumiu esta conversa",
-  pausada: "Isabela pausada nesta conversa",
+  pausada: "Carlinhos pausado nesta conversa",
 };
 
 export function IsabelaConversaStatus({ remoteJid }: { remoteJid: string }) {
@@ -62,13 +62,13 @@ export function IsabelaConversaStatus({ remoteJid }: { remoteJid: string }) {
   // Conversa em que ela nunca entrou: faixa discreta só com o botão para ativar.
   if (!conversa) {
     const ativar = async () => {
-      if (!window.confirm("Ativar a Isabela nesta conversa? Ela passa a responder o cliente até um vendedor escrever de novo.")) return;
+      if (!window.confirm("Ativar o Carlinhos nesta conversa? Ele passa a responder o cliente até um vendedor escrever de novo.")) return;
       setSalvando(true);
       try {
         await ativarIsabela(remoteJid);
         setConversa(await carregarConversaIsabela(remoteJid));
       } catch (e) {
-        showNotification("error", "Não foi possível ativar a Isabela", (e as Error).message);
+        showNotification("error", "Não foi possível ativar o Carlinhos", (e as Error).message);
       } finally {
         setSalvando(false);
       }
@@ -79,10 +79,10 @@ export function IsabelaConversaStatus({ remoteJid }: { remoteJid: string }) {
           onClick={ativar}
           disabled={salvando}
           className="flex items-center gap-1.5 px-2 py-0.5 rounded-md text-muted-foreground hover:text-violet-500 hover:bg-violet-500/10 font-bold whitespace-nowrap disabled:opacity-50 transition-colors"
-          title="A Isabela passa a responder esta conversa"
+          title="O Carlinhos passa a responder esta conversa"
         >
           {salvando ? <Loader2 className="w-3 h-3 animate-spin" /> : <Bot className="w-3 h-3" />}
-          Ativar Isabela
+          Ativar Carlinhos
         </button>
       </div>
     );
@@ -95,7 +95,7 @@ export function IsabelaConversaStatus({ remoteJid }: { remoteJid: string }) {
       await mudarStatusIsabela(remoteJid, novo);
       setConversa({ ...conversa, status: novo });
     } catch (e) {
-      showNotification("error", "Não foi possível alterar a Isabela", (e as Error).message);
+      showNotification("error", "Não foi possível alterar o Carlinhos", (e as Error).message);
     } finally {
       setSalvando(false);
     }
@@ -124,7 +124,7 @@ export function IsabelaConversaStatus({ remoteJid }: { remoteJid: string }) {
         onClick={alternar}
         disabled={salvando}
         className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-border bg-background hover:bg-secondary font-bold whitespace-nowrap disabled:opacity-50"
-        title={atendendo ? "A Isabela para de responder esta conversa" : "A Isabela volta a responder esta conversa"}
+        title={atendendo ? "O Carlinhos para de responder esta conversa" : "O Carlinhos volta a responder esta conversa"}
       >
         {salvando ? <Loader2 className="w-3 h-3 animate-spin" /> : atendendo ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
         {atendendo ? "Pausar" : "Reativar"}

@@ -120,7 +120,7 @@ interface LinkPreview {
 }
 
 /** Autora das mensagens enviadas pela atendente virtual (marketing_whatsapp.autor). */
-const AUTORA_ISABELA = { id: "isabela", name: "Isabela", avatar: undefined as string | undefined };
+const AUTORA_ISABELA = { id: "isabela", name: "Carlinhos", avatar: undefined as string | undefined };
 
 interface Message {
   id: string;
@@ -6130,7 +6130,7 @@ export function WhatsappView({
                 <button
                   onClick={() => setShowIsabela(true)}
                   className="p-2 hover:bg-secondary rounded-xl transition-colors relative"
-                  title="Isabela (atendente virtual)"
+                  title="Carlinhos (atendente virtual)"
                 >
                   <Bot className="w-4 h-4 text-muted-foreground hover:text-primary transition-colors" />
                 </button>
@@ -6239,10 +6239,10 @@ export function WhatsappView({
                       {!chat.vendedor_id && isabelaAtivas.has(chat.id) && (
                         <span
                           className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tight shrink-0 border flex items-center gap-1 bg-violet-500/10 text-violet-500 border-violet-500/20"
-                          title="Atendido pela Isabela (IA)"
+                          title="Atendido pelo Carlinhos (IA)"
                         >
                           <Bot className="w-3 h-3 shrink-0" />
-                          <span>Isabela</span>
+                          <span>Carlinhos</span>
                         </span>
                       )}
                       {chat.vendedor_id && (
@@ -6865,7 +6865,7 @@ export function WhatsappView({
                         msg.vendedorId === vendedorId ||
                         msg.sender === "me";
                       const senderName = msg.autor === "isabela"
-                        ? "Isabela"
+                        ? "Carlinhos"
                         : op
                         ? op.name
                         : isMe

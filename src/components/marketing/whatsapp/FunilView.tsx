@@ -493,7 +493,7 @@ export function FunilView({
     // que ela sumiu quando não há conversa com ela no momento.
     lista.splice(eu ? 1 : 0, 0, {
       id: ISABELA,
-      nome: "Isabela (IA)",
+      nome: "Carlinhos (IA)",
       total: contagem.get(ISABELA) || 0,
     });
 
@@ -793,11 +793,11 @@ export function FunilView({
                                 return (
                                   <span
                                     className="flex items-center gap-1 min-w-0 pl-1 pr-1.5 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/20"
-                                    title="Atendido pela Isabela (IA)"
+                                    title="Atendido pelo Carlinhos (IA)"
                                   >
                                     <Bot className="w-3 h-3 text-violet-500 shrink-0" />
                                     <span className="text-[8px] font-black uppercase tracking-wide text-violet-600 dark:text-violet-400 truncate">
-                                      Isabela
+                                      Carlinhos
                                     </span>
                                   </span>
                                 );

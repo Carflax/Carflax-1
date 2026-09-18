@@ -36,7 +36,7 @@ export async function carregarConfigIsabela(): Promise<IsabelaConfig> {
     .select("ativo, modo, numeros_teste, informacoes_loja, instrucoes_extras, vendedores_ids, atualizado_por, updated_at")
     .eq("id", 1)
     .single();
-  if (error) throw new Error(`Não foi possível carregar a Isabela: ${error.message}`);
+  if (error) throw new Error(`Não foi possível carregar o Carlinhos: ${error.message}`);
   return data as IsabelaConfig;
 }
 
@@ -83,7 +83,7 @@ export async function carregarConversaIsabela(remoteJid: string): Promise<Isabel
  */
 export async function ativarIsabela(remoteJid: string) {
   const r = await apiPost<{ success: boolean; message?: string }>("/api/whatsapp/isabela/ativar", { remoteJid });
-  if (!r?.success) throw new Error(r?.message || "Falha ao ativar a Isabela");
+  if (!r?.success) throw new Error(r?.message || "Falha ao ativar o Carlinhos");
 }
 
 /** Pausar tira a Isabela da conversa; reativar recomeça a contagem de "vendedor respondeu" a partir de agora. */

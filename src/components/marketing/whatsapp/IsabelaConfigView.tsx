@@ -52,7 +52,7 @@ export function IsabelaConfigView({ autor, onAbrirConversa }: Props) {
         setOriginal(JSON.stringify(resto));
         setAtualizado({ por: atualizado_por, em: updated_at });
       })
-      .catch((e: Error) => showNotification("error", "Isabela", e.message));
+      .catch((e: Error) => showNotification("error", "Carlinhos", e.message));
     listarVendedoresWhatsapp().then(setVendedores).catch(() => setVendedores([]));
 
     (async () => {
@@ -91,11 +91,11 @@ export function IsabelaConfigView({ autor, onAbrirConversa }: Props) {
 
   const salvar = async () => {
     if (config.ativo && config.vendedores_ids.length === 0) {
-      showNotification("error", "Escolha quem recebe", "Marque pelo menos um vendedor para receber as conversas que a Isabela transferir.");
+      showNotification("error", "Escolha quem recebe", "Marque pelo menos um vendedor para receber as conversas que o Carlinhos transferir.");
       return;
     }
     if (config.ativo && config.modo === "teste" && config.numeros_teste.length === 0) {
-      showNotification("error", "Cadastre um número de teste", "No modo teste a Isabela só responde aos números da lista.");
+      showNotification("error", "Cadastre um número de teste", "No modo teste o Carlinhos só responde aos números da lista.");
       return;
     }
     setSalvando(true);
@@ -103,7 +103,7 @@ export function IsabelaConfigView({ autor, onAbrirConversa }: Props) {
       await salvarConfigIsabela(config, autor);
       setOriginal(JSON.stringify(config));
       setAtualizado({ por: autor, em: new Date().toISOString() });
-      showNotification("success", "Isabela atualizada", config.ativo ? (config.modo === "todos" ? "Atendendo todos os leads novos." : "Respondendo só aos números de teste.") : "Desligada.");
+      showNotification("success", "Carlinhos atualizado", config.ativo ? (config.modo === "todos" ? "Atendendo todos os leads novos." : "Respondendo só aos números de teste.") : "Desligada.");
     } catch (e) {
       showNotification("error", "Erro ao salvar", (e as Error).message);
     } finally {
@@ -120,7 +120,7 @@ export function IsabelaConfigView({ autor, onAbrirConversa }: Props) {
           <div className="flex items-center gap-3">
             <div className="w-11 h-11 rounded-2xl bg-violet-500/15 text-violet-500 flex items-center justify-center"><Bot className="w-5 h-5" /></div>
             <div className="flex-1">
-              <h2 className="text-base font-black tracking-tight">Isabela · atendente virtual</h2>
+              <h2 className="text-base font-black tracking-tight">Carlinhos · atendente virtual</h2>
               <p className="text-xs text-muted-foreground">Atende o lead novo, consulta preço e estoque no ERP, monta o pré-orçamento e passa para o vendedor.</p>
             </div>
           </div>

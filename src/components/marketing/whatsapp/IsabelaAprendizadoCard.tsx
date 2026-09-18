@@ -45,7 +45,7 @@ export function IsabelaAprendizadoCard({ autor }: { autor: string | null }) {
     const timer = setInterval(() => {
       recarregar()
         .then((p) => {
-          if (p?.status === "rascunho") showNotification("success", "Guia pronto", "Revise o texto e aprove para a Isabela usar.");
+          if (p?.status === "rascunho") showNotification("success", "Guia pronto", "Revise o texto e aprove para o Carlinhos usar.");
           if (p?.status === "erro") showNotification("error", "A análise falhou", p.erro || "Tente de novo.");
         })
         .catch(() => null);
@@ -71,7 +71,7 @@ export function IsabelaAprendizadoCard({ autor }: { autor: string | null }) {
     try {
       await aprovarAprendizado(ultimo.id, texto, autor);
       await recarregar();
-      showNotification("success", "Guia aprovado", "A Isabela já passa a atender com ele.");
+      showNotification("success", "Guia aprovado", "O Carlinhos já passa a atender com ele.");
     } catch (e) {
       showNotification("error", "Erro ao aprovar", (e as Error).message);
     } finally {
@@ -129,7 +129,7 @@ export function IsabelaAprendizadoCard({ autor }: { autor: string | null }) {
             </button>
           </div>
         ) : (
-          <span className="text-muted-foreground">Nenhum guia aprovado: a Isabela atende só com o comportamento padrão.</span>
+          <span className="text-muted-foreground">Nenhum guia aprovado: o Carlinhos atende só com o comportamento padrão.</span>
         )}
         {verAprovado && aprovado?.conteudo && (
           <p className="mt-2 whitespace-pre-wrap text-[11px] leading-relaxed max-h-72 overflow-y-auto">{aprovado.conteudo}</p>
