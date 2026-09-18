@@ -1513,6 +1513,33 @@ export function WhatsappView({
   const [showCadastroErp, setShowCadastroErp] = useState(false);
   // "/cad": IA lê a conversa e monta o cadastro do cliente para a Citel.
   const [showCadastroIa, setShowCadastroIa] = useState(false);
+  // Conversas em que a Isabela está respondendo agora: ganham o selo "Isabela"
+  // na lista, no lugar onde aparece o atendente. Ela não tem vendedor_id, então
+  // sem isto o lead que ela atende parecia sem ninguém.
+  const [isabelaAtivas, setIsabelaAtivas] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!isabelaDisponivel) return;
+    let vivo = true;
+    const carregar = () =>
+      supabase
+        .from("isabela_conversas")
+        .select("remote_jid")
+        .eq("status", "ativa")
+        .then(({ data }) => {
+          if (vivo) setIsabelaAtivas(new Set((data || []).map((r) => String(r.remote_jid))));
+        });
+    carregar();
+    const canal = supabase
+      .channel(`isabela-lista-${Date.now()}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "isabela_conversas" }, () => carregar())
+      .subscribe((status) => {
+        if (status === "CHANNEL_ERROR" || status === "TIMED_OUT") carregar();
+      });
+    return () => {
+      vivo = false;
+      supabase.removeChannel(canal);
+    };
+  }, [isabelaDisponivel]);
   const [cadastroErp, setCadastroErp] = useState<ClienteErp | null>(null);
   const [cadastroErpLoading, setCadastroErpLoading] = useState(false);
   // Vínculo manual: busca de cadastro no ERP por nome/CNPJ, para os casos em que
@@ -6208,6 +6235,15 @@ export function WhatsappView({
                       </span>
                       {chat.fixado && (
                         <Pin className="w-3 h-3 text-primary rotate-45 shrink-0" />
+                      )}
+                      {!chat.vendedor_id && isabelaAtivas.has(chat.id) && (
+                        <span
+                          className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-tight shrink-0 border flex items-center gap-1 bg-violet-500/10 text-violet-500 border-violet-500/20"
+                          title="Atendido pela Isabela (IA)"
+                        >
+                          <Bot className="w-3 h-3 shrink-0" />
+                          <span>Isabela</span>
+                        </span>
                       )}
                       {chat.vendedor_id && (
                         <span
