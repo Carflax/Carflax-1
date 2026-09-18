@@ -30,7 +30,7 @@ import { ColetorView } from "@/components/coletor/ColetorView";
 import { SeparacaoView, ConferenciaView } from "@/components/estoque/ExpedicaoView";
 import { RetiradaView } from "@/components/estoque/RetiradaView";
 import { FurosView } from "@/components/estoque/FurosView";
-import { ComprasView } from "@/components/compras/ComprasView";
+import { ProdutosComprasView } from "@/components/compras/ProdutosComprasView";
 import { RelatoriosComprasView } from "@/components/compras/RelatoriosComprasView";
 import { RelatoriosEstoqueView } from "@/components/estoque/RelatoriosEstoqueView";
 import { SalaCabosView } from "@/components/estoque/salacabos/SalaCabosView";
@@ -1549,7 +1549,7 @@ function DashboardContent({
           ) : ["RH", "Triagem"].includes(activeItem) ? (
             <RhView activeTab={activeItem} userProfile={userProfile || undefined} />
           ) : activeItem === "Compras" ? (
-            <ComprasView />
+            <ProdutosComprasView />
           ) : activeItem === "Relatórios Compras" ? (
             <RelatoriosComprasView />
           ) : activeItem === "Usuários" ? (

@@ -95,7 +95,8 @@ export const NAV_SECTIONS: NavSection[] = [
     label: "Compras",
     permGroup: "COMPRAS",
     subItems: [
-      { label: "Painel", value: "Compras" },
+      // value "Compras" mantido: é a chave de permissão já gravada nos usuários.
+      { label: "Produtos", value: "Compras" },
       { label: "Relatórios", value: "Relatórios Compras" },
     ],
   },
