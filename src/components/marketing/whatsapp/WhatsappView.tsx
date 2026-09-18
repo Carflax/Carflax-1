@@ -58,6 +58,7 @@ import { ArchiveApprovalModal } from "./ArchiveApprovalModal";
 import { FunilView } from "./FunilView";
 import { IsabelaConfigView } from "./IsabelaConfigView";
 import { IsabelaConversaStatus } from "./IsabelaConversaStatus";
+import { CadastroIaModal } from "./CadastroIaModal";
 import { GravadorAudio } from "./GravadorAudio";
 import {
   cancelarPedidoPendente,
@@ -1510,6 +1511,8 @@ export function WhatsappView({
   const [loading, setLoading] = useState(true);
   // Cadastro do cliente no ERP (casado pelo telefone da conversa).
   const [showCadastroErp, setShowCadastroErp] = useState(false);
+  // "/cad": IA lê a conversa e monta o cadastro do cliente para a Citel.
+  const [showCadastroIa, setShowCadastroIa] = useState(false);
   const [cadastroErp, setCadastroErp] = useState<ClienteErp | null>(null);
   const [cadastroErpLoading, setCadastroErpLoading] = useState(false);
   // Vínculo manual: busca de cadastro no ERP por nome/CNPJ, para os casos em que
@@ -3955,6 +3958,12 @@ export function WhatsappView({
       handleSendStoreLocation();
       return;
     }
+    // /cad: não envia nada ao cliente — abre o cadastro preenchido pela IA.
+    if (trimmedCmd === "/cad" || trimmedCmd === "/cadastro") {
+      setInputText("");
+      setShowCadastroIa(true);
+      return;
+    }
 
     const textToSend = inputText;
     setInputText("");
@@ -5285,6 +5294,14 @@ export function WhatsappView({
       {/* Modals */}
 
       {/* Cadastro do cliente no ERP */}
+      {showCadastroIa && selectedChat && (
+        <CadastroIaModal
+          remoteJid={selectedChat.id}
+          codigoOperadorLogado={userProfile?.operator_code || userProfile?.operatorCode}
+          onClose={() => setShowCadastroIa(false)}
+          onVincular={vincularCadastroErp}
+        />
+      )}
       {showCadastroErp && (
         <div
           className="absolute inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
@@ -8219,6 +8236,11 @@ export function WhatsappView({
                           // Ao digitar /end ou /endereco, dispara direto o card com a foto da fachada
                           setInputText("");
                           handleSendStoreLocation();
+                          return;
+                        } else if (trimmed === "/cad") {
+                          // Abre o cadastro na Citel preenchido pela IA — nada vai ao cliente.
+                          setInputText("");
+                          setShowCadastroIa(true);
                           return;
                         }
                       }
