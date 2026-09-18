@@ -86,6 +86,9 @@ self.addEventListener('fetch', (event) => {
 // ── Web Push (mantido) ───────────────────────────────────────────────────────
 self.addEventListener('push', (event) => {
   const data = event.data?.json() ?? {};
+  // `urgente` (cliente que o Carlinhos passou para o vendedor): o aviso não some
+  // sozinho, vibra no celular e tem botão para abrir a conversa.
+  const urgente = !!data.urgente;
   event.waitUntil(
     self.registration.showNotification(data.title || '💬 Nova mensagem', {
       body: data.body || '',
@@ -93,7 +96,10 @@ self.addEventListener('push', (event) => {
       badge: '/favicon.png',
       tag: data.tag || 'carflax-push',
       renotify: true,
-      data: { section: data.section || 'Marketing', documento: data.documento },
+      requireInteraction: urgente,
+      vibrate: urgente ? [300, 100, 300, 100, 300] : undefined,
+      actions: urgente ? [{ action: 'abrir', title: 'Abrir conversa' }] : undefined,
+      data: { section: data.section || 'Marketing', documento: data.documento, remote_jid: data.remote_jid },
     })
   );
 });
@@ -102,6 +108,7 @@ self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const section = event.notification.data?.section || 'Marketing';
   const documento = event.notification.data?.documento;
+  const remoteJid = event.notification.data?.remote_jid;
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
@@ -111,6 +118,9 @@ self.addEventListener('notificationclick', (event) => {
           client.postMessage({ type: 'carflax-navigate', section });
           if (documento) {
             client.postMessage({ type: 'carflax-open-chat', documento });
+          }
+          if (remoteJid) {
+            client.postMessage({ type: 'carflax-open-whatsapp', remoteJid });
           }
           return;
         }

@@ -151,3 +151,68 @@ export async function descartarAprendizado(id: string) {
     .eq("id", id);
   if (error) throw new Error(error.message);
 }
+
+/** Leva o HUB para a tela do WhatsApp com a conversa aberta (mesmo caminho da tela de Leads). */
+export function abrirConversaWhatsapp(remoteJid: string) {
+  window.focus();
+  localStorage.setItem("carflax_pending_chat", remoteJid);
+  window.dispatchEvent(new CustomEvent("carflax-change-tab", { detail: "Whatsapp API" }));
+  window.dispatchEvent(new CustomEvent("carflax-open-chat", { detail: remoteJid }));
+}
+
+let tituloOriginal: string | null = null;
+let piscaTitulo: ReturnType<typeof setInterval> | null = null;
+
+/**
+ * Chegou cliente do Carlinhos para o vendedor: som próprio, aba piscando até ele
+ * voltar para o HUB e aviso do Chrome que só some com clique. O backend também
+ * manda push com a mesma tag (isabela-<jid>), então os dois viram um aviso só.
+ */
+export function alertarTransferenciaCarlinhos(nomeCliente: string, descricao: string, remoteJid?: string) {
+  try {
+    const audio = new Audio("/sounds/ranking-leader.wav");
+    audio.volume = 0.8;
+    audio.play().catch(() => {});
+  } catch {
+    /* sem som */
+  }
+
+  if (!piscaTitulo) {
+    tituloOriginal = document.title;
+    let alterna = false;
+    piscaTitulo = setInterval(() => {
+      alterna = !alterna;
+      document.title = alterna ? `🔥 CLIENTE NOVO: ${nomeCliente}` : tituloOriginal || "Carflax HUB";
+    }, 1000);
+    const parar = () => {
+      if (document.visibilityState !== "visible") return;
+      if (piscaTitulo) clearInterval(piscaTitulo);
+      piscaTitulo = null;
+      document.title = tituloOriginal || document.title;
+      document.removeEventListener("visibilitychange", parar);
+      window.removeEventListener("focus", parar);
+    };
+    document.addEventListener("visibilitychange", parar);
+    window.addEventListener("focus", parar);
+  }
+
+  if (!("Notification" in window) || Notification.permission !== "granted") return;
+  const titulo = `🔥 CLIENTE NOVO PRA VOCÊ: ${nomeCliente}`;
+  const opcoes: NotificationOptions & { renotify?: boolean; vibrate?: number[] } = {
+    body: descricao.slice(0, 200),
+    icon: "/favicon.png",
+    badge: "/favicon.png",
+    tag: remoteJid ? `isabela-${remoteJid}` : undefined,
+    renotify: true,
+    requireInteraction: true,
+    vibrate: [300, 100, 300, 100, 300],
+    data: { section: "Whatsapp API", remote_jid: remoteJid },
+  };
+  // Pelo service worker o aviso aceita "fica até clicar" e o clique cai no mesmo
+  // tratamento do push; sem ele, usa a Notification comum.
+  navigator.serviceWorker?.getRegistration().then((reg) => {
+    if (reg) return reg.showNotification(titulo, opcoes);
+    const n = new Notification(titulo, opcoes);
+    n.onclick = () => (remoteJid ? abrirConversaWhatsapp(remoteJid) : window.focus());
+  }).catch(() => {});
+}

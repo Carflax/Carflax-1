@@ -52,6 +52,7 @@ import { supabase } from "@/lib/supabase";
 import { getNotifPref } from "@/lib/notif-prefs";
 import { useNotification } from "@/hooks/useNotification";
 import { NAV_SECTIONS, ESTEIRA_SUBQUADRO_PREFIX, canAccessSection } from "@/lib/menu-config";
+import { abrirConversaWhatsapp, alertarTransferenciaCarlinhos } from "@/lib/isabela";
 
 // Reexporta para não quebrar imports existentes (ex: App.tsx). A fonte da verdade
 // agora fica em menu-config.ts.
@@ -312,7 +313,9 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
       }
     };
 
-    const showHubNotification = (n: { id: string; titulo: string; descricao: string; tipo: string; metadata: Record<string, unknown> }) => {
+    // `aoVivo`: chegou agora pelo realtime. As não lidas carregadas ao abrir o HUB
+    // não tocam som nem abrem aviso do Chrome de novo.
+    const showHubNotification = (n: { id: string; titulo: string; descricao: string; tipo: string; metadata: Record<string, unknown> }, aoVivo = false) => {
       // Alertas do WhatsApp (SLA estourado e arquivamento aguardando aprovação):
       // ambos levam para a tela do WhatsApp, onde a ação é resolvida.
       // Alerta de SLA desligado nas configurações: não mostra nada, mas mantém a
@@ -333,9 +336,14 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
         const markAsRead = () => {
           supabase.from("hub_notificacoes").update({ lida: true }).eq("id", n.id).then(() => {});
         };
+        const remoteJid = typeof n.metadata?.remote_jid === "string" ? n.metadata.remote_jid : undefined;
+        const transferencia = n.tipo === "whatsapp_isabela" && !!n.metadata?.vendedor_id;
+        if (transferencia && aoVivo) {
+          alertarTransferenciaCarlinhos(n.titulo.replace(/^.*passou (.+) para você$/, "$1"), n.descricao, remoteJid);
+        }
 
         showNotification(
-          n.tipo === "whatsapp_sla" ? "error" : "info",
+          n.tipo === "whatsapp_sla" ? "error" : transferencia ? "success" : "info",
           n.titulo,
           n.descricao,
           true,
@@ -343,9 +351,13 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
           undefined,
           undefined,
           {
-            label: "Abrir WhatsApp",
+            label: transferencia ? "Abrir conversa" : "Abrir WhatsApp",
             onClick: async () => {
               await supabase.from("hub_notificacoes").update({ lida: true }).eq("id", n.id);
+              if (transferencia && remoteJid) {
+                abrirConversaWhatsapp(remoteJid);
+                return;
+              }
               localStorage.setItem("carflax-active-section", "WhatsApp");
               window.dispatchEvent(new CustomEvent("carflax-navigate-tab", { detail: "WhatsApp" }));
             },
@@ -428,7 +440,7 @@ export function AppSidebar({ userProfile, isCollapsed, onToggle, isMobileOpen, o
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "hub_notificacoes", filter: `user_id=eq.${userId}` },
         ({ new: n }: { new: { id: string; titulo: string; descricao: string; tipo: string; metadata: Record<string, unknown> } }) => {
-          showHubNotification(n);
+          showHubNotification(n, true);
         },
       )
       .subscribe();

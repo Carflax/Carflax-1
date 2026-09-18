@@ -65,6 +65,7 @@ import { FollowUpReminder } from "@/components/ui/FollowUpReminder";
 import { ConviteFornecedorPublicView } from "@/components/public/ConviteFornecedorPublicView";
 import { ConviteClientePublicView } from "@/components/public/ConviteClientePublicView";
 import { ApresentacaoTvView } from "@/components/public/ApresentacaoTvView";
+import { abrirConversaWhatsapp } from "@/lib/isabela";
 
 
 export interface UserProfile {
@@ -591,6 +592,9 @@ function DashboardContent({
         }
         if (e.data?.type === 'carflax-open-chat' && e.data.documento) {
           window.dispatchEvent(new CustomEvent('carflax-open-chat', { detail: e.data.documento }));
+        }
+        if (e.data?.type === 'carflax-open-whatsapp' && e.data.remoteJid) {
+          abrirConversaWhatsapp(e.data.remoteJid);
         }
       };
 
