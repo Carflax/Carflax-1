@@ -63,18 +63,13 @@ export const NAV_SECTIONS: NavSection[] = [
     permGroup: "MARKETING",
     subItems: [
       { label: "Whatsapp API", value: "Whatsapp API" },
-      { label: "Automação" },
       { label: "Leads" },
-      { label: "Blog Cards", value: "Blog Marketing" },
-      { label: "Criativo" },
-      { label: "Cronograma" },
+      // Campanhas do Google Ads e do Meta Ads direto pelas APIs, com trava do teto mensal.
+      { label: "Gestão de Tráfego", value: "Gestao Trafego" },
       // Chave própria em vez de "Eventos": 9 usuários ainda têm "Eventos" salvo
       // em permissions (legado do Calendário) e passariam a ver as cotas dos
       // fornecedores sem ninguém ter liberado.
       { label: "Eventos", value: "Eventos Marketing" },
-      { label: "Avaliações" },
-      // Regras que a IA verifica nas conversas + os alertas que elas geram.
-      { label: "Coach IA", value: "Coach IA" },
       { label: "Relatórios", value: "Relatórios Mkt" },
     ],
   },
@@ -231,7 +226,7 @@ const VENDEDOR_SECTIONS = [
 ];
 
 const MARKETING_SECTIONS = [
-  "Marketing", "Whatsapp API", "Automação", "Leads", "Blog Marketing", "Criativo", "Cronograma", "Eventos Marketing", "Avaliações", "Relatórios Mkt",
+  "Marketing", "Whatsapp API", "Leads", "Gestao Trafego", "Eventos Marketing", "Relatórios Mkt",
 ];
 
 const VENDAS_SECTIONS = [

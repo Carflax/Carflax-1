@@ -1634,3 +1634,257 @@ export const apiRhExcluirCandidato = (id: string) => rhDelete(`/api/rh/triagem/c
 
 export const apiRhUrlCurriculo = (id: string) =>
   get<{ success: boolean; url: string }>(`/api/rh/triagem/curriculo/${id}`);
+
+// ── Gestão de Tráfego (Google Ads + Meta Ads) ────────────────────────────────
+// Rotas que alteram campanhas de verdade: o servidor exige login e recusa
+// qualquer mudança que passe do teto mensal. A mensagem de erro do servidor é
+// repassada inteira porque é ela que diz o que fazer (ex.: "passaria do teto").
+
+export type TrafegoPlataforma = "google" | "meta";
+
+export interface TrafegoCampanha {
+  plataforma: TrafegoPlataforma;
+  id: string;
+  nome: string;
+  status: "ENABLED" | "PAUSED";
+  statusEfetivo?: string;
+  tipo: string;
+  lance: string | null;
+  cpaDesejado?: number | null;
+  localizacao?: string | null;
+  orcamentoId?: string | null;
+  orcamentoDiario: number;
+  orcamentoCompartilhado?: boolean;
+  conjuntosAtivos?: number;
+  /** Google: dias/horários em que os anúncios rodam. Vazio = 24h, 7 dias. */
+  programacao?: TrafegoProgramacao[];
+  orcamento?: { nivel: "campanha" | "conjunto" | "varios" | "total"; alvoId: string | null; diario: number | null; conjuntos?: number; total?: number } | null;
+  gasto: number;
+  impressoes: number;
+  cliques: number;
+  contatos: number;
+  alcance?: number;
+  frequencia?: number;
+  parcela?: number | null;
+  perdidaOrcamento?: number | null;
+  perdidaClassificacao?: number | null;
+}
+
+export type TrafegoDia = "MONDAY" | "TUESDAY" | "WEDNESDAY" | "THURSDAY" | "FRIDAY" | "SATURDAY" | "SUNDAY";
+export interface TrafegoProgramacao { dia: TrafegoDia; inicio: number; fim: number }
+
+export interface TrafegoTeto {
+  limite: number;
+  diarioTotal: number;
+  comprometidoMensal: number;
+  gastoMes: number;
+  gastoMesGoogle: number | null;
+  gastoMesMeta: number | null;
+  diasRestantes: number;
+  projecaoMes: number;
+  diarioMaximo: number;
+  dentro: boolean;
+}
+
+export interface TrafegoListaResponse {
+  success: boolean;
+  periodo: { inicio: string; fim: string };
+  campanhas: TrafegoCampanha[];
+  teto: TrafegoTeto;
+  erros: { google: string | null; meta: string | null };
+}
+
+export interface TrafegoAlteracao {
+  id: string;
+  criado_em: string;
+  usuario_email: string | null;
+  plataforma: TrafegoPlataforma;
+  campanha_nome: string | null;
+  acao: string;
+  antes: Record<string, unknown> | null;
+  depois: Record<string, unknown> | null;
+}
+
+async function trafegoReq<T>(metodo: "GET" | "POST", caminho: string, corpo?: unknown, params?: Record<string, string>): Promise<T> {
+  const url = new URL(window.location.origin + API_BASE + "/api/marketing/trafego/" + caminho);
+  if (params) Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
+  const res = await fetch(url.toString(), {
+    method: metodo,
+    headers: { ...(corpo ? { "Content-Type": "application/json" } : {}), ...(await authHeaders()) },
+    ...(corpo ? { body: JSON.stringify(corpo) } : {}),
+  });
+  const json = await res.json().catch(() => null);
+  if (!res.ok || json?.success === false) {
+    throw new Error(json?.error || `Falha na comunicação com o servidor (HTTP ${res.status}).`);
+  }
+  return json as T;
+}
+
+export const apiTrafegoCampanhas = (inicio: string, fim: string) =>
+  trafegoReq<TrafegoListaResponse>("GET", "campanhas", undefined, { inicio, fim });
+
+export const apiTrafegoHistorico = () =>
+  trafegoReq<{ success: boolean; itens: TrafegoAlteracao[]; aviso?: string }>("GET", "historico");
+
+export const apiTrafegoStatus = (plataforma: TrafegoPlataforma, campanhaId: string, ativo: boolean) =>
+  trafegoReq<{ success: boolean }>("POST", "status", { plataforma, campanhaId, ativo });
+
+export const apiTrafegoOrcamento = (plataforma: TrafegoPlataforma, campanhaId: string, diario: number) =>
+  trafegoReq<{ success: boolean }>("POST", "orcamento", { plataforma, campanhaId, diario });
+
+export const apiTrafegoAjusteGoogle = (campanhaId: string, ajuste: "lance-conversoes" | "presenca", cpaDesejado?: number) =>
+  trafegoReq<{ success: boolean }>("POST", "google/ajuste", { campanhaId, ajuste, cpaDesejado });
+
+export const apiTrafegoCriarGoogle = (dados: Record<string, unknown>) =>
+  trafegoReq<{ success: boolean; campanhaId: string | null; cidades: { nome: string }[] }>("POST", "google/criar", dados);
+
+export const apiTrafegoCriarMeta = (dados: Record<string, unknown>) =>
+  trafegoReq<{ success: boolean; campanhaId: string; gerenciador: string; cidade: { nome: string } }>("POST", "meta/criar", dados);
+
+export interface TrafegoResultado {
+  faturamento: number; custoMercadoria: number; impostos: number; taxas: number; contribuicao: number;
+  investimento: number; resultado: number; clientes: number; pedidos: number;
+  roas: number | null; roasMidia: number | null; markup: number | null;
+  custoPorCliente: number | null; ticketMedio: number | null; faturamentoParaEmpatar: number | null;
+}
+
+export interface TrafegoFechamento {
+  success: boolean;
+  mes: string;
+  periodo: { inicio: string; fim: string; parcial: boolean };
+  premissas: { impostosPct: number; taxasPct: number; janelaDias: number };
+  investimento: {
+    google: number; meta: number; midia: number; fixos: number; total: number;
+    fixosItens: { descricao: string; categoria: string | null; valor: number }[];
+  };
+  contatos: { google: number; meta: number; total: number };
+  funil: {
+    contatosPlataforma: number; leadsHub: number; leadsJanela: number; identificadosErp: number;
+    clientes: number; novos: number; recorrentes: number; pedidos: number;
+  };
+  cobertura: { leadsSobreContatos: number | null; erpSobreLeads: number | null };
+  /** Base principal: só clientes NOVOS (sem compra nos 24 meses antes do 1º contato). */
+  resultado: TrafegoResultado;
+  /** Todos os clientes que chamaram no número do tráfego, inclusive quem já comprava. */
+  resultadoTodos: TrafegoResultado;
+  porCanal: {
+    canal: "google" | "meta" | "outro" | "sem_origem"; investimento: number; contatosPlataforma: number | null; leadsHub: number;
+    clientes: number; novos: number; faturamento: number; faturamentoNovos: number; roas: number | null; roasTodos: number | null;
+  }[];
+  porCampanha: {
+    nome: string; gasto: number; contatos: number; leadsHub: number | null;
+    clientes: number | null; clientesTodos: number | null; faturamento: number | null; faturamentoTodos: number | null;
+    roas: number | null; roasTodos: number | null;
+  }[];
+  clientes: { cod: string; cliente: string; canal: string; campanha: string | null; primeiroContato: string; novo: boolean; pedidos: number; venda: number; custo: number }[];
+  erros: { google: string | null; meta: string | null; leads: string | null; erp: string | null };
+  cacheEm?: string;
+}
+
+export const apiTrafegoFechamento = (mes: string, impostos: number, taxas: number, atualizar = false) =>
+  trafegoReq<TrafegoFechamento>("GET", "fechamento", undefined, {
+    mes, impostos: String(impostos), taxas: String(taxas), ...(atualizar ? { atualizar: "1" } : {}),
+  });
+
+
+export interface TrafegoDiarioResponse {
+  success: boolean;
+  periodo: { inicio: string; fim: string };
+  dias: { data: string; google: number; meta: number; contatosGoogle: number; contatosMeta: number }[];
+  semana: { dia: string; ocorrencias: number; gasto: number; gastoMedio: number; contatos: number; custoPorContato: number | null }[];
+  erros: { google: string | null; meta: string | null };
+}
+
+export const apiTrafegoDiario = (inicio: string, fim: string) =>
+  trafegoReq<TrafegoDiarioResponse>("GET", "diario", undefined, { inicio, fim });
+
+export const apiTrafegoProgramacao = (campanhaIds: string[], dias: TrafegoDia[], inicio: number, fim: number) =>
+  trafegoReq<{ success: boolean; resultados: { id: string; nome?: string; ok?: boolean; erro?: string }[]; error?: string }>(
+    "POST", "google/programacao", { campanhaIds, dias, inicio, fim });
+
+export interface TrafegoImpacto {
+  success: boolean;
+  ajuste: "presenca" | "lance-conversoes";
+  periodo: { inicio: string; fim: string };
+  antes: { gasto: number; contatos: number; cpa: number | null };
+  depois: { gasto: number; contatos: number; cpa: number | null };
+  deltaContatos: number;
+  economia: number;
+  dentro?: { gasto: number; contatos: number };
+  fora?: { gasto: number; contatos: number };
+  cidadesFora?: { cidade: string; gasto: number; contatos: number }[];
+  referencia?: { campanhas: number; cpa: number | null };
+  premissa: string;
+}
+
+export const apiTrafegoImpacto = (campanhaId: string, ajuste: "presenca" | "lance-conversoes") =>
+  trafegoReq<TrafegoImpacto>("GET", "google/impacto", undefined, { campanhaId, ajuste });
+
+// ── Recomendações diárias da IA (Gestão de Tráfego) ──────────────────────────
+export type RecEstado = "pendente" | "aplicada" | "feita" | "descartada";
+export type RecExecucaoTipo = "orcamento" | "status" | "programacao" | "presenca" | "lance" | "negativas" | "criar_google" | "criar_meta" | "manual";
+
+export interface TrafegoRecomendacao {
+  id: string;
+  prioridade: "alta" | "media" | "baixa";
+  categoria: string;
+  plataforma: "google" | "meta" | "ambas";
+  campanhaId: string | null;
+  campanhaNome: string | null;
+  titulo: string;
+  diagnostico: string;
+  acao: string;
+  impacto: { contatosMes?: number | null; economiaMes?: number | null; texto?: string } | null;
+  confianca: "alta" | "media" | "baixa";
+  execucao: { tipo: RecExecucaoTipo; parametros: Record<string, unknown> };
+  criativo: {
+    plataforma?: "google" | "meta";
+    titulos?: string[]; descricoes?: string[];
+    textoPrincipal?: string; titulo?: string; conceitoVisual?: string; formato?: string;
+  } | null;
+  confirmarAntes: string[] | null;
+  /** Aviso da conferência (ex.: mudança de orçamento grande de uma vez). */
+  alerta?: string | null;
+  estado: RecEstado;
+  motivo?: string | null;
+  decidido_por?: string | null;
+  decidido_em?: string | null;
+}
+
+export interface TrafegoAnaliseIA {
+  id: string;
+  criado_em: string;
+  data: string;
+  status: "gerando" | "pronto" | "erro";
+  origem: string;
+  modelo: string | null;
+  gerado_por: string | null;
+  resumo: string | null;
+  itens: TrafegoRecomendacao[];
+  contexto: {
+    periodo?: { inicio: string; fim: string };
+    teto?: { gastoNoMes: number; orcamentosAtivosPorDia: number; comprometidoNoMes: number; projecaoFimDoMes: number; diarioMaximoAteFimDoMes: number };
+    descartes?: { titulo: string; motivo: string }[];
+    falhasDeLeitura?: string[];
+    segundos?: number;
+  } | null;
+  erro: string | null;
+}
+
+export const apiTrafegoRecomendacoes = (id?: string) =>
+  trafegoReq<{
+    success: boolean;
+    analise: TrafegoAnaliseIA | null;
+    gerandoAgora: string | null;
+    erroRecente: string | null;
+    anteriores: { id: string; data: string; criado_em: string; itens: number }[];
+  }>("GET", "recomendacoes", undefined, id ? { id } : undefined);
+
+export const apiTrafegoGerarRecomendacoes = () =>
+  trafegoReq<{ success: boolean; id: string }>("POST", "recomendacoes/gerar", {});
+
+export const apiTrafegoDecidirRecomendacao = (analiseId: string, itemId: string, estado: RecEstado, motivo?: string) =>
+  trafegoReq<{ success: boolean }>("POST", `recomendacoes/${analiseId}/itens/${itemId}`, { estado, motivo });
+
+export const apiTrafegoNegativas = (campanhaId: string, termos: string[]) =>
+  trafegoReq<{ success: boolean; termos: string[] }>("POST", "google/negativas", { campanhaId, termos });

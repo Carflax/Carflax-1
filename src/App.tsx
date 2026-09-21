@@ -1426,6 +1426,7 @@ function DashboardContent({
     "Leads",
     "Criativo",
     "Relatórios Mkt",
+    "Gestao Trafego",
   ].includes(activeItem);
   // Só o COMERCIAL vê o painel de métricas; os demais veem "Funcionário do Mês".
   // Gerente de outra área (ex.: logística) NÃO vê métricas.

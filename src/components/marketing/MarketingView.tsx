@@ -10,6 +10,7 @@ import { EventosView } from "./eventos/EventosView";
 import { AvaliacoesView } from "./avaliacoes/AvaliacoesView";
 import { CriativoView } from "./criativo/CriativoView";
 import { BlogView } from "./blog/BlogView";
+import { GestaoTrafegoView } from "./trafego/GestaoTrafegoView";
 
 interface UserProfile {
   id?: string;
@@ -25,6 +26,10 @@ interface MarketingViewProps {
 
 export function MarketingView({ activeTab, userProfile }: MarketingViewProps) {
   const firstName = userProfile?.name ? userProfile.name.split(' ')[0] : 'Usuário';
+
+  if (activeTab === "Gestao Trafego") {
+    return <GestaoTrafegoView />;
+  }
 
   if (activeTab === "Whatsapp API") {
     return <WhatsappApiView userProfile={userProfile} />;
