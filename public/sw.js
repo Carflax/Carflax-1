@@ -86,8 +86,7 @@ self.addEventListener('fetch', (event) => {
 // ── Web Push (mantido) ───────────────────────────────────────────────────────
 self.addEventListener('push', (event) => {
   const data = event.data?.json() ?? {};
-  // `urgente` (cliente que o Carlinhos passou para o vendedor): o aviso não some
-  // sozinho, vibra no celular e tem botão para abrir a conversa.
+  // `urgente` mantém vibração nos navegadores que suportam o recurso.
   const urgente = !!data.urgente;
   // `url` (liberação do Gestor): o toque abre essa página, não uma seção do HUB.
   const url = data.url || null;
@@ -98,9 +97,7 @@ self.addEventListener('push', (event) => {
       badge: '/favicon.png',
       tag: data.tag || 'carflax-push',
       renotify: true,
-      requireInteraction: urgente,
       vibrate: urgente ? [300, 100, 300, 100, 300] : undefined,
-      actions: urgente ? [{ action: 'abrir', title: url ? 'Abrir' : 'Abrir conversa' }] : undefined,
       data: { section: data.section || 'Marketing', documento: data.documento, remote_jid: data.remote_jid, url },
     }).then(() => {
       // Avisa quem estiver com a página aberta (Gestor): a lista se atualiza na
