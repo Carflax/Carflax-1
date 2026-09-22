@@ -93,7 +93,7 @@ export async function mudarStatusIsabela(remoteJid: string, status: "pausada" | 
   const { error } = await supabase
     .from("isabela_conversas")
     .upsert(
-      { remote_jid: remoteJid, status, updated_at: agora, ...(status === "ativa" ? { iniciada_em: agora } : {}) },
+      { remote_jid: remoteJid, status, updated_at: agora },
       { onConflict: "remote_jid" },
     );
   if (error) throw new Error(error.message);
