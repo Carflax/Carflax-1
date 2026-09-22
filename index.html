@@ -39,6 +39,23 @@
   <link rel="apple-touch-icon" href="/favicon.png" />
 
   <title>Carflax | Tudo em um só lugar</title>
+
+  <!-- Gestor (/gestor) é um app instalável à parte: troca manifest, nome e ícone
+       antes do navegador ler, para "Adicionar à tela inicial" instalar o Gestor
+       (abre direto nele, com ícone próprio) e não o HUB inteiro. -->
+  <script>
+    (function () {
+      if (location.pathname.indexOf('/gestor') !== 0) return;
+      var set = function (sel, attr, val) { var el = document.querySelector(sel); if (el) el.setAttribute(attr, val); };
+      set('link[rel="manifest"]', 'href', '/gestor.webmanifest');
+      set('link[rel="apple-touch-icon"]', 'href', '/gestor/apple-touch-icon.png');
+      set('link[rel="icon"]', 'href', '/gestor/icon-192.png');
+      set('meta[name="apple-mobile-web-app-title"]', 'content', 'Gestor');
+      set('meta[name="application-name"]', 'content', 'Carflax Gestor');
+      set('meta[name="theme-color"]', 'content', '#020617');
+      document.title = 'Carflax Gestor';
+    })();
+  </script>
 </head>
 
 

@@ -38,6 +38,7 @@ import { apiDashboardGeral, type VendedorResumo, apiEntregasConcluidas, apiCampa
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 import { calculateMonthlyWinner } from "@/lib/highlights_automation";
 import { supabase } from "@/lib/supabase";
+import { montarTotalETimes, type OrgUser } from "@/lib/times-diretoria";
 
 interface UserProfileLite {
   id?: string;
@@ -50,59 +51,6 @@ interface UserProfileLite {
   phone?: string;
   whatsapp?: string;
   is_leader?: boolean;
-}
-
-// Usuário vindo do Supabase para montar a hierarquia (Diretor → Supervisores → Vendedores)
-interface OrgUser {
-  id: string;
-  operator_code?: string | null;
-  name?: string | null;
-  role?: string | null;
-  responsavel_id?: string | null;
-  is_leader?: boolean | null;
-}
-
-// Soma as métricas de um conjunto de vendedores em uma única linha agregada.
-// Usado para o total "Meu Time" (supervisor) e para os subtotais por time na
-// visão do Diretor. Recalcula todos os campos exibidos — não pode herdar da
-// linha da loja inteira, senão margem/prazo/hoje viriam com o total da loja.
-function buildTeamTotal(
-  rows: VendedorResumo[],
-  base: VendedorResumo | undefined,
-  cod: string,
-  nome: string,
-  memberCodes?: string[],
-): VendedorResumo {
-  const sum = (key: keyof VendedorResumo) =>
-    rows.reduce((acc, r) => acc + (parseFloat(String(r[key])) || 0), 0);
-  const totalMETA = sum("META");
-  const totalFATURADO = sum("FATURADO");
-  const totalQtdVendas = sum("QTD_VENDAS");
-  const totalMargemReal = sum("MARGEM_REAL");
-  const prazoPonderado = rows.reduce(
-    (acc, r) => acc + (parseFloat(String(r.PRAZO_MEDIO_DIAS)) || 0) * (parseFloat(String(r.FATURADO)) || 0),
-    0,
-  );
-  return {
-    ...(base || rows[0]),
-    COD_VENDEDOR: cod,
-    NOME_VENDEDOR: nome,
-    MEMBER_CODES: memberCodes ?? rows.map(r => String(r.COD_VENDEDOR || "").trim()),
-    META: totalMETA,
-    FATURADO: totalFATURADO,
-    EM_ABERTO: sum("EM_ABERTO"),
-    TOTAL: sum("TOTAL"),
-    FALTANTE: Math.max(0, totalMETA - sum("TOTAL")),
-    TOTAL_VENDIDO_HOJE: sum("TOTAL_VENDIDO_HOJE"),
-    QTD_VENDAS: totalQtdVendas,
-    QTD_ORCAMENTOS: sum("QTD_ORCAMENTOS"),
-    ORC_FECHADOS: sum("ORC_FECHADOS"),
-    CUSTO: sum("CUSTO"),
-    MARGEM_REAL: totalMargemReal,
-    MARGEM_REAL_PERC: totalFATURADO > 0 ? (totalMargemReal / totalFATURADO) * 100 : 0,
-    TICKET_MEDIO: totalQtdVendas > 0 ? totalFATURADO / totalQtdVendas : 0,
-    PRAZO_MEDIO_DIAS: totalFATURADO > 0 ? prazoPonderado / totalFATURADO : 0,
-  };
 }
 
 const MOTIVATIONAL_QUOTES = [
@@ -309,12 +257,13 @@ const calcTaxaConversao = (row: VendedorResumo, perdidoMap: Map<string, number>,
 // Versão compacta do SalesMetricsCard, usada no modal "Todos os Vendedores".
 // Repete o mesmo visual do card principal (rosca de ritmo + vendido hoje +
 // barra de meta + indicadores), com os mesmos cálculos.
-function VendedorMiniCard({ row, perdidoMap, refDate, isActive, onSelect }: {
+export function VendedorMiniCard({ row, perdidoMap, refDate, isActive, onSelect, layout = "compact" }: {
   row: VendedorResumo;
   perdidoMap: Map<string, number> | null;
   refDate?: Date;
   isActive?: boolean;
   onSelect?: () => void;
+  layout?: "compact" | "gestor";
 }) {
   const equilibrio = calcEquilibrio(row, refDate);
   const total = Number(row.TOTAL || 0);
@@ -348,17 +297,20 @@ function VendedorMiniCard({ row, perdidoMap, refDate, isActive, onSelect }: {
     { label: "Margem", value: `${Number(row.MARGEM_REAL_PERC || row.MARGEM_PCT || 0).toFixed(1)}%`, icon: TrendingUp, valueColor: "text-blue-600", tooltip: "Margem real sobre o faturado" },
   ];
 
+  const Card = layout === "gestor" ? "article" : "button";
+
   return (
-    <button
-      type="button"
+    <Card
+      type={Card === "button" ? "button" : undefined}
       onClick={onSelect}
       className={cn(
         "text-left bg-card border rounded-xl p-4 flex flex-col transition-all hover:border-blue-500/50 hover:shadow-md",
-        isActive ? "border-blue-500 ring-1 ring-blue-500/30" : "border-border"
+        isActive ? "border-blue-500 ring-1 ring-blue-500/30" : "border-border",
+        layout === "gestor" && "gestor-metrics"
       )}
     >
       {/* Nome */}
-      <div className="flex items-center justify-between gap-2 mb-3 pb-2 border-b border-border/40">
+      <div className="metrics-heading flex items-center justify-between gap-2 mb-3 pb-2 border-b border-border/40">
         <span className={cn(
           "text-[10px] font-black uppercase tracking-tight truncate",
           isTotal || isTeam ? "text-blue-600 dark:text-blue-400" : "text-foreground"
@@ -371,8 +323,8 @@ function VendedorMiniCard({ row, perdidoMap, refDate, isActive, onSelect }: {
       </div>
 
       {/* Rosca de meta */}
-      <div className="mb-2 flex flex-col items-center">
-        <div className="relative w-20 h-20">
+      <div className="metrics-target mb-2 flex flex-col items-center">
+        <div className="metrics-ring relative w-20 h-20">
           <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
             <circle cx="50" cy="50" r="40" stroke="currentColor" strokeWidth="9" fill="transparent" className="text-secondary dark:text-slate-800" />
             <circle
@@ -403,7 +355,7 @@ function VendedorMiniCard({ row, perdidoMap, refDate, isActive, onSelect }: {
       </div>
 
       {/* Vendido no dia de referência (hoje, ou o último dia do mês filtrado) */}
-      <div className="mb-2 flex flex-col items-center text-center">
+      <div className="metrics-today mb-2 flex flex-col items-center text-center">
         <p className="text-[8px] font-bold text-muted-foreground uppercase tracking-widest mb-0.5">
           {isMesCorrente
             ? "Vendido Hoje"
@@ -413,7 +365,7 @@ function VendedorMiniCard({ row, perdidoMap, refDate, isActive, onSelect }: {
       </div>
 
       {/* Barra de equilíbrio */}
-      <div className="mb-3">
+      <div className="metrics-balance mb-3">
         <div className="flex items-center justify-between text-[9px] font-bold mb-1">
           <span className="text-blue-600 dark:text-blue-500">Equilíbrio</span>
           <span className="text-foreground">{percent.toFixed(1)}%</span>
@@ -427,12 +379,13 @@ function VendedorMiniCard({ row, perdidoMap, refDate, isActive, onSelect }: {
       </div>
 
       {/* Indicadores */}
-      <div className="grid grid-cols-2 gap-x-3 gap-y-2 mt-auto">
+      <div className="metrics-grid grid grid-cols-2 gap-x-3 gap-y-2 mt-auto">
         {miniMetrics.map((mm, i) => (
           <div key={i} className="flex items-start gap-1.5 min-w-0">
-            <mm.icon className="w-3 h-3 text-muted-foreground shrink-0 mt-0.5" />
+            {layout !== "gestor" && <mm.icon className="w-3 h-3 text-muted-foreground shrink-0 mt-0.5" />}
             <div className="flex flex-col min-w-0">
               <span className="text-[8px] font-bold text-muted-foreground uppercase tracking-wider truncate flex items-center gap-1">
+                {layout === "gestor" && <mm.icon className="h-3 w-3 shrink-0" aria-hidden="true" />}
                 {mm.label}
                 {mm.tooltip && (
                   <span title={mm.tooltip} className="inline-flex items-center justify-center w-3 h-3 rounded-full bg-muted-foreground/15 text-muted-foreground text-[7px] font-black cursor-help shrink-0">!</span>
@@ -443,7 +396,7 @@ function VendedorMiniCard({ row, perdidoMap, refDate, isActive, onSelect }: {
           </div>
         ))}
       </div>
-    </button>
+    </Card>
   );
 }
 
@@ -737,71 +690,14 @@ export function SalesMetricsCard({ isCompact, userProfile, data: externalData, s
           );
 
           if (response && response.length > 0) {
-            const mediaRow = response.find(r => r.COD_VENDEDOR === "MEDIA");
-            const individuais = response.filter(r => r.COD_VENDEDOR !== "MEDIA");
-            const erpByCod = new Map(individuais.map(r => [String(r.COD_VENDEDOR).trim(), r]));
-
-            // Agrupa subordinados por responsável (supervisor)
-            const membrosPorResponsavel = new Map<string, OrgUser[]>();
-            for (const u of usuarios) {
-              if (!u.responsavel_id) continue;
-              if (!membrosPorResponsavel.has(u.responsavel_id)) membrosPorResponsavel.set(u.responsavel_id, []);
-              membrosPorResponsavel.get(u.responsavel_id)!.push(u);
-            }
-
-            // Cada supervisor = usuário que é responsável por ≥1 pessoa.
-            const teamTotals: VendedorResumo[] = [];
-            // Os mesmos vendedores sem linha no ERP também precisam aparecer na
-            // lista individual — senão a diretoria não consegue abrir o card de
-            // quem ainda não vendeu no mês.
-            const semLinhaGlobal: VendedorResumo[] = [];
-            for (const sup of usuarios) {
-              const membros = membrosPorResponsavel.get(sup.id);
-              if (!membros || membros.length === 0) continue;
-              const cods = new Set<string>();
-              if (sup.operator_code) cods.add(String(sup.operator_code).trim());
-              membros.forEach(m => { if (m.operator_code) cods.add(String(m.operator_code).trim()); });
-              // Vendedor sem faturamento no mês não tem linha no ERP. Descartá-lo
-              // apagava a meta dele do total do time: o card do Canal Mesa aparecia
-              // com 765.217 para a diretoria e 968.233 para o supervisor, porque
-              // dois membros ainda não tinham vendido. Entra com a meta real (CADMET)
-              // e o resto zerado — mesmo tratamento que o caminho do supervisor já
-              // fazia mais abaixo.
-              const rowsErp = [...cods].map((c) => erpByCod.get(c)).filter(Boolean) as VendedorResumo[];
-              const semLinha: VendedorResumo[] = [...cods]
-                .filter((c) => !erpByCod.has(c))
-                .map((c) => ({ cod: c, meta: metaMapDir.get(c) || 0 }))
-                .filter(({ meta }) => meta > 0)
-                .map(({ cod, meta }) => {
-                  const membro = [sup, ...membros].find(
-                    (u) => String(u.operator_code || "").trim() === cod,
-                  );
-                  return {
-                    COD_VENDEDOR: cod,
-                    NOME_VENDEDOR: membro?.name || cod,
-                    META: meta, FATURADO: 0, EM_ABERTO: 0, TOTAL: 0, FALTANTE: meta,
-                    CUSTO: 0, MARGEM_REAL: 0, MARGEM_REAL_PERC: 0,
-                    QTD_VENDAS: 0, TICKET_MEDIO: 0, QTD_ORCAMENTOS: 0, ORC_FECHADOS: 0,
-                    PRAZO_MEDIO_DIAS: 0, TOTAL_VENDIDO_HOJE: 0,
-                  } as VendedorResumo;
-                });
-              const rows = [...rowsErp, ...semLinha];
-              if (rows.length === 0) continue;
-              semLinhaGlobal.push(...semLinha);
-              teamTotals.push(buildTeamTotal(rows, mediaRow, `TEAM:${sup.id}`, formatTeamName(sup.name), [...cods]));
-            }
-            teamTotals.sort(
-              (a, b) => (parseFloat(String(b.FATURADO)) || 0) - (parseFloat(String(a.FATURADO)) || 0),
-            );
+            const { mediaRow, teamTotals, individuais, semLinha } = montarTotalETimes(response, usuarios, metaMapDir);
 
             if (cancelled) return;
             setAllVendedores([
               ...(mediaRow ? [mediaRow] : []),
               ...teamTotals,
               ...individuais,
-              ...semLinhaGlobal.filter(
-                (p, i, arr) => arr.findIndex((o) => o.COD_VENDEDOR === p.COD_VENDEDOR) === i,
-              ),
+              ...semLinha,
             ]);
             if (!extData) {
               if (mediaRow) {

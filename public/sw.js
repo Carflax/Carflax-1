@@ -1,6 +1,6 @@
 // Service Worker — Carflax Hub (PWA: cache + Web Push)
 
-const CACHE = 'carflax-hub-v2';
+const CACHE = 'carflax-hub-v3';
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/favicon.png'];
 
 // Caminhos dinâmicos (dados ao vivo) que NUNCA devem ser cacheados.
@@ -89,6 +89,8 @@ self.addEventListener('push', (event) => {
   // `urgente` (cliente que o Carlinhos passou para o vendedor): o aviso não some
   // sozinho, vibra no celular e tem botão para abrir a conversa.
   const urgente = !!data.urgente;
+  // `url` (liberação do Gestor): o toque abre essa página, não uma seção do HUB.
+  const url = data.url || null;
   event.waitUntil(
     self.registration.showNotification(data.title || '💬 Nova mensagem', {
       body: data.body || '',
@@ -98,8 +100,8 @@ self.addEventListener('push', (event) => {
       renotify: true,
       requireInteraction: urgente,
       vibrate: urgente ? [300, 100, 300, 100, 300] : undefined,
-      actions: urgente ? [{ action: 'abrir', title: 'Abrir conversa' }] : undefined,
-      data: { section: data.section || 'Marketing', documento: data.documento, remote_jid: data.remote_jid },
+      actions: urgente ? [{ action: 'abrir', title: url ? 'Abrir' : 'Abrir conversa' }] : undefined,
+      data: { section: data.section || 'Marketing', documento: data.documento, remote_jid: data.remote_jid, url },
     })
   );
 });
@@ -109,6 +111,27 @@ self.addEventListener('notificationclick', (event) => {
   const section = event.notification.data?.section || 'Marketing';
   const documento = event.notification.data?.documento;
   const remoteJid = event.notification.data?.remote_jid;
+  const url = event.notification.data?.url;
+
+  // Aviso com página própria (Gestor): foca uma janela que já esteja nela e
+  // manda abrir as liberações; se não houver, abre a página (no celular com o
+  // Gestor instalado, abre o app).
+  if (url) {
+    const destino = new URL(url, self.location.origin);
+    event.waitUntil(
+      clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+        for (const client of clientList) {
+          if (new URL(client.url).pathname.startsWith(destino.pathname) && 'focus' in client) {
+            client.focus();
+            client.postMessage({ type: 'carflax-abrir-url', url });
+            return;
+          }
+        }
+        return clients.openWindow(destino.href);
+      })
+    );
+    return;
+  }
 
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {

@@ -37,6 +37,8 @@ import { SalaCabosView } from "@/components/estoque/salacabos/SalaCabosView";
 import { RelatoriosScrumView } from "@/components/scrum/RelatoriosScrumView";
 import { EntregasView } from "@/components/entregas";
 import { MotoristaView } from "@/components/entregas/motorista/MotoristaView";
+import { GestorView } from "@/components/gestor/GestorView";
+import { assinarPush } from "@/lib/push-subscription";
 import { UsersView } from "@/components/users/UsersView";
 import { LoginView } from "@/components/auth/LoginView";
 import { AvaliarPublicView } from "@/components/avaliacao/AvaliarPublicView";
@@ -577,12 +579,13 @@ function DashboardContent({
     if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
     if (pushSetupDone.current) return; // Executa apenas uma vez por sessão
     pushSetupDone.current = true;
+    const uid = pushUserId;
 
     async function setupPush() {
       const permission = await Notification.requestPermission();
       if (permission !== 'granted') return;
 
-      const reg = await navigator.serviceWorker.register('/sw.js');
+      await navigator.serviceWorker.register('/sw.js');
       await navigator.serviceWorker.ready;
 
       // Ouve mensagens do SW (clique na notificação → navega para a seção ou abrir chat)
@@ -598,51 +601,7 @@ function DashboardContent({
         }
       };
 
-      const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY as string;
-      if (!vapidKey) {
-        // Sem chave VAPID configurada: notificações push ficam desativadas (silencioso).
-        return;
-      }
-
-      const padding = '='.repeat((4 - (vapidKey.length % 4)) % 4);
-      const base64 = (vapidKey + padding).replace(/-/g, '+').replace(/_/g, '/');
-      const applicationServerKey = new Uint8Array([...atob(base64)].map(c => c.charCodeAt(0)));
-
-      let sub = await reg.pushManager.getSubscription();
-
-      // Assinatura fica amarrada à chave VAPID usada no momento de assinar. Se a
-      // chave do servidor mudou, a antiga não recebe mais nada — e como o código
-      // só assinava quando não havia nenhuma, essas pessoas ficavam órfãs para
-      // sempre. Aqui a assinatura de chave diferente é descartada e refeita.
-      if (sub) {
-        const atual = new Uint8Array(sub.options.applicationServerKey ?? new ArrayBuffer(0));
-        const mesmaChave =
-          atual.length === applicationServerKey.length &&
-          atual.every((b, i) => b === applicationServerKey[i]);
-        if (!mesmaChave) {
-          try { await sub.unsubscribe(); } catch { /* segue e assina de novo */ }
-          sub = null;
-        }
-      }
-
-      if (!sub) {
-        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey });
-      }
-
-      const subJson = sub.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } };
-
-      // Salva/atualiza a subscrição no Supabase vinculada ao usuário
-      await supabase.from('push_subscriptions').upsert({
-        user_id: pushUserId,
-        endpoint: subJson.endpoint,
-        p256dh: subJson.keys.p256dh,
-        auth: subJson.keys.auth,
-      }, { onConflict: 'endpoint' });
-
-      // As assinaturas antigas (de chave anterior) NÃO são apagadas aqui: o mesmo
-      // usuário costuma ter celular e computador, e apagar "as outras deste
-      // usuário" derrubaria o outro aparelho. Quem limpa é o envio no servidor,
-      // que remove a linha quando o serviço de push a recusa em definitivo.
+      await assinarPush(uid);
     }
 
     setupPush();
@@ -1802,6 +1761,8 @@ function App() {
   const [perdidoMap, setPerdidoMap] = useState<Map<string, number>>(new Map());
 
   const fetchVendedorMetrics = useCallback(async (profile: UserProfile) => {
+    // A tela do Gestor não usa o Dashboard Geral: não pesar o ERP à toa.
+    if (window.location.pathname.startsWith("/gestor")) return;
     try {
       const now = new Date();
       const yyyy = now.getFullYear();
@@ -2189,6 +2150,17 @@ function App() {
     );
   }
 
+  // Gestor (réplica do app Citel Gestor): tela de celular, sem a barra lateral.
+  // Exige login; sem sessão cai no login normal e volta para cá depois.
+  const isGestorRoute = window.location.pathname.startsWith("/gestor");
+  if (isGestorRoute && !loading && session) {
+    return (
+      <ThemeProvider defaultTheme="light" storageKey="carflax-theme">
+        <GestorView userProfile={profile} onLogout={() => supabase.auth.signOut()} />
+      </ThemeProvider>
+    );
+  }
+
   if (loading || (session && geralLoading)) return <LoadingScreen />;
 
 
@@ -2207,7 +2179,8 @@ function App() {
         ) : (
           <LoginView onLogin={() => {}} />
         )}
-        <PwaInstallPrompt />
+        {/* No /gestor (tela de login) o aviso do HUB não faz sentido. */}
+        {!isGestorRoute && <PwaInstallPrompt />}
       </NotificationProvider>
     </ThemeProvider>
   );

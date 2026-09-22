@@ -1,0 +1,128 @@
+/* O gestor ocupa a área disponível e pode crescer com o conteúdo em telas baixas. */
+.gestor-metrics {
+  display: grid;
+  grid-template-rows: auto auto auto auto minmax(min-content, 1fr);
+  gap: clamp(10px, 1.5dvh, 20px);
+  width: 100%;
+  min-width: 0;
+  padding: clamp(14px, 2.5vw, 32px);
+  border-radius: 20px;
+}
+
+.gestor-metrics .metrics-heading {
+  margin: 0;
+  padding-bottom: 12px;
+}
+
+.gestor-metrics .metrics-heading > span:first-child {
+  font-size: clamp(12px, 1.5vw, 18px);
+  white-space: normal;
+}
+
+.gestor-metrics .metrics-heading > span:last-child:not(:first-child) {
+  font-size: 10px;
+}
+
+.gestor-metrics .metrics-target,
+.gestor-metrics .metrics-today,
+.gestor-metrics .metrics-balance {
+  margin: 0;
+  align-self: center;
+}
+
+.gestor-metrics .metrics-ring {
+  width: clamp(88px, 15dvh, 160px);
+  height: clamp(88px, 15dvh, 160px);
+}
+
+.gestor-metrics .metrics-ring span {
+  font-size: clamp(22px, 3.5dvh, 32px);
+}
+
+.gestor-metrics .metrics-target > span,
+.gestor-metrics .metrics-today > p {
+  font-size: 10px;
+}
+
+.gestor-metrics .metrics-today > h3 {
+  font-size: clamp(24px, 3.8dvh, 36px);
+  overflow-wrap: anywhere;
+}
+
+.gestor-metrics .metrics-balance > div:first-child {
+  font-size: 12px;
+  margin-bottom: 6px;
+}
+
+.gestor-metrics .metrics-grid {
+  margin: 0;
+  gap: clamp(6px, 1dvh, 12px);
+  grid-auto-rows: minmax(54px, 1fr);
+  align-content: stretch;
+}
+
+.gestor-metrics .metrics-grid > div {
+  align-items: center;
+  justify-content: center;
+  padding: 8px 6px;
+  border: 1px solid hsl(var(--border) / 0.8);
+  border-radius: 12px;
+  background: hsl(var(--muted) / 0.45);
+  text-align: center;
+}
+
+.gestor-metrics .metrics-grid > div > div {
+  width: 100%;
+  align-items: center;
+  gap: 4px;
+}
+
+.gestor-metrics .metrics-grid > div > div > span:first-child {
+  font-size: clamp(9px, 0.9vw, 12px);
+  justify-content: center;
+  flex-wrap: wrap;
+  line-height: 1.3;
+  letter-spacing: 0.025em;
+  white-space: normal;
+  overflow: visible;
+}
+
+.gestor-metrics .metrics-grid > div > div > span:last-child {
+  font-size: clamp(14px, 1.5vw, 20px);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 768px) {
+  .gestor-metrics {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    grid-template-rows: auto 1fr auto auto;
+    column-gap: clamp(24px, 4vw, 64px);
+  }
+
+  .gestor-metrics .metrics-heading {
+    grid-column: 1 / -1;
+  }
+
+  .gestor-metrics .metrics-target {
+    grid-column: 1;
+    grid-row: 2;
+  }
+
+  .gestor-metrics .metrics-today {
+    grid-column: 1;
+    grid-row: 3;
+  }
+
+  .gestor-metrics .metrics-balance {
+    grid-column: 1;
+    grid-row: 4;
+  }
+
+  .gestor-metrics .metrics-grid {
+    grid-column: 2;
+    grid-row: 2 / 5;
+  }
+}

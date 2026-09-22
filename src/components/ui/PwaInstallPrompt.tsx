@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
 import { Download, X, Share } from "lucide-react";
 
+const DISMISS_KEY = "carflax-pwa-dismissed";
+
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
 }
 
-const DISMISS_KEY = "carflax-pwa-dismissed";
 
 function isStandalone() {
   return (
