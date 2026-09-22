@@ -1,4 +1,5 @@
-import { Check, CheckCircle2, ChevronRight, LockKeyhole, X } from "lucide-react";
+import { useState } from "react";
+import { Check, CheckCircle2, ChevronRight, LoaderCircle, LockKeyhole, X } from "lucide-react";
 import type { GestorLiberacao } from "@/lib/api";
 
 const dataHora = (iso: string, hora: string) => {
@@ -26,11 +27,34 @@ function ResumoLiberacao({ liberacao: l }: { liberacao: GestorLiberacao }) {
   );
 }
 
-export function LiberacoesTela({ pendentes, selecionada, onSelecionar }: {
+export function LiberacoesTela({ pendentes, selecionada, onSelecionar, onResponder, somenteLeitura }: {
   pendentes: GestorLiberacao[] | null;
   selecionada: GestorLiberacao | null;
   onSelecionar: (liberacao: GestorLiberacao) => void;
+  onResponder: (liberacao: GestorLiberacao, acao: "liberar" | "negar", justificativa?: string) => Promise<void>;
+  somenteLeitura: boolean;
 }) {
+  const [negando, setNegando] = useState(false);
+  const [justificativa, setJustificativa] = useState("");
+  const [enviando, setEnviando] = useState<"liberar" | "negar" | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+
+  const responder = async (liberacao: GestorLiberacao, acao: "liberar" | "negar") => {
+    if (acao === "negar" && !justificativa.trim()) {
+      setErro("Informe o motivo da negação.");
+      return;
+    }
+    setErro(null);
+    setEnviando(acao);
+    try {
+      await onResponder(liberacao, acao, justificativa.trim());
+    } catch (e) {
+      setErro(e instanceof Error ? e.message.replace(/^API \d+: .*: /, "") : "Não foi possível enviar a resposta.");
+    } finally {
+      setEnviando(null);
+    }
+  };
+
   if (selecionada) {
     const l = pendentes?.find((item) => item.numero === selecionada.numero && item.empresa === selecionada.empresa) ?? selecionada;
     const aindaPendente = pendentes?.some((item) => item.numero === l.numero && item.empresa === l.empresa);
@@ -40,18 +64,25 @@ export function LiberacoesTela({ pendentes, selecionada, onSelecionar }: {
         {aindaPendente === false && (
           <p role="status" className="mt-4 rounded-xl bg-muted p-3 text-sm text-muted-foreground">Esta liberação não está mais na fila de pendentes.</p>
         )}
+        {erro && <p role="alert" className="mt-4 rounded-xl bg-red-500/10 p-3 text-sm text-red-700 dark:text-red-300">{erro}</p>}
+        {!somenteLeitura && negando && (
+          <label className="mt-5 block text-sm font-medium">
+            Motivo da negação
+            <textarea value={justificativa} onChange={(e) => setJustificativa(e.target.value)} autoFocus rows={3} maxLength={1000} placeholder="Descreva o motivo para o solicitante" className="mt-2 w-full resize-y rounded-xl border border-border bg-background p-3 text-sm font-normal outline-none focus:ring-2 focus:ring-blue-500" />
+          </label>
+        )}
         <div className="mt-6 grid grid-cols-2 gap-3">
-          <button type="button" disabled aria-describedby="liberacao-somente-leitura" className="flex min-h-12 items-center justify-center gap-2 rounded-xl border border-red-500/25 bg-red-500/10 font-semibold text-red-600 disabled:cursor-not-allowed dark:text-red-400">
-            <X size={18} /> Negar
+          <button type="button" disabled={somenteLeitura || enviando !== null} onClick={() => negando ? responder(l, "negar") : setNegando(true)} className="flex min-h-12 items-center justify-center gap-2 rounded-xl border border-red-500/25 bg-red-500/10 font-semibold text-red-600 disabled:cursor-not-allowed disabled:opacity-50 dark:text-red-400">
+            {enviando === "negar" ? <LoaderCircle className="animate-spin" size={18} /> : <X size={18} />} {negando ? "Confirmar" : "Negar"}
           </button>
-          <button type="button" disabled aria-describedby="liberacao-somente-leitura" className="flex min-h-12 items-center justify-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 font-semibold text-emerald-600 disabled:cursor-not-allowed dark:text-emerald-400">
-            <Check size={18} /> Liberar
+          <button type="button" disabled={somenteLeitura || enviando !== null} onClick={() => responder(l, "liberar")} className="flex min-h-12 items-center justify-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 font-semibold text-emerald-600 disabled:cursor-not-allowed disabled:opacity-50 dark:text-emerald-400">
+            {enviando === "liberar" ? <LoaderCircle className="animate-spin" size={18} /> : <Check size={18} />} Liberar
           </button>
         </div>
-        <p id="liberacao-somente-leitura" className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
+        {somenteLeitura && <p id="liberacao-somente-leitura" className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
           <LockKeyhole size={14} className="mt-0.5 shrink-0" />
-          Consulta disponível aqui. Para negar ou liberar, use o app da Citel.
-        </p>
+          A integração com a Citel ainda não foi configurada neste servidor.
+        </p>}
         <section aria-label="Conteúdo da liberação" className="mt-6 overflow-hidden rounded-xl border border-border bg-background/50">
           {l.justificativa && (
             <div className="border-b border-border p-4">

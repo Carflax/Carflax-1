@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, Bell, LayoutGrid, LockOpen, LogOut, User } from "lucide-react";
-import { apiDashboardGeral, apiDashboardMetas, apiGestorLiberacoes, type GestorLiberacao, type VendedorResumo } from "@/lib/api";
+import { apiDashboardGeral, apiDashboardMetas, apiGestorLiberacoes, apiResponderGestorLiberacao, type GestorLiberacao, type VendedorResumo } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { buildPerdidoMap } from "@/lib/perdido-map";
 import { montarTotalETimes, type OrgUser } from "@/lib/times-diretoria";
@@ -53,6 +53,7 @@ export function GestorView({ userProfile, onLogout }: { userProfile: UserProfile
   const [perdidoMap, setPerdidoMap] = useState<Map<string, number> | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [liberacoes, setLiberacoes] = useState<GestorLiberacao[] | null>(null);
+  const [liberacoesSomenteLeitura, setLiberacoesSomenteLeitura] = useState(true);
   // `?liberacoes=1` vem do toque na notificação de liberação: abre direto na lista.
   const [telaLiberacoes, setTelaLiberacoes] = useState(() => new URLSearchParams(window.location.search).has("liberacoes"));
   const [menuAberto, setMenuAberto] = useState(false);
@@ -83,7 +84,9 @@ export function GestorView({ userProfile, onLogout }: { userProfile: UserProfile
 
   const carregarLiberacoes = useCallback(async () => {
     try {
-      setLiberacoes((await apiGestorLiberacoes()).pendentes);
+      const resposta = await apiGestorLiberacoes();
+      setLiberacoes(resposta.pendentes);
+      setLiberacoesSomenteLeitura(resposta.somenteLeitura);
     } catch {
       setLiberacoes(null);
     }
@@ -146,6 +149,12 @@ export function GestorView({ userProfile, onLogout }: { userProfile: UserProfile
     window.scrollTo(0, 0);
   };
 
+  const responderLiberacao = async (liberacao: GestorLiberacao, acao: "liberar" | "negar", justificativa?: string) => {
+    await apiResponderGestorLiberacao(liberacao.numero, acao, justificativa);
+    setLiberacaoSelecionada(null);
+    await carregarLiberacoes();
+  };
+
   // Voltar do detalhe retorna à lista; voltar da lista retorna ao painel.
   useEffect(() => {
     if (!telaLiberacoes) return;
@@ -170,7 +179,7 @@ export function GestorView({ userProfile, onLogout }: { userProfile: UserProfile
           </button>
           <h1 className="text-[18px] font-bold">{liberacaoSelecionada ? "Detalhes da liberação" : "Liberações pendentes"}</h1>
         </header>
-        <LiberacoesTela pendentes={liberacoes} selecionada={liberacaoSelecionada} onSelecionar={abrirLiberacao} />
+        <LiberacoesTela pendentes={liberacoes} selecionada={liberacaoSelecionada} onSelecionar={abrirLiberacao} onResponder={responderLiberacao} somenteLeitura={liberacoesSomenteLeitura} />
       </Pagina>
     );
   }

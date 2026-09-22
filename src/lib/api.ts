@@ -1908,3 +1908,5 @@ export interface GestorLiberacao {
 
 /** Fila de liberações pendentes. Só leitura: liberar/negar é no app da Citel. */
 export const apiGestorLiberacoes = () => get<{ pendentes: GestorLiberacao[]; somenteLeitura: boolean }>("/api/gestor/liberacoes");
+export const apiResponderGestorLiberacao = (numero: string, acao: "liberar" | "negar", justificativa = "") =>
+  post<{ sucesso: boolean }>("/api/gestor/liberacoes/responder", { numero, acao, justificativa });
