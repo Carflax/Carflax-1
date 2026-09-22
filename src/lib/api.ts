@@ -1910,5 +1910,3 @@ export interface GestorLiberacao {
 export const apiGestorLiberacoes = () => get<{ pendentes: GestorLiberacao[]; somenteLeitura: boolean }>("/api/gestor/liberacoes");
 export const apiResponderGestorLiberacao = (numero: string, acao: "liberar" | "negar", justificativa = "") =>
   post<{ sucesso: boolean }>("/api/gestor/liberacoes/responder", { numero, acao, justificativa });
-export const apiTestarPush = (userId: string) =>
-  post<{ enviados: number; removidos: number; falhas: number }>("/api/push/teste", { user_id: userId });
