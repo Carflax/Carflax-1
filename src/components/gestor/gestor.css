@@ -1,3 +1,9 @@
+/* Tela cheia do Gestor: sem rolagem nem arrasto elástico (iPhone). */
+body.gestor-sem-rolagem {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 /* O gestor ocupa a área disponível e pode crescer com o conteúdo em telas baixas. */
 .gestor-metrics {
   display: grid;

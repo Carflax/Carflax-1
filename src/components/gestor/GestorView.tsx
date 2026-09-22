@@ -22,6 +22,9 @@ import "./gestor.css";
 // /api/dashboard/geral tem cache no servidor: atualizar a cada 2 min não gera
 // consulta nova no ERP a cada abertura.
 const INTERVALO_MS = 2 * 60 * 1000;
+// Liberação é o que o diretor espera ver na hora; a consulta é pequena (poucas
+// linhas), então roda mais vezes que a dos cards.
+const INTERVALO_LIBERACOES_MS = 30 * 1000;
 
 const hojeISO = () => {
   const d = new Date();
@@ -102,11 +105,20 @@ export function GestorView({ userProfile, onLogout }: { userProfile: UserProfile
     document.title = "Carflax Gestor";
     const inicial = window.setTimeout(carregar, 0);
     const id = window.setInterval(carregar, INTERVALO_MS);
+    // As liberações são o que não pode atrasar: consulta própria, mais frequente
+    // que a dos cards, e uma atualização sempre que o app volta para a frente.
+    const idLib = window.setInterval(carregarLiberacoes, INTERVALO_LIBERACOES_MS);
+    const aoVoltar = () => {
+      if (document.visibilityState === "visible") carregarLiberacoes();
+    };
+    document.addEventListener("visibilitychange", aoVoltar);
     return () => {
       window.clearTimeout(inicial);
       window.clearInterval(id);
+      window.clearInterval(idLib);
+      document.removeEventListener("visibilitychange", aoVoltar);
     };
-  }, [carregar]);
+  }, [carregar, carregarLiberacoes]);
 
   // Toque na notificação com o Gestor já aberto: o service worker só foca a
   // janela e avisa por mensagem.
@@ -115,6 +127,10 @@ export function GestorView({ userProfile, onLogout }: { userProfile: UserProfile
     const aoReceber = (e: MessageEvent) => {
       if (e.data?.type === "carflax-abrir-url" && String(e.data.url || "").includes("liberacoes")) {
         setTelaLiberacoes(true);
+        carregarLiberacoes();
+      }
+      // Chegou o push de uma liberação nova com o app aberto: atualiza na hora.
+      if (e.data?.type === "carflax-push-recebido" && String(e.data.url || "").includes("liberacoes")) {
         carregarLiberacoes();
       }
     };
@@ -290,10 +306,20 @@ function Carrossel({ cards, perdidoMap }: { cards: VendedorResumo[]; perdidoMap:
 }
 
 function Pagina({ children, expandir = false }: { children: ReactNode; expandir?: boolean }) {
+  // Tela cheia (cards): altura exata da janela e nada rola. Sem isso o conteúdo
+  // passava alguns pixels por causa das margens de segurança do iPhone e a tela
+  // balançava para cima e para baixo. A classe no <body> mata o arrasto elástico,
+  // que acontece mesmo sem conteúdo sobrando. Nas liberações a lista rola normal.
+  useEffect(() => {
+    if (!expandir) return;
+    document.body.classList.add("gestor-sem-rolagem");
+    return () => document.body.classList.remove("gestor-sem-rolagem");
+  }, [expandir]);
+
   return (
-    <div className="min-h-dvh bg-background text-foreground">
+    <div className={expandir ? "h-dvh overflow-hidden bg-background text-foreground" : "min-h-dvh bg-background text-foreground"}>
       <div className={expandir
-        ? "flex min-h-dvh w-full min-w-0 flex-col px-3 pb-[max(env(safe-area-inset-bottom),8px)] pt-[max(env(safe-area-inset-top),12px)] sm:px-6 lg:px-8"
+        ? "flex h-full w-full min-w-0 flex-col overflow-hidden px-3 pb-[max(env(safe-area-inset-bottom),8px)] pt-[max(env(safe-area-inset-top),12px)] sm:px-6 lg:px-8"
         : "mx-auto max-w-[720px] px-4 pb-10 pt-[max(env(safe-area-inset-top),16px)]"
       }>{children}</div>
     </div>

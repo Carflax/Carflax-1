@@ -1,6 +1,6 @@
 // Service Worker — Carflax Hub (PWA: cache + Web Push)
 
-const CACHE = 'carflax-hub-v3';
+const CACHE = 'carflax-hub-v4';
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/favicon.png'];
 
 // Caminhos dinâmicos (dados ao vivo) que NUNCA devem ser cacheados.
@@ -102,6 +102,12 @@ self.addEventListener('push', (event) => {
       vibrate: urgente ? [300, 100, 300, 100, 300] : undefined,
       actions: urgente ? [{ action: 'abrir', title: url ? 'Abrir' : 'Abrir conversa' }] : undefined,
       data: { section: data.section || 'Marketing', documento: data.documento, remote_jid: data.remote_jid, url },
+    }).then(() => {
+      // Avisa quem estiver com a página aberta (Gestor): a lista se atualiza na
+      // hora, sem esperar a próxima consulta.
+      if (!url) return;
+      return clients.matchAll({ type: 'window', includeUncontrolled: true })
+        .then((lista) => lista.forEach((c) => c.postMessage({ type: 'carflax-push-recebido', url })));
     })
   );
 });
