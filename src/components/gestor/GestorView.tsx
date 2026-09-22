@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, Bell, LayoutGrid, LockOpen, LogOut, User } from "lucide-react";
-import { apiDashboardGeral, apiDashboardMetas, apiGestorLiberacoes, apiResponderGestorLiberacao, type GestorLiberacao, type VendedorResumo } from "@/lib/api";
+import { ArrowLeft, Bell, CheckCircle2, LayoutGrid, LockOpen, LogOut, User } from "lucide-react";
+import { apiDashboardGeral, apiDashboardMetas, apiGestorLiberacoes, apiResponderGestorLiberacao, apiTestarPush, type GestorLiberacao, type VendedorResumo } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { buildPerdidoMap } from "@/lib/perdido-map";
 import { montarTotalETimes, type OrgUser } from "@/lib/times-diretoria";
@@ -60,6 +60,8 @@ export function GestorView({ userProfile, onLogout }: { userProfile: UserProfile
   const [permissao, setPermissao] = useState<NotificationPermission>(() =>
     "Notification" in window ? Notification.permission : "denied",
   );
+  const [testandoPush, setTestandoPush] = useState(false);
+  const [resultadoPush, setResultadoPush] = useState<string | null>(null);
   const userId = userProfile?.id;
 
   // Push do aviso de liberação. Com permissão já dada, (re)assina em silêncio;
@@ -73,6 +75,20 @@ export function GestorView({ userProfile, onLogout }: { userProfile: UserProfile
       setPermissao(await Notification.requestPermission());
     } catch {
       /* navegador sem suporte */
+    }
+  };
+
+  const testarPush = async () => {
+    if (!userId) return;
+    setTestandoPush(true);
+    setResultadoPush(null);
+    try {
+      const resultado = await apiTestarPush(userId);
+      setResultadoPush(resultado.enviados > 0 ? "Teste enviado para este aparelho." : "Nenhum aparelho inscrito para receber o teste.");
+    } catch {
+      setResultadoPush("Não foi possível enviar o teste agora.");
+    } finally {
+      setTestandoPush(false);
     }
   };
 
@@ -243,6 +259,18 @@ export function GestorView({ userProfile, onLogout }: { userProfile: UserProfile
           <span className="flex-1 text-[13px]">Receber aviso no celular quando um pedido precisar de liberação</span>
           <span className="shrink-0 text-[13px] font-semibold text-blue-500">Ativar</span>
         </button>
+      )}
+      {permissao === "granted" && (
+        <div className="mb-3 flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3">
+          <CheckCircle2 size={20} className="shrink-0 text-emerald-500" />
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-medium">Avisos do Gestor ativados</p>
+            {resultadoPush && <p role="status" className="mt-0.5 text-xs text-muted-foreground">{resultadoPush}</p>}
+          </div>
+          <button onClick={testarPush} disabled={testandoPush} className="min-h-10 shrink-0 rounded-lg px-3 text-[13px] font-semibold text-blue-500 disabled:opacity-50">
+            {testandoPush ? "Enviando…" : "Testar"}
+          </button>
+        </div>
       )}
 
       {erro && (
