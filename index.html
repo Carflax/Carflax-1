@@ -3,9 +3,6 @@
 
 <head>
   <meta charset="UTF-8" />
-  <link rel="icon" type="image/png" href="/favicon.png" />
-  <link rel="shortcut icon" href="/favicon.png" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 
   <!-- Open Graph / WhatsApp Sharing -->
   <meta property="og:type" content="website" />
@@ -25,37 +22,40 @@
     content="Festival dos Instaladores Carflax: Conectando marcas, instaladores e oportunidades de negócio." />
   <meta name="twitter:image" content="/FESTIVAL.png" />
 
-  <!-- PWA -->
-  <link rel="manifest" href="/manifest.webmanifest" />
-  <meta name="theme-color" content="#0f172a" />
+  <!-- PWA / ícone / viewport — escritos por script para servir DOIS apps
+       instaláveis: o HUB e o Gestor (/gestor). Só a tag certa chega a existir:
+       trocar o link depois de criado não basta, porque o iPhone já leu o
+       manifest do HUB (start_url "/") e o Gestor instalado abria no HUB.
+       No Gestor também trava o zoom: o iPhone dava zoom ao tocar num campo. -->
+  <script>
+    (function () {
+      var gestor = location.pathname.indexOf('/gestor') === 0;
+      var c = gestor
+        ? { manifest: '/gestor.webmanifest', icon: '/gestor/icon-192.png', apple: '/gestor/apple-touch-icon.png',
+            nome: 'Carflax Gestor', appleTitulo: 'Gestor', tema: '#020617', titulo: 'Carflax Gestor',
+            viewport: 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover' }
+        : { manifest: '/manifest.webmanifest', icon: '/favicon.png', apple: '/favicon.png',
+            nome: 'Carflax Hub', appleTitulo: 'Carflax', tema: '#0f172a', titulo: 'Carflax | Tudo em um só lugar',
+            viewport: 'width=device-width, initial-scale=1.0, viewport-fit=cover' };
+      document.write(
+        '<meta name="viewport" content="' + c.viewport + '" />' +
+        '<link rel="icon" type="image/png" href="' + c.icon + '" />' +
+        '<link rel="shortcut icon" href="' + c.icon + '" />' +
+        '<link rel="manifest" href="' + c.manifest + '" />' +
+        '<meta name="theme-color" content="' + c.tema + '" />' +
+        '<meta name="application-name" content="' + c.nome + '" />' +
+        '<meta name="apple-mobile-web-app-title" content="' + c.appleTitulo + '" />' +
+        '<link rel="apple-touch-icon" href="' + c.apple + '" />' +
+        '<title>' + c.titulo + '</title>'
+      );
+    })();
+  </script>
   <meta name="color-scheme" content="dark light" />
-  <meta name="application-name" content="Carflax Hub" />
 
   <!-- iOS / Safari standalone -->
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Carflax" />
-  <link rel="apple-touch-icon" href="/favicon.png" />
-
-  <title>Carflax | Tudo em um só lugar</title>
-
-  <!-- Gestor (/gestor) é um app instalável à parte: troca manifest, nome e ícone
-       antes do navegador ler, para "Adicionar à tela inicial" instalar o Gestor
-       (abre direto nele, com ícone próprio) e não o HUB inteiro. -->
-  <script>
-    (function () {
-      if (location.pathname.indexOf('/gestor') !== 0) return;
-      var set = function (sel, attr, val) { var el = document.querySelector(sel); if (el) el.setAttribute(attr, val); };
-      set('link[rel="manifest"]', 'href', '/gestor.webmanifest');
-      set('link[rel="apple-touch-icon"]', 'href', '/gestor/apple-touch-icon.png');
-      set('link[rel="icon"]', 'href', '/gestor/icon-192.png');
-      set('meta[name="apple-mobile-web-app-title"]', 'content', 'Gestor');
-      set('meta[name="application-name"]', 'content', 'Carflax Gestor');
-      set('meta[name="theme-color"]', 'content', '#020617');
-      document.title = 'Carflax Gestor';
-    })();
-  </script>
 </head>
 
 

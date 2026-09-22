@@ -127,7 +127,7 @@ function LoginCitel({ onEntrar }: { onEntrar: (s: Sessao) => void }) {
         placeholder="Usuário"
         autoCapitalize="none"
         autoComplete="username"
-        className="w-full rounded-lg border border-border px-3 py-2.5 text-[15px] bg-transparent outline-none focus:border-blue-500"
+        className="w-full rounded-lg border border-border px-3 py-2.5 text-[16px] bg-transparent outline-none focus:border-blue-500"
       />
       <input
         value={senha}
@@ -135,7 +135,7 @@ function LoginCitel({ onEntrar }: { onEntrar: (s: Sessao) => void }) {
         placeholder="Senha"
         type="password"
         autoComplete="current-password"
-        className="w-full rounded-lg border border-border px-3 py-2.5 text-[15px] bg-transparent outline-none focus:border-blue-500"
+        className="w-full rounded-lg border border-border px-3 py-2.5 text-[16px] bg-transparent outline-none focus:border-blue-500"
       />
       {erro && <p className="text-[13px] text-red-600">{erro}</p>}
       <button
@@ -211,7 +211,7 @@ function CartaoLiberacao({
             value={obs}
             onChange={(e) => setObs(e.target.value.slice(0, 120))}
             placeholder="Observação (opcional)"
-            className="mt-3 w-full rounded-lg border border-border px-3 py-2 text-[14px] bg-transparent outline-none focus:border-blue-500"
+            className="mt-3 w-full rounded-lg border border-border px-3 py-2 text-[16px] bg-transparent outline-none focus:border-blue-500"
           />
           {erro && <p className="mt-2 text-[13px] text-red-600">{erro}</p>}
           {confirmando ? (
