@@ -1892,43 +1892,19 @@ export const apiTrafegoNegativas = (campanhaId: string, termos: string[]) =>
 // ── Gestor (/gestor) ─────────────────────────────────────────────────────────
 
 export interface GestorLiberacao {
+  /** Número da liberação no ERP (MSG_NUMLIB), o mesmo que o app da Citel mostra. */
   numero: string;
-  especie: "PD" | "OR";
+  titulo: string;
   empresa: string;
   data: string;
-  valor: number;
-  cliente: string;
-  cod_cliente: string;
-  vendedor: string;
-  falta_comercial: boolean;
-  falta_financeira: boolean;
-  motivos: string[];
+  hora: string;
+  solicitante: string;
+  /** Justificativa digitada por quem pediu. */
+  justificativa: string;
+  /** Corpo da mensagem, uma linha por item (documento, produtos, cliente...). */
+  linhas: string[];
+  lida: boolean;
 }
 
-export const apiGestorLiberacoes = () => get<{ pendentes: GestorLiberacao[] }>("/api/gestor/liberacoes");
-
-/**
- * POST das liberações devolvendo a mensagem do servidor no erro — a tela precisa
- * dela ("A Citel recusou: ...", "não está mais pendente") e do `relogar`, que o
- * `post()` genérico descarta.
- */
-async function postGestor<T>(path: string, body: unknown): Promise<T> {
-  const res = await fetch(`${window.location.origin}${API_BASE}${path}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
-    body: JSON.stringify(body),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const err = new Error(data?.error || `Erro ${res.status}`) as Error & { relogar?: boolean };
-    err.relogar = Boolean(data?.relogar);
-    throw err;
-  }
-  return data as T;
-}
-
-export const apiGestorEntrarCitel = (usuario: string, senha: string) =>
-  postGestor<{ token: string; operador: { codigo: string; nome: string } }>("/api/gestor/liberacoes/entrar", { usuario, senha });
-
-export const apiGestorLiberar = (token: string, doc: Pick<GestorLiberacao, "numero" | "especie" | "empresa">, observacao: string) =>
-  postGestor<{ ok: true; feitas: string[] }>("/api/gestor/liberacoes/liberar", { token, ...doc, observacao });
+/** Fila de liberações pendentes. Só leitura: liberar/negar é no app da Citel. */
+export const apiGestorLiberacoes = () => get<{ pendentes: GestorLiberacao[]; somenteLeitura: boolean }>("/api/gestor/liberacoes");

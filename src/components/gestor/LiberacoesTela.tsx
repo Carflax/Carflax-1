@@ -1,239 +1,98 @@
-import { useState, type FormEvent } from "react";
-import { CheckCircle2, Loader2, LogOut } from "lucide-react";
-import { apiGestorEntrarCitel, apiGestorLiberar, type GestorLiberacao } from "@/lib/api";
+import { Check, CheckCircle2, ChevronRight, LockKeyhole, X } from "lucide-react";
+import type { GestorLiberacao } from "@/lib/api";
 
-/**
- * Liberações de pedido/orçamento travado — mesmo fluxo do app Citel Gestor.
- *
- * A liberação é gravada no ERP no nome do operador Citel, por isso pede o login
- * da Citel. O servidor devolve um token de 12h (a senha não fica no navegador);
- * guardamos só o token na sessionStorage, que some ao fechar a aba.
- */
+const dataHora = (iso: string, hora: string) => {
+  const data = new Date(iso);
+  const dia = Number.isNaN(data.getTime()) ? "Data indisponível" : data.toLocaleDateString("pt-BR", { timeZone: "UTC" });
+  return hora ? `${dia} ${hora}` : dia;
+};
 
-const CHAVE_SESSAO = "gestor-citel-operador";
-type Sessao = { token: string; operador: { codigo: string; nome: string } };
-
-function lerSessao(): Sessao | null {
-  try {
-    const bruto = sessionStorage.getItem(CHAVE_SESSAO);
-    return bruto ? (JSON.parse(bruto) as Sessao) : null;
-  } catch {
-    return null;
-  }
-}
-function gravarSessao(s: Sessao | null) {
-  try {
-    if (s) sessionStorage.setItem(CHAVE_SESSAO, JSON.stringify(s));
-    else sessionStorage.removeItem(CHAVE_SESSAO);
-  } catch {
-    /* sem storage: a sessão vale só enquanto a tela estiver aberta */
-  }
-}
-
-const brl = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-const dataCurta = (iso: string) => new Date(iso).toLocaleDateString("pt-BR", { timeZone: "UTC" });
-const numeroCurto = (n: string) => n.replace(/^0+/, "") || n;
-
-export function LiberacoesTela({ pendentes, onAtualizar }: { pendentes: GestorLiberacao[] | null; onAtualizar: () => Promise<void> }) {
-  const [sessao, setSessao] = useState<Sessao | null>(lerSessao);
-  const [liberados, setLiberados] = useState<string[]>([]);
-
-  const sair = () => {
-    gravarSessao(null);
-    setSessao(null);
-  };
-
-  if (pendentes === null) {
-    return <p className="py-10 text-center text-sm text-muted-foreground">Não foi possível carregar as liberações.</p>;
-  }
-
-  const chave = (d: GestorLiberacao) => `${d.especie}-${d.numero}-${d.empresa}`;
-  const lista = pendentes.filter((d) => !liberados.includes(chave(d)));
-
+function ResumoLiberacao({ liberacao: l }: { liberacao: GestorLiberacao }) {
   return (
-    <div className="space-y-4">
-      {sessao ? (
-        <div className="flex items-center justify-between rounded-xl bg-card border border-border px-4 py-3 text-[13px]">
-          <span>
-            Liberando como <b>{sessao.operador.nome}</b>
-          </span>
-          <button onClick={sair} className="flex items-center gap-1 text-muted-foreground">
-            <LogOut size={14} /> Trocar
-          </button>
-        </div>
-      ) : (
-        lista.length > 0 && (
-          <LoginCitel
-            onEntrar={(s) => {
-              gravarSessao(s);
-              setSessao(s);
-            }}
-          />
-        )
-      )}
-
-      {lista.length === 0 && (
-        <div className="rounded-xl bg-card border border-border px-4 py-10 text-center">
-          <CheckCircle2 className="mx-auto text-emerald-500" size={32} />
-          <p className="mt-2 text-[15px] font-semibold">Nenhuma liberação pendente</p>
-          <p className="mt-1 text-[13px] text-muted-foreground">Pedidos e orçamentos travados aparecem aqui.</p>
-        </div>
-      )}
-
-      {lista.map((d) => (
-        <CartaoLiberacao
-          key={chave(d)}
-          doc={d}
-          sessao={sessao}
-          onRelogar={sair}
-          onLiberado={() => {
-            setLiberados((l) => [...l, chave(d)]);
-            onAtualizar();
-          }}
-        />
-      ))}
+    <div className="grid min-w-0 gap-4 text-sm sm:grid-cols-[1fr_auto]">
+      <div className="min-w-0">
+        <h2 className="break-words text-base font-bold">Liberação {l.numero}</h2>
+        <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Data: {dataHora(l.data, l.hora)}</p>
+      </div>
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-semibold text-muted-foreground sm:block sm:space-y-1 sm:text-right">
+        <p>Empresa: <span className="text-foreground">{l.empresa || "—"}</span></p>
+        <p className="break-words">Solicitante: <span className="text-foreground">{l.solicitante || "—"}</span></p>
+      </div>
+      <div className="min-w-0 sm:col-span-2">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Assunto</p>
+        <p className="mt-1 break-words font-medium leading-relaxed">{l.titulo}</p>
+      </div>
     </div>
   );
 }
 
-function LoginCitel({ onEntrar }: { onEntrar: (s: Sessao) => void }) {
-  const [usuario, setUsuario] = useState("");
-  const [senha, setSenha] = useState("");
-  const [erro, setErro] = useState<string | null>(null);
-  const [enviando, setEnviando] = useState(false);
-
-  const entrar = async (e: FormEvent) => {
-    e.preventDefault();
-    setEnviando(true);
-    setErro(null);
-    try {
-      onEntrar(await apiGestorEntrarCitel(usuario.trim(), senha));
-    } catch (err) {
-      setErro(err instanceof Error ? err.message : "Não foi possível entrar.");
-    } finally {
-      setEnviando(false);
-    }
-  };
-
-  return (
-    <form onSubmit={entrar} className="space-y-3 rounded-xl bg-card border border-border p-4">
-      <div>
-        <p className="text-[15px] font-bold">Login da Citel</p>
-        <p className="text-[12px] text-muted-foreground">A liberação fica registrada no ERP no seu nome de operador.</p>
-      </div>
-      <input
-        value={usuario}
-        onChange={(e) => setUsuario(e.target.value)}
-        placeholder="Usuário"
-        autoCapitalize="none"
-        autoComplete="username"
-        className="w-full rounded-lg border border-border px-3 py-2.5 text-[16px] bg-transparent outline-none focus:border-blue-500"
-      />
-      <input
-        value={senha}
-        onChange={(e) => setSenha(e.target.value)}
-        placeholder="Senha"
-        type="password"
-        autoComplete="current-password"
-        className="w-full rounded-lg border border-border px-3 py-2.5 text-[16px] bg-transparent outline-none focus:border-blue-500"
-      />
-      {erro && <p className="text-[13px] text-red-600">{erro}</p>}
-      <button
-        disabled={enviando || !usuario.trim() || !senha}
-        className="flex w-full items-center justify-center gap-2 rounded-lg bg-blue-600 py-2.5 text-[15px] font-semibold text-white disabled:opacity-50"
-      >
-        {enviando && <Loader2 size={16} className="animate-spin" />} Entrar
-      </button>
-    </form>
-  );
-}
-
-function CartaoLiberacao({
-  doc,
-  sessao,
-  onRelogar,
-  onLiberado,
-}: {
-  doc: GestorLiberacao;
-  sessao: Sessao | null;
-  onRelogar: () => void;
-  onLiberado: () => void;
+export function LiberacoesTela({ pendentes, selecionada, onSelecionar }: {
+  pendentes: GestorLiberacao[] | null;
+  selecionada: GestorLiberacao | null;
+  onSelecionar: (liberacao: GestorLiberacao) => void;
 }) {
-  const [obs, setObs] = useState("");
-  const [confirmando, setConfirmando] = useState(false);
-  const [enviando, setEnviando] = useState(false);
-  const [erro, setErro] = useState<string | null>(null);
-
-  const falta = [doc.falta_comercial && "comercial", doc.falta_financeira && "financeira"].filter(Boolean).join(" e ");
-
-  const liberar = async () => {
-    if (!sessao) return;
-    setEnviando(true);
-    setErro(null);
-    try {
-      await apiGestorLiberar(sessao.token, doc, obs.trim());
-      onLiberado();
-    } catch (err) {
-      const e = err as Error & { relogar?: boolean };
-      if (e.relogar) onRelogar();
-      setErro(e.message || "Não foi possível liberar.");
-      setConfirmando(false);
-    } finally {
-      setEnviando(false);
-    }
-  };
-
-  return (
-    <section className="rounded-xl bg-card border border-border p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-[15px] font-bold">{doc.cliente}</p>
-          <p className="text-[12px] text-muted-foreground">
-            {doc.especie === "PD" ? "Pedido" : "Orçamento"} {numeroCurto(doc.numero)} · Emp. {doc.empresa} · {dataCurta(doc.data)}
-          </p>
-          <p className="text-[12px] text-muted-foreground">Vendedor: {doc.vendedor}</p>
+  if (selecionada) {
+    const l = pendentes?.find((item) => item.numero === selecionada.numero && item.empresa === selecionada.empresa) ?? selecionada;
+    const aindaPendente = pendentes?.some((item) => item.numero === l.numero && item.empresa === l.empresa);
+    return (
+      <article className="rounded-2xl border border-border bg-card p-4 shadow-sm sm:p-6">
+        <ResumoLiberacao liberacao={l} />
+        {aindaPendente === false && (
+          <p role="status" className="mt-4 rounded-xl bg-muted p-3 text-sm text-muted-foreground">Esta liberação não está mais na fila de pendentes.</p>
+        )}
+        <div className="mt-6 grid grid-cols-2 gap-3">
+          <button type="button" disabled aria-describedby="liberacao-somente-leitura" className="flex min-h-12 items-center justify-center gap-2 rounded-xl border border-red-500/25 bg-red-500/10 font-semibold text-red-600 disabled:cursor-not-allowed dark:text-red-400">
+            <X size={18} /> Negar
+          </button>
+          <button type="button" disabled aria-describedby="liberacao-somente-leitura" className="flex min-h-12 items-center justify-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 font-semibold text-emerald-600 disabled:cursor-not-allowed dark:text-emerald-400">
+            <Check size={18} /> Liberar
+          </button>
         </div>
-        <span className="shrink-0 text-[15px] font-bold tabular-nums">{brl(doc.valor)}</span>
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        {(doc.motivos.length ? doc.motivos : ["Motivo não informado"]).map((m) => (
-          <span key={m} className="rounded-full bg-amber-500/15 px-2.5 py-1 text-[12px] text-amber-600 dark:text-amber-400">
-            {m}
-          </span>
-        ))}
-      </div>
-      <p className="mt-2 text-[12px] text-muted-foreground">Falta liberação {falta}.</p>
-
-      {sessao && (
-        <>
-          <input
-            value={obs}
-            onChange={(e) => setObs(e.target.value.slice(0, 120))}
-            placeholder="Observação (opcional)"
-            className="mt-3 w-full rounded-lg border border-border px-3 py-2 text-[16px] bg-transparent outline-none focus:border-blue-500"
-          />
-          {erro && <p className="mt-2 text-[13px] text-red-600">{erro}</p>}
-          {confirmando ? (
-            <div className="mt-3 flex gap-2">
-              <button onClick={() => setConfirmando(false)} disabled={enviando} className="flex-1 rounded-lg border border-border py-2.5 text-[14px]">
-                Cancelar
-              </button>
-              <button
-                onClick={liberar}
-                disabled={enviando}
-                className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 py-2.5 text-[14px] font-semibold text-white disabled:opacity-60"
-              >
-                {enviando && <Loader2 size={16} className="animate-spin" />} Confirmar
-              </button>
+        <p id="liberacao-somente-leitura" className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
+          <LockKeyhole size={14} className="mt-0.5 shrink-0" />
+          Consulta disponível aqui. Para negar ou liberar, use o app da Citel.
+        </p>
+        <section aria-label="Conteúdo da liberação" className="mt-6 overflow-hidden rounded-xl border border-border bg-background/50">
+          {l.justificativa && (
+            <div className="border-b border-border p-4">
+              <h3 className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">Justificativa</h3>
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed [overflow-wrap:anywhere]">{l.justificativa}</p>
             </div>
-          ) : (
-            <button onClick={() => setConfirmando(true)} className="mt-3 w-full rounded-lg bg-blue-600 py-2.5 text-[14px] font-semibold text-white">
-              Liberar
-            </button>
           )}
-        </>
-      )}
+          <div className="space-y-1 p-4 text-sm leading-relaxed [overflow-wrap:anywhere]">
+            {l.linhas.length ? l.linhas.map((linha, i) => (
+              /^\s*[-_=]{3,}\s*$/.test(linha)
+                ? <hr key={i} className="my-3 border-border" />
+                : <p key={i} className="whitespace-pre-wrap">{linha || "\u00a0"}</p>
+            )) : <p className="text-muted-foreground">Nenhum conteúdo adicional informado.</p>}
+          </div>
+        </section>
+      </article>
+    );
+  }
+  if (pendentes === null) {
+    return <p role="status" className="py-10 text-center text-sm text-muted-foreground">Não foi possível carregar as liberações.</p>;
+  }
+  if (!pendentes.length) {
+    return (
+      <div className="rounded-2xl border border-border bg-card px-4 py-10 text-center">
+        <CheckCircle2 className="mx-auto text-emerald-500" size={32} />
+        <p className="mt-2 text-[15px] font-semibold">Nenhuma liberação pendente</p>
+        <p className="mt-1 text-[13px] text-muted-foreground">Os pedidos que travarem aparecem aqui na hora.</p>
+      </div>
+    );
+  }
+  return (
+    <section aria-label="Liberações pendentes" className="space-y-3">
+      <p className="mb-4 text-sm text-muted-foreground">{pendentes.length} {pendentes.length === 1 ? "liberação pendente" : "liberações pendentes"}</p>
+      {pendentes.map((l) => (
+        <article key={`${l.empresa}:${l.numero}`} className="relative rounded-2xl border border-border bg-card p-4 shadow-sm transition-colors hover:border-blue-500/50 focus-within:ring-2 focus-within:ring-blue-500 sm:p-5">
+          <ResumoLiberacao liberacao={l} />
+          <button type="button" onClick={() => onSelecionar(l)} aria-label={`Ver liberação ${l.numero}`} className="mt-4 flex min-h-11 w-full items-center justify-end gap-1 border-t border-border pt-3 text-sm font-semibold text-blue-600 after:absolute after:inset-0 after:rounded-2xl focus-visible:outline-none dark:text-blue-400">
+            Ver liberação <ChevronRight size={18} />
+          </button>
+        </article>
+      ))}
     </section>
   );
 }

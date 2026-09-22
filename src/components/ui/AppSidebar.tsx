@@ -108,6 +108,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "Retirada": Package,
   Furos: PackageX,
   Compras: ShoppingCart,
+  Coletas: Truck,
   Painel: ShoppingCart,
   Cabos: Cable,
   "Relatórios Estoque": FileBarChart,

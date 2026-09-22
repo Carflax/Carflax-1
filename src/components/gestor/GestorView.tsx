@@ -138,11 +138,22 @@ export function GestorView({ userProfile, onLogout }: { userProfile: UserProfile
     return () => navigator.serviceWorker.removeEventListener("message", aoReceber);
   }, [carregarLiberacoes]);
 
-  // Botão "voltar" do celular fecha as liberações em vez de sair da página.
+  const [liberacaoSelecionada, setLiberacaoSelecionada] = useState<GestorLiberacao | null>(null);
+
+  const abrirLiberacao = (liberacao: GestorLiberacao) => {
+    window.history.pushState({ gestor: "liberacao" }, "");
+    setLiberacaoSelecionada(liberacao);
+    window.scrollTo(0, 0);
+  };
+
+  // Voltar do detalhe retorna à lista; voltar da lista retorna ao painel.
   useEffect(() => {
     if (!telaLiberacoes) return;
     window.history.pushState({ gestor: "liberacoes" }, "");
-    const voltar = () => setTelaLiberacoes(false);
+    const voltar = (event: PopStateEvent) => {
+      setLiberacaoSelecionada(null);
+      setTelaLiberacoes(event.state?.gestor === "liberacoes");
+    };
     window.addEventListener("popstate", voltar);
     return () => window.removeEventListener("popstate", voltar);
   }, [telaLiberacoes]);
@@ -157,9 +168,9 @@ export function GestorView({ userProfile, onLogout }: { userProfile: UserProfile
           <button onClick={() => window.history.back()} className="flex h-10 w-10 items-center justify-center rounded-full text-blue-500 active:bg-muted" aria-label="Voltar">
             <ArrowLeft size={22} />
           </button>
-          <h1 className="text-[18px] font-bold">Liberações</h1>
+          <h1 className="text-[18px] font-bold">{liberacaoSelecionada ? "Detalhes da liberação" : "Liberações pendentes"}</h1>
         </header>
-        <LiberacoesTela pendentes={liberacoes} onAtualizar={carregarLiberacoes} />
+        <LiberacoesTela pendentes={liberacoes} selecionada={liberacaoSelecionada} onSelecionar={abrirLiberacao} />
       </Pagina>
     );
   }

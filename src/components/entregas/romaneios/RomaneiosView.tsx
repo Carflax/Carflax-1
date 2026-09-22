@@ -22,6 +22,7 @@ import { apiMotoristas, apiAdminSQL, apiDescobrirVeiculos, apiSalvarVeiculo } fr
 import { supabase } from "@/lib/supabase";
 
 import type { UserProfile } from "@/App";
+import { ColetasDoDia } from "./ColetasDoDia";
 
 export interface Delivery {
   id: string;
@@ -486,6 +487,13 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-hide space-y-4">
+        {activeTab === "pending" && (
+          <ColetasDoDia
+            motoristaCod={selectedMotorista || undefined}
+            motoristaNome={motoristas.find(m => m.COD === selectedMotorista)?.NOME}
+            usuarioId={userProfile?.id}
+          />
+        )}
         {loading ? (
           <div className="space-y-3">
             <div className="bg-card border border-border rounded-xl p-4 animate-pulse">

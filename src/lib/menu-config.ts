@@ -92,6 +92,8 @@ export const NAV_SECTIONS: NavSection[] = [
     subItems: [
       // value "Compras" mantido: é a chave de permissão já gravada nos usuários.
       { label: "Produtos", value: "Compras" },
+      // Solicitação de coleta em fornecedor; a expedição programa em Entregas › Romaneios.
+      { label: "Coletas", value: "Coletas" },
       { label: "Relatórios", value: "Relatórios Compras" },
     ],
   },
@@ -271,7 +273,10 @@ export function automaticAccessReason(profile: AccessProfile | null | undefined,
 
   if ((dept === "VENDAS" || dept === "COMERCIAL") && VENDAS_SECTIONS.includes(item)) return "Setor Vendas";
 
-  if (dept === "COMPRAS" && (item === "Compras" || item === "Relatórios Compras")) return "Setor Compras";
+  if (dept === "COMPRAS" && (item === "Compras" || item === "Coletas" || item === "Relatórios Compras")) return "Setor Compras";
+
+  // Quem é da logística precisa ver as coletas que vai encaixar na rota.
+  if (item === "Coletas" && (dept === "LOGÍSTICA" || dept === "LOGISTICA" || dept === "EXPEDIÇÃO" || dept === "EXPEDICAO")) return "Setor Logística";
 
   // "Recursos H" é como o setor de RH é gravado no cadastro (ver UsersView).
   if (RH_SECTIONS.includes(item)) {
