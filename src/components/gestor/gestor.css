@@ -4,6 +4,17 @@ body.gestor-sem-rolagem {
   overscroll-behavior: none;
 }
 
+/* No PWA, prende a tela às bordas da janela em vez de depender da unidade dvh.
+   A área segura inferior é aplicada uma única vez, dentro da navegação. */
+.gestor-fullscreen {
+  position: fixed;
+  inset: 0;
+}
+
+.gestor-bottom-nav {
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 8px);
+}
+
 /* Compras e estoque preenchem a área restante; conteúdo longo rola acima do menu. */
 .gestor-panel {
   display: flex;

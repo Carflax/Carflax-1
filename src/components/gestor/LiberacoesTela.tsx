@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Check, CheckCircle2, ChevronRight, LoaderCircle, LockKeyhole, X } from "lucide-react";
 import type { GestorLiberacao } from "@/lib/api";
+import { HistoricoCobranca } from "./HistoricoCobranca";
 
 const dataHora = (iso: string, hora: string) => {
   const data = new Date(iso);
@@ -98,6 +99,7 @@ export function LiberacoesTela({ pendentes, selecionada, onSelecionar, onRespond
             )) : <p className="text-muted-foreground">Nenhum conteúdo adicional informado.</p>}
           </div>
         </section>
+        {l.historico_cobranca && <HistoricoCobranca key={`${l.empresa}:${l.numero}`} numero={l.numero} />}
       </article>
     );
   }

@@ -291,7 +291,7 @@ const ABAS: { id: Aba; rotulo: string; Icone: typeof LayoutGrid }[] = [
 
 function BottomNav({ aba, onAba }: { aba: Aba; onAba: (a: Aba) => void }) {
   return (
-    <nav className="mt-2 flex shrink-0 items-stretch gap-1 border-t border-border pt-2">
+    <nav aria-label="Navegação principal" className="gestor-bottom-nav mt-2 flex shrink-0 items-stretch gap-1 border-t border-border pt-2">
       {ABAS.map(({ id, rotulo, Icone }) => {
         const ativo = aba === id;
         return (
@@ -339,9 +339,9 @@ function Pagina({ children, expandir = false }: { children: ReactNode; expandir?
   }, [expandir]);
 
   return (
-    <div className={expandir ? "h-dvh max-w-full overflow-x-clip overflow-y-hidden bg-background text-foreground" : "min-h-dvh max-w-full overflow-x-clip bg-background text-foreground"}>
+    <div className={expandir ? "gestor-fullscreen max-w-full overflow-hidden bg-background text-foreground" : "min-h-dvh max-w-full overflow-x-clip bg-background text-foreground"}>
       <div className={expandir
-        ? "flex h-full w-full min-w-0 max-w-full flex-col overflow-hidden px-3 pb-[max(env(safe-area-inset-bottom),8px)] pt-[max(env(safe-area-inset-top),12px)] sm:px-6 lg:px-8"
+        ? "flex h-full w-full min-w-0 max-w-full flex-col overflow-hidden px-3 pt-[max(env(safe-area-inset-top),12px)] sm:px-6 lg:px-8"
         : "mx-auto max-w-[720px] px-4 pb-10 pt-[max(env(safe-area-inset-top),16px)]"
       }>{children}</div>
     </div>

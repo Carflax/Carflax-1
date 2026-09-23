@@ -1904,7 +1904,17 @@ export interface GestorLiberacao {
   /** Corpo da mensagem, uma linha por item (documento, produtos, cliente...). */
   linhas: string[];
   lida: boolean;
+  historico_cobranca?: boolean;
 }
+
+export interface GestorHistoricoCobranca {
+  cliente: string;
+  temMais: boolean;
+  registros: { id: string; empresa: string; data: string | null; agendamento: string | null;
+    retorno: string | null; baixado: string; operador: string; responsavel: string | null; observacao: string | null }[];
+}
+export const apiGestorHistoricoCobranca = (numero: string) =>
+  get<GestorHistoricoCobranca>(`/api/gestor/liberacoes/${encodeURIComponent(numero)}/historico-cobranca`);
 
 /** Fila de liberações pendentes. Só leitura: liberar/negar é no app da Citel. */
 export const apiGestorLiberacoes = () => get<{ pendentes: GestorLiberacao[]; somenteLeitura: boolean }>("/api/gestor/liberacoes");
