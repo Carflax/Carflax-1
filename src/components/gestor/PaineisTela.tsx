@@ -153,19 +153,20 @@ export function PaineisTela({ aba, dados }: { aba: "compras" | "estoque" | "cobr
   const rotuloFaixa = (f: number) => (f === 30 ? "Até 30d" : f === 60 ? "31-60d" : f === 120 ? "61-120d" : "+120d");
   const faixas = cb.faixas.map((f) => ({ ...f, rotulo: rotuloFaixa(f.faixa) }));
   return (
-    <div className="space-y-4 text-muted-foreground">
-      <header>
-        <h1 className="text-xl font-bold text-foreground">Cobranças</h1>
-        <p className="mt-1 text-xs">Títulos cadastrados nos últimos 2 anos</p>
+    <div className="gestor-panel gestor-panel-cobrancas text-muted-foreground">
+      <header className="gestor-panel-heading">
+        <h1>Cobranças</h1>
+        <p>Títulos cadastrados nos últimos 2 anos</p>
       </header>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="gestor-panel-kpis grid grid-cols-2 gap-3">
         <Kpi rotulo="A receber (a vencer)" valor={brlCurto(cb.a_vencer)} cor="text-emerald-600 dark:text-emerald-400" />
         <Kpi rotulo="Vencido" valor={brlCurto(cb.vencido)} cor={cb.vencido > 0 ? "text-rose-600 dark:text-rose-400" : "text-foreground"} />
         <Kpi rotulo="Inadimplência" valor={`${dec(cb.inadimplencia, 2)}%`} sub="Vencido sobre a carteira do período" cor="text-foreground" />
         <Kpi rotulo="Carteira" valor={brlCurto(cb.carteira)} sub={cb.qtd_titulos ? `${inteiro(cb.qtd_titulos)} títulos em aberto` : undefined} cor="text-foreground" />
       </div>
-      <Card titulo="Por prazo (a vencer × vencido)">
-        <div className="h-52 text-muted-foreground">
+      <Card titulo="Por prazo (a vencer × vencido)" className="gestor-panel-chart-card">
+        <div className="gestor-panel-chart text-muted-foreground">
+          <div className="absolute inset-0">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={faixas} margin={{ top: 8, right: 4, bottom: 0, left: 4 }}>
               <XAxis dataKey="rotulo" interval={0} {...eixoX} />
@@ -175,6 +176,7 @@ export function PaineisTela({ aba, dados }: { aba: "compras" | "estoque" | "cobr
               <Bar dataKey="vencido" name="vencido" stackId="a" fill={COR.vencido} radius={[3, 3, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
+          </div>
         </div>
         <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[12px]">
           <Legenda cor={COR.aVencer} texto="A vencer" />

@@ -67,7 +67,8 @@ body.gestor-sem-rolagem {
 .gestor-panel .gestor-panel-bars > div > div:first-child { flex-wrap: wrap; }
 
 @media (min-width: 768px) {
-  .gestor-panel-compras .gestor-panel-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .gestor-panel-compras .gestor-panel-kpis,
+  .gestor-panel-cobrancas .gestor-panel-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .gestor-stock-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .gestor-stock-kpis > :first-child { grid-column: auto; }
   .gestor-stock-breakdown { grid-template-columns: repeat(2, minmax(0, 1fr)); }
