@@ -1910,3 +1910,37 @@ export interface GestorLiberacao {
 export const apiGestorLiberacoes = () => get<{ pendentes: GestorLiberacao[]; somenteLeitura: boolean }>("/api/gestor/liberacoes");
 export const apiResponderGestorLiberacao = (numero: string, acao: "liberar" | "negar", justificativa = "") =>
   post<{ sucesso: boolean }>("/api/gestor/liberacoes/responder", { numero, acao, justificativa });
+
+// ── Gestor › Painéis (Compras, Estoque, Cobranças) ───────────────────────────
+
+export interface GestorPaineis {
+  gerado_em: string;
+  compras: {
+    serie: { mes: string; faturamento: number; custo: number; compras: number; pedidos: number }[];
+    entradas: number;
+    nfs: number;
+    pendente: number;
+    prazo_medio: number;
+    abaixo_minimo: number;
+  };
+  estoque: {
+    total: number;
+    dias: number;
+    abaixo_minimo: number;
+    por_empresa: { emp: string; estoque: number; dias: number }[];
+    fornecedores: { nome: string; valor: number; dias: number }[];
+    linhas: { nome: string; valor: number; dias: number }[];
+  };
+  cobrancas: {
+    vencido: number;
+    a_vencer: number;
+    inadimplencia: number;
+    carteira: number;
+    qtd_boletos: number;
+    valor_boletos: number;
+    faixas: { faixa: number; vencido: number; a_vencer: number; recebido: number }[];
+    maiores_atrasos: { nome: string; valor: number }[];
+  };
+}
+
+export const apiGestorPaineis = () => get<GestorPaineis>("/api/gestor/paineis");

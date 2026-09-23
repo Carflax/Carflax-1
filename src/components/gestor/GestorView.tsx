@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, Bell, LayoutGrid, LockOpen, LogOut, User } from "lucide-react";
-import { apiDashboardGeral, apiDashboardMetas, apiGestorLiberacoes, apiResponderGestorLiberacao, type GestorLiberacao, type VendedorResumo } from "@/lib/api";
+import { ArrowLeft, Bell, Boxes, LayoutGrid, LockOpen, LogOut, ShoppingCart, User, Wallet } from "lucide-react";
+import { apiDashboardGeral, apiDashboardMetas, apiGestorLiberacoes, apiGestorPaineis, apiResponderGestorLiberacao, type GestorLiberacao, type GestorPaineis, type VendedorResumo } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
 import { buildPerdidoMap } from "@/lib/perdido-map";
 import { montarTotalETimes, type OrgUser } from "@/lib/times-diretoria";
@@ -8,7 +8,10 @@ import { VendedorMiniCard } from "@/components/dashboard/Geral/RightPanelCompone
 import type { UserProfile } from "@/App";
 import { assinarPush } from "@/lib/push-subscription";
 import { LiberacoesTela } from "./LiberacoesTela";
+import { PaineisTela } from "./PaineisTela";
 import "./gestor.css";
+
+type Aba = "inicio" | "compras" | "estoque" | "cobrancas";
 
 /**
  * Gestor — tela de celular para a diretoria (/gestor, sem a barra lateral do HUB).
@@ -57,10 +60,18 @@ export function GestorView({ userProfile, onLogout }: { userProfile: UserProfile
   // `?liberacoes=1` vem do toque na notificação de liberação: abre direto na lista.
   const [telaLiberacoes, setTelaLiberacoes] = useState(() => new URLSearchParams(window.location.search).has("liberacoes"));
   const [menuAberto, setMenuAberto] = useState(false);
+  const [aba, setAba] = useState<Aba>("inicio");
+  const [paineis, setPaineis] = useState<GestorPaineis | null>(null);
   const [permissao, setPermissao] = useState<NotificationPermission>(() =>
     "Notification" in window ? Notification.permission : "denied",
   );
   const userId = userProfile?.id;
+
+  // Painéis (Compras/Estoque/Cobranças) carregam na 1ª vez que uma aba é aberta —
+  // a consulta é pesada e nem todo diretor abre os gráficos.
+  useEffect(() => {
+    if (aba !== "inicio" && !paineis) apiGestorPaineis().then(setPaineis).catch(() => {});
+  }, [aba, paineis]);
 
   // Push do aviso de liberação. Com permissão já dada, (re)assina em silêncio;
   // sem ela, o sininho abaixo pede — o iPhone só aceita o pedido após um toque.
@@ -234,31 +245,70 @@ export function GestorView({ userProfile, onLogout }: { userProfile: UserProfile
         </button>
       </header>
 
-      {permissao === "default" && (
-        <button
-          onClick={ativarAvisos}
-          className="mb-3 flex w-full shrink-0 items-center gap-3 rounded-xl border border-blue-500/40 bg-blue-500/10 px-4 py-3 text-left"
-        >
-          <Bell size={20} className="shrink-0 text-blue-500" />
-          <span className="flex-1 text-[13px]">Receber aviso no celular quando um pedido precisar de liberação</span>
-          <span className="shrink-0 text-[13px] font-semibold text-blue-500">Ativar</span>
-        </button>
-      )}
+      {aba === "inicio" ? (
+        <>
+          {permissao === "default" && (
+            <button
+              onClick={ativarAvisos}
+              className="mb-3 flex w-full shrink-0 items-center gap-3 rounded-xl border border-blue-500/40 bg-blue-500/10 px-4 py-3 text-left"
+            >
+              <Bell size={20} className="shrink-0 text-blue-500" />
+              <span className="flex-1 text-[13px]">Receber aviso no celular quando um pedido precisar de liberação</span>
+              <span className="shrink-0 text-[13px] font-semibold text-blue-500">Ativar</span>
+            </button>
+          )}
 
-      {erro && (
-        <div className="rounded-xl border border-border bg-card p-4 text-center text-sm text-muted-foreground">
-          {erro}
-          <button onClick={carregar} className="mt-2 block w-full font-medium text-blue-500">
-            Tentar de novo
-          </button>
+          {erro && (
+            <div className="rounded-xl border border-border bg-card p-4 text-center text-sm text-muted-foreground">
+              {erro}
+              <button onClick={carregar} className="mt-2 block w-full font-medium text-blue-500">
+                Tentar de novo
+              </button>
+            </div>
+          )}
+          {!cards && !erro && (
+            <div className="min-h-0 flex-1 animate-pulse rounded-2xl bg-muted" aria-label="Carregando indicadores" />
+          )}
+          {cards && <Carrossel cards={cards} perdidoMap={perdidoMap} />}
+        </>
+      ) : (
+        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <PaineisTela aba={aba} dados={paineis} />
         </div>
       )}
-      {!cards && !erro && (
-        <div className="min-h-[420px] flex-1 animate-pulse rounded-2xl bg-muted" aria-label="Carregando indicadores" />
-      )}
-      {cards && <Carrossel cards={cards} perdidoMap={perdidoMap} />}
 
+      <BottomNav aba={aba} onAba={setAba} />
     </Pagina>
+  );
+}
+
+const ABAS: { id: Aba; rotulo: string; Icone: typeof LayoutGrid }[] = [
+  { id: "inicio", rotulo: "Início", Icone: LayoutGrid },
+  { id: "cobrancas", rotulo: "Cobranças", Icone: Wallet },
+  { id: "compras", rotulo: "Compras", Icone: ShoppingCart },
+  { id: "estoque", rotulo: "Estoque", Icone: Boxes },
+];
+
+function BottomNav({ aba, onAba }: { aba: Aba; onAba: (a: Aba) => void }) {
+  return (
+    <nav className="mt-2 flex shrink-0 items-stretch gap-1 border-t border-border pt-2">
+      {ABAS.map(({ id, rotulo, Icone }) => {
+        const ativo = aba === id;
+        return (
+          <button
+            key={id}
+            onClick={() => onAba(id)}
+            aria-current={ativo ? "page" : undefined}
+            className={`flex flex-1 flex-col items-center gap-0.5 rounded-xl py-1.5 text-[11px] font-medium transition-colors ${
+              ativo ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"
+            }`}
+          >
+            <Icone size={22} strokeWidth={ativo ? 2.4 : 1.8} />
+            {rotulo}
+          </button>
+        );
+      })}
+    </nav>
   );
 }
 
@@ -294,11 +344,11 @@ function Carrossel({ cards, perdidoMap }: { cards: VendedorResumo[]; perdidoMap:
   };
 
   return (
-    <section className="flex min-w-0 flex-1 flex-col" aria-label="Indicadores de vendas">
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Indicadores de vendas">
       <div
         ref={trilho}
         onScroll={aoRolar}
-        className="flex min-w-0 flex-1 snap-x snap-mandatory overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        className="flex min-h-0 min-w-0 flex-1 snap-x snap-mandatory overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         {cards.map((c) => (
           <div key={c.COD_VENDEDOR} className="flex w-full min-w-0 shrink-0 snap-center snap-always">
