@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { ArrowLeft, Bell, Boxes, LayoutGrid, LockOpen, LogOut, ShoppingCart, User, Wallet } from "lucide-react";
 import { apiDashboardGeral, apiDashboardMetas, apiGestorLiberacoes, apiGestorPaineis, apiResponderGestorLiberacao, type GestorLiberacao, type GestorPaineis, type VendedorResumo } from "@/lib/api";
 import { supabase } from "@/lib/supabase";
@@ -269,10 +269,10 @@ export function GestorView({ userProfile, onLogout }: { userProfile: UserProfile
           {!cards && !erro && (
             <div className="min-h-0 flex-1 animate-pulse rounded-2xl bg-muted" aria-label="Carregando indicadores" />
           )}
-          {cards && <Carrossel cards={cards} perdidoMap={perdidoMap} />}
+          {cards && <IndicadoresVendas cards={cards} perdidoMap={perdidoMap} />}
         </>
       ) : (
-        <div className="min-h-0 min-w-0 flex-1 overflow-y-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden overflow-y-auto overscroll-contain pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <PaineisTela aba={aba} dados={paineis} />
         </div>
       )}
@@ -312,65 +312,15 @@ function BottomNav({ aba, onAba }: { aba: Aba; onAba: (a: Aba) => void }) {
   );
 }
 
-// Cards lado a lado, passando com o dedo (scroll-snap). Um card por vez, na
-// largura inteira; as bolinhas marcam em qual está e servem para pular direto.
-function Carrossel({ cards, perdidoMap }: { cards: VendedorResumo[]; perdidoMap: Map<string, number> | null }) {
-  const trilho = useRef<HTMLDivElement>(null);
-  const [atual, setAtual] = useState(0);
-  const indiceAtual = useRef(0);
-
-  // Mantém o card selecionado alinhado quando a tela muda de tamanho/orientação.
-  useEffect(() => {
-    const el = trilho.current;
-    if (!el) return;
-    const observer = new ResizeObserver(() => {
-      el.scrollTo({ left: indiceAtual.current * el.clientWidth, behavior: "instant" });
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  const aoRolar = () => {
-    const el = trilho.current;
-    if (!el || !el.clientWidth) return;
-    const indice = Math.max(0, Math.min(cards.length - 1, Math.round(el.scrollLeft / el.clientWidth)));
-    indiceAtual.current = indice;
-    setAtual(indice);
-  };
-
-  const irPara = (i: number) => {
-    const el = trilho.current;
-    if (el) el.scrollTo({ left: i * el.clientWidth, behavior: "smooth" });
-  };
+// O resumo geral ocupa toda a área disponível acima da navegação inferior.
+function IndicadoresVendas({ cards, perdidoMap }: { cards: VendedorResumo[]; perdidoMap: Map<string, number> | null }) {
+  const card = cards.find((item) => item.COD_VENDEDOR === "MEDIA") ?? cards[0];
 
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Indicadores de vendas">
-      <div
-        ref={trilho}
-        onScroll={aoRolar}
-        className="flex min-h-0 min-w-0 flex-1 snap-x snap-mandatory overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      >
-        {cards.map((c) => (
-          <div key={c.COD_VENDEDOR} className="flex w-full min-w-0 shrink-0 snap-center snap-always">
-            <VendedorMiniCard row={c} perdidoMap={perdidoMap} layout="gestor" />
-          </div>
-        ))}
+      <div className="gestor-card-container min-h-0 min-w-0 w-full flex-1">
+        {card && <VendedorMiniCard key={card.COD_VENDEDOR} row={card} perdidoMap={perdidoMap} layout="gestor" />}
       </div>
-      {cards.length > 1 && (
-        <div className="flex shrink-0 justify-center">
-          {cards.map((c, i) => (
-            <button
-              key={c.COD_VENDEDOR}
-              onClick={() => irPara(i)}
-              aria-label={`Card ${i + 1}`}
-              aria-current={i === atual ? "true" : undefined}
-              className="flex h-11 w-11 items-center justify-center rounded-full focus-visible:outline-2 focus-visible:outline-blue-500"
-            >
-              <span className={`h-1.5 rounded-full transition-all ${i === atual ? "w-5 bg-blue-500" : "w-1.5 bg-muted-foreground/30"}`} />
-            </button>
-          ))}
-        </div>
-      )}
     </section>
   );
 }
@@ -387,9 +337,9 @@ function Pagina({ children, expandir = false }: { children: ReactNode; expandir?
   }, [expandir]);
 
   return (
-    <div className={expandir ? "h-dvh overflow-hidden bg-background text-foreground" : "min-h-dvh bg-background text-foreground"}>
+    <div className={expandir ? "h-dvh max-w-full overflow-x-clip overflow-y-hidden bg-background text-foreground" : "min-h-dvh max-w-full overflow-x-clip bg-background text-foreground"}>
       <div className={expandir
-        ? "flex h-full w-full min-w-0 flex-col overflow-hidden px-3 pb-[max(env(safe-area-inset-bottom),8px)] pt-[max(env(safe-area-inset-top),12px)] sm:px-6 lg:px-8"
+        ? "flex h-full w-full min-w-0 max-w-full flex-col overflow-hidden px-3 pb-[max(env(safe-area-inset-bottom),8px)] pt-[max(env(safe-area-inset-top),12px)] sm:px-6 lg:px-8"
         : "mx-auto max-w-[720px] px-4 pb-10 pt-[max(env(safe-area-inset-top),16px)]"
       }>{children}</div>
     </div>

@@ -23,9 +23,9 @@ const rotuloMes = (mes: string) => {
 
 const COR = { faturamento: "#3b82f6", compras: "#f59e0b", custo: "#94a3b8", vencido: "#ef4444", aVencer: "#10b981", barra: "#3b82f6" };
 
-function Card({ titulo, children }: { titulo?: string; children: React.ReactNode }) {
+function Card({ titulo, children, className = "" }: { titulo?: string; children: React.ReactNode; className?: string }) {
   return (
-    <section className="rounded-2xl border border-border bg-card p-4">
+    <section className={`gestor-panel-card rounded-2xl border border-border bg-card p-4 ${className}`}>
       {titulo && <h2 className="mb-3 text-sm font-bold">{titulo}</h2>}
       {children}
     </section>
@@ -34,7 +34,7 @@ function Card({ titulo, children }: { titulo?: string; children: React.ReactNode
 
 function Kpi({ rotulo, valor, sub, cor }: { rotulo: string; valor: string; sub?: string; cor?: string }) {
   return (
-    <div className="rounded-xl border border-border bg-background/50 p-3">
+    <div className="gestor-panel-kpi rounded-xl border border-border bg-background/50 p-3">
       <p className="text-[11px] font-medium text-muted-foreground">{rotulo}</p>
       <p className={`mt-0.5 text-lg font-black tabular-nums ${cor || ""}`}>{valor}</p>
       {sub && <p className="text-[11px] text-muted-foreground">{sub}</p>}
@@ -45,7 +45,8 @@ function Kpi({ rotulo, valor, sub, cor }: { rotulo: string; valor: string; sub?:
 function Barras({ itens, cor }: { itens: { nome: string; valor: number; dias?: number }[]; cor: string }) {
   const max = Math.max(...itens.map((i) => i.valor), 1);
   return (
-    <div className="space-y-2.5">
+    <div className="gestor-panel-bars space-y-2.5">
+      {!itens.length && <p className="py-4 text-center text-sm text-muted-foreground">Nenhum dado disponível neste período.</p>}
       {itens.map((i) => (
         <div key={i.nome}>
           <div className="flex items-baseline justify-between gap-2 text-[13px]">
@@ -78,18 +79,20 @@ export function PaineisTela({ aba, dados }: { aba: "compras" | "estoque" | "cobr
   if (aba === "compras") {
     const c = dados.compras;
     return (
-      <div className="space-y-4 text-muted-foreground">
-        <div className="grid grid-cols-2 gap-3">
+      <div className="gestor-panel gestor-panel-compras text-muted-foreground">
+        <header className="gestor-panel-heading"><h1>Compras</h1><p>Entradas, pedidos e evolução mensal</p></header>
+        <div className="gestor-panel-kpis grid grid-cols-2 gap-3">
           <Kpi rotulo="Entradas no mês" valor={brlCurto(c.entradas)} sub={`${inteiro(c.nfs)} notas`} cor="text-foreground" />
           <Kpi rotulo="Pedidos pendentes" valor={brlCurto(c.pendente)} cor="text-amber-600 dark:text-amber-400" />
           <Kpi rotulo="Prazo médio de compra" valor={`${dec(c.prazo_medio, 0)} dias`} cor="text-foreground" />
           <Kpi rotulo="Itens abaixo do mínimo" valor={inteiro(c.abaixo_minimo)} cor={c.abaixo_minimo > 0 ? "text-rose-600 dark:text-rose-400" : "text-foreground"} />
         </div>
-        <Card titulo="Faturamento × Compras (12 meses)">
-          <div className="h-56 text-muted-foreground">
+        <Card titulo="Faturamento × Compras (12 meses)" className="gestor-panel-chart-card">
+          <div className="gestor-panel-chart text-muted-foreground">
+            <div className="absolute inset-0">
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={c.serie} margin={{ top: 8, right: 4, bottom: 0, left: 4 }} barGap={2}>
-                <XAxis dataKey="mes" tickFormatter={rotuloMes} interval={0} {...eixoX} />
+                <XAxis dataKey="mes" tickFormatter={rotuloMes} interval="preserveStartEnd" minTickGap={12} {...eixoX} />
                 <YAxis hide />
                 <Tooltip {...tip} formatter={(v, n) => [brl(Number(v)), n]} labelFormatter={(m) => rotuloMes(String(m))} />
                 <Bar dataKey="faturamento" name="Faturamento" fill={COR.faturamento} radius={[3, 3, 0, 0]} />
@@ -97,6 +100,7 @@ export function PaineisTela({ aba, dados }: { aba: "compras" | "estoque" | "cobr
                 <Line dataKey="custo" name="Custo" stroke={COR.custo} strokeWidth={1.5} dot={false} />
               </ComposedChart>
             </ResponsiveContainer>
+            </div>
           </div>
           <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[12px]">
             <Legenda cor={COR.faturamento} texto="Faturamento" />
@@ -111,15 +115,17 @@ export function PaineisTela({ aba, dados }: { aba: "compras" | "estoque" | "cobr
   if (aba === "estoque") {
     const e = dados.estoque;
     return (
-      <div className="space-y-4 text-muted-foreground">
-        <div className="grid grid-cols-3 gap-3">
+      <div className="gestor-panel gestor-panel-estoque text-muted-foreground">
+        <header className="gestor-panel-heading"><h1>Estoque</h1><p>Capital em estoque e distribuição</p></header>
+        <div className="gestor-panel-kpis gestor-stock-kpis grid grid-cols-2 gap-3">
           <Kpi rotulo="Valor do estoque" valor={brlCurto(e.total)} cor="text-foreground" />
           <Kpi rotulo="Duração" valor={`${dec(e.dias, 0)}d`} cor="text-foreground" />
           <Kpi rotulo="Abaixo do mín." valor={inteiro(e.abaixo_minimo)} cor={e.abaixo_minimo > 0 ? "text-rose-600 dark:text-rose-400" : "text-foreground"} />
         </div>
         {e.por_empresa.length > 0 && (
-          <Card titulo="Estoque por empresa">
-            <div className="h-40 text-muted-foreground">
+          <Card titulo="Estoque por empresa" className="gestor-panel-chart-card">
+            <div className="gestor-panel-chart text-muted-foreground">
+              <div className="absolute inset-0">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={e.por_empresa} margin={{ top: 8, right: 4, bottom: 0, left: 4 }}>
                   <XAxis dataKey="emp" tickFormatter={(v) => `Emp. ${v}`} {...eixoX} />
@@ -130,11 +136,14 @@ export function PaineisTela({ aba, dados }: { aba: "compras" | "estoque" | "cobr
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
+              </div>
             </div>
           </Card>
         )}
-        <Card titulo="Maiores estoques por fornecedor"><Barras itens={e.fornecedores} cor={COR.barra} /></Card>
-        <Card titulo="Estoque por linha"><Barras itens={e.linhas} cor="#8b5cf6" /></Card>
+        <div className="gestor-stock-breakdown">
+          <Card titulo="Maiores estoques por fornecedor"><Barras itens={e.fornecedores} cor={COR.barra} /></Card>
+          <Card titulo="Estoque por linha"><Barras itens={e.linhas} cor="#8b5cf6" /></Card>
+        </div>
       </div>
     );
   }

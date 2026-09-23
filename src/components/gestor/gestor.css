@@ -4,9 +4,95 @@ body.gestor-sem-rolagem {
   overscroll-behavior: none;
 }
 
-/* O gestor ocupa a área disponível e pode crescer com o conteúdo em telas baixas. */
+/* Compras e estoque preenchem a área restante; conteúdo longo rola acima do menu. */
+.gestor-panel {
+  display: flex;
+  flex: 1 0 auto;
+  flex-direction: column;
+  min-width: 0;
+  gap: clamp(12px, 2dvh, 24px);
+}
+
+.gestor-panel-heading h1 {
+  color: hsl(var(--foreground));
+  font-size: clamp(22px, 2.5vw, 30px);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+}
+
+.gestor-panel-heading p { font-size: 12px; margin-top: 2px; }
+
+.gestor-panel .gestor-panel-kpi {
+  display: flex;
+  min-width: 0;
+  min-height: 94px;
+  flex-direction: column;
+  justify-content: center;
+  padding: clamp(12px, 2vw, 24px);
+  border-radius: 16px;
+  background: linear-gradient(145deg, hsl(var(--primary) / 0.08), hsl(var(--card)));
+  overflow-wrap: anywhere;
+}
+
+.gestor-panel .gestor-panel-kpi > p:nth-child(2) {
+  font-size: clamp(22px, 2.6vw, 36px);
+  line-height: 1.15;
+  margin-top: 8px;
+  letter-spacing: -0.03em;
+}
+
+.gestor-panel .gestor-panel-card {
+  min-width: 0;
+  padding: clamp(16px, 2vw, 28px);
+  border-radius: 20px;
+}
+
+.gestor-panel .gestor-panel-card h2 { color: hsl(var(--foreground)); }
+
+.gestor-panel-chart-card { display: flex; flex: 1; flex-direction: column; }
+.gestor-panel-chart {
+  position: relative;
+  flex: 1 0 220px;
+  min-height: 220px;
+  min-width: 0;
+}
+
+.gestor-stock-kpis > :first-child { grid-column: 1 / -1; }
+.gestor-stock-breakdown { display: grid; gap: 12px; }
+.gestor-panel .gestor-panel-bars > div {
+  padding: 10px 0;
+  border-bottom: 1px solid hsl(var(--border) / 0.5);
+}
+.gestor-panel .gestor-panel-bars > div:last-child { border-bottom: 0; }
+.gestor-panel .gestor-panel-bars > div > div:first-child { flex-wrap: wrap; }
+
+@media (min-width: 768px) {
+  .gestor-panel-compras .gestor-panel-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .gestor-stock-kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .gestor-stock-kpis > :first-child { grid-column: auto; }
+  .gestor-stock-breakdown { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* O resumo permanece dentro da largura disponível acima da barra inferior. */
+.gestor-card-container {
+  overflow: hidden;
+  touch-action: pan-y;
+}
+
+.gestor-card-container > * {
+  max-width: 100%;
+}
+
+/* A borda ocupa a área acima da navegação. Em telas baixas, apenas o conteúdo
+   interno rola: título e indicadores nunca escapam do card. */
 .gestor-metrics {
   display: grid;
+  height: 100%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
   grid-template-rows: auto auto auto auto minmax(min-content, 1fr);
   gap: clamp(10px, 1.5dvh, 20px);
   width: 100%;
@@ -99,6 +185,22 @@ body.gestor-sem-rolagem {
   line-height: 1.2;
   white-space: normal;
   overflow-wrap: anywhere;
+}
+
+@media (max-width: 767px) {
+  .gestor-metrics { gap: 6px; padding: 12px; }
+  .gestor-metrics .metrics-heading { padding-bottom: 6px; }
+  .gestor-metrics .metrics-ring {
+    width: clamp(64px, 10dvh, 100px);
+    height: clamp(64px, 10dvh, 100px);
+  }
+  .gestor-metrics .metrics-ring span { font-size: 22px; }
+  .gestor-metrics .metrics-grid {
+    grid-auto-rows: minmax(44px, 1fr);
+    gap: 6px;
+  }
+  .gestor-metrics .metrics-grid > div { padding: 6px; }
+  .gestor-metrics .metrics-grid > div > div { gap: 2px; }
 }
 
 @media (min-width: 768px) {
