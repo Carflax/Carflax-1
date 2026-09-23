@@ -154,11 +154,15 @@ export function PaineisTela({ aba, dados }: { aba: "compras" | "estoque" | "cobr
   const faixas = cb.faixas.map((f) => ({ ...f, rotulo: rotuloFaixa(f.faixa) }));
   return (
     <div className="space-y-4 text-muted-foreground">
+      <header>
+        <h1 className="text-xl font-bold text-foreground">Cobranças</h1>
+        <p className="mt-1 text-xs">Títulos cadastrados nos últimos 2 anos</p>
+      </header>
       <div className="grid grid-cols-2 gap-3">
         <Kpi rotulo="A receber (a vencer)" valor={brlCurto(cb.a_vencer)} cor="text-emerald-600 dark:text-emerald-400" />
         <Kpi rotulo="Vencido" valor={brlCurto(cb.vencido)} cor={cb.vencido > 0 ? "text-rose-600 dark:text-rose-400" : "text-foreground"} />
-        <Kpi rotulo="Inadimplência" valor={`${dec(cb.inadimplencia, 2)}%`} cor="text-foreground" />
-        <Kpi rotulo="Carteira" valor={brlCurto(cb.carteira)} sub={cb.qtd_boletos ? `${inteiro(cb.qtd_boletos)} boletos` : undefined} cor="text-foreground" />
+        <Kpi rotulo="Inadimplência" valor={`${dec(cb.inadimplencia, 2)}%`} sub="Vencido sobre a carteira do período" cor="text-foreground" />
+        <Kpi rotulo="Carteira" valor={brlCurto(cb.carteira)} sub={cb.qtd_titulos ? `${inteiro(cb.qtd_titulos)} títulos em aberto` : undefined} cor="text-foreground" />
       </div>
       <Card titulo="Por prazo (a vencer × vencido)">
         <div className="h-52 text-muted-foreground">

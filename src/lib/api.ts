@@ -1936,8 +1936,7 @@ export interface GestorPaineis {
     a_vencer: number;
     inadimplencia: number;
     carteira: number;
-    qtd_boletos: number;
-    valor_boletos: number;
+    qtd_titulos: number;
     faixas: { faixa: number; vencido: number; a_vencer: number; recebido: number }[];
     maiores_atrasos: { nome: string; valor: number }[];
   };

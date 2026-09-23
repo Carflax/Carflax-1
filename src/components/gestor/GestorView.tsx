@@ -312,14 +312,16 @@ function BottomNav({ aba, onAba }: { aba: Aba; onAba: (a: Aba) => void }) {
   );
 }
 
-// O resumo geral ocupa toda a área disponível acima da navegação inferior.
+// Cada resumo ocupa a largura disponível; o deslize troca de time sem mover a página.
 function IndicadoresVendas({ cards, perdidoMap }: { cards: VendedorResumo[]; perdidoMap: Map<string, number> | null }) {
-  const card = cards.find((item) => item.COD_VENDEDOR === "MEDIA") ?? cards[0];
-
   return (
     <section className="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Indicadores de vendas">
-      <div className="gestor-card-container min-h-0 min-w-0 w-full flex-1">
-        {card && <VendedorMiniCard key={card.COD_VENDEDOR} row={card} perdidoMap={perdidoMap} layout="gestor" />}
+      <div className="gestor-card-container min-h-0 min-w-0 w-full flex-1" role="region" aria-label="Total geral e times. Deslize para ver os próximos cards." tabIndex={0}>
+        {cards.map((card, index) => (
+          <div className="gestor-card-slide" key={card.COD_VENDEDOR} role="group" aria-roledescription="slide" aria-label={`${index + 1} de ${cards.length}`}>
+            <VendedorMiniCard row={card} perdidoMap={perdidoMap} layout="gestor" />
+          </div>
+        ))}
       </div>
     </section>
   );
