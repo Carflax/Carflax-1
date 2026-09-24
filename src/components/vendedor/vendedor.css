@@ -1,0 +1,137 @@
+/* Camada de fluidez do PWA do Vendedor (/vendedor).
+ * Otimizado para mobile-first, 100% responsivo, com safe areas do iOS/Android,
+ * microinterações táteis e sensação de aplicativo nativo. */
+
+:root {
+  --vendedor-nav-height: 58px;
+  --vendedor-safe-top: env(safe-area-inset-top, 0px);
+  --vendedor-safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.vendedor-app {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100vw;
+}
+
+/* Sem atraso de toque (~300ms) e sem seleção acidental ao pressionar. */
+.vendedor-app button,
+.vendedor-app a,
+.vendedor-app [role="button"],
+.vendedor-app input,
+.vendedor-app select,
+.vendedor-app textarea {
+  touch-action: manipulation;
+}
+
+.vendedor-app button,
+.vendedor-app a,
+.vendedor-app [role="button"] {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Resposta imediata: feedback tátil ao toque (active scale) */
+.vendedor-app button:active:not(:disabled),
+.vendedor-app a[href]:active {
+  transform: scale(0.97);
+  transition: transform 70ms ease-out;
+}
+
+.vendedor-app .touch-scale-sm:active:not(:disabled) {
+  transform: scale(0.985);
+  transition: transform 70ms ease-out;
+}
+
+/* Rolagem nativa fluida com momentum no iOS */
+.vendedor-app .overflow-y-auto {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+}
+
+/* Campos numéricos sem as setinhas nativas */
+.vendedor-app input[type="number"]::-webkit-outer-spin-button,
+.vendedor-app input[type="number"]::-webkit-inner-spin-button {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+}
+.vendedor-app input[type="number"] {
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+/* Inputs em mobile com font-size 16px para evitar auto-zoom involuntário */
+@media (max-width: 768px) {
+  .vendedor-app input,
+  .vendedor-app textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Animações de Bottom Sheet e Scrim estilo iOS */
+.vendedor-scrim {
+  animation: vendedor-fade 200ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.vendedor-sheet {
+  animation: vendedor-sheet-up 280ms cubic-bezier(0.32, 0.72, 0, 1) forwards;
+  transform-origin: bottom center;
+}
+
+.vendedor-sheet-handle {
+  width: 38px;
+  height: 4px;
+  border-radius: 9999px;
+  margin: 8px auto 6px;
+  background-color: currentColor;
+  opacity: 0.25;
+}
+
+@keyframes vendedor-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes vendedor-sheet-up {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+/* Barra de ações flutuante (resumo e checkout) */
+.vendedor-action-bar {
+  bottom: calc(var(--vendedor-nav-height) + env(safe-area-inset-bottom, 0px));
+}
+
+/* Espaçamento inferior dinâmico do conteúdo com carrinho ativo */
+.vendedor-content-pad-cart {
+  padding-bottom: calc(180px + env(safe-area-inset-bottom, 0px));
+}
+
+.vendedor-content-pad-empty {
+  padding-bottom: calc(84px + env(safe-area-inset-bottom, 0px));
+}
+
+/* Acessibilidade: respeita preferências de redução de movimento */
+@media (prefers-reduced-motion: reduce) {
+  .vendedor-app button:active:not(:disabled),
+  .vendedor-app a[href]:active,
+  .vendedor-app .touch-scale-sm:active:not(:disabled) {
+    transform: none;
+  }
+  .vendedor-sheet {
+    animation: vendedor-fade 150ms ease-out forwards;
+  }
+}
+
+/* Menos transparência quando solicitado pelo sistema */
+@media (prefers-reduced-transparency: reduce) {
+  .vendedor-app .backdrop-blur,
+  .vendedor-app .backdrop-blur-md,
+  .vendedor-app .backdrop-blur-xl {
+    backdrop-filter: none;
+  }
+}
