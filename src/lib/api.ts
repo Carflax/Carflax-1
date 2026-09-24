@@ -1972,3 +1972,101 @@ export interface GestorPaineis {
 }
 
 export const apiGestorPaineis = () => get<GestorPaineis>("/api/gestor/paineis");
+
+// ── Vendedor (/vendedor) ─────────────────────────────────────────────────────
+
+export interface VendedorStatus {
+  codigoVendedor: string;
+  empresaPadrao: string;
+  /** Só grava no ERP se o envio estiver habilitado no servidor (VENDAS_HABILITADAS). */
+  podeEnviar: boolean;
+}
+export interface VendedorProduto {
+  cod: string;
+  produto: string;
+  referencia: string | null;
+  marca: string | null;
+  preco: number;
+  disponivel: number;
+}
+export interface VendedorCliente {
+  cod: string;
+  nome: string;
+  documento: string | null;
+  tipo: "PF" | "PJ";
+  celular: string | null;
+  vendedor: string | null;
+  bairro: string | null;
+}
+export interface VendedorCondicao {
+  codigo: string;
+  descricao: string;
+  formatada: string | null;
+  representacao: string | null;
+  parcelas: number | null;
+  liberacao: boolean;
+}
+export interface VendedorForma {
+  codigo: string;
+  descricao: string;
+}
+export interface VendedorEmpresa {
+  codigo: string;
+  nome: string;
+}
+export interface VendedorPedidoResumo {
+  doc: string;
+  especie: string;
+  empresa: string;
+  data: string;
+  total: number;
+  cliente: string | null;
+  nota_fiscal: string | null;
+  status: string;
+}
+
+/** Um item do carrinho enviado ao criar o orçamento/pedido. */
+export interface VendedorItemEnvio {
+  cod: string;
+  descricao?: string;
+  quantidade: number;
+  precoUnitario: number;
+}
+export interface VendedorNovoPedido {
+  especie: "OR" | "PD";
+  cliente: string;
+  itens: VendedorItemEnvio[];
+  codigoEmpresa?: string;
+  condicaoPagamento?: string;
+  condicaoRepresentacao?: string;
+  formaPagamento?: string;
+  observacao?: string;
+}
+
+export const apiVendedorStatus = () => get<VendedorStatus>("/api/vendedor/status");
+export const apiVendedorProdutos = (q: string) =>
+  get<{ produtos: VendedorProduto[] }>("/api/vendedor/produtos", { q });
+export const apiVendedorClientes = (q: string) =>
+  get<{ clientes: VendedorCliente[] }>("/api/vendedor/clientes", { q });
+export const apiVendedorCondicoes = () =>
+  get<{ condicoes: VendedorCondicao[] }>("/api/vendedor/condicoes-pagamento");
+export const apiVendedorFormas = () =>
+  get<{ formas: VendedorForma[] }>("/api/vendedor/formas-pagamento");
+export const apiVendedorEmpresas = () =>
+  get<{ empresas: VendedorEmpresa[] }>("/api/vendedor/empresas");
+export const apiVendedorPedidos = () =>
+  get<{ pedidos: VendedorPedidoResumo[] }>("/api/vendedor/pedidos");
+// Fetch próprio (não o post() genérico) para expor a mensagem de erro do ERP:
+// o backend devolve { error: "A Citel recusou: ..." } e o vendedor precisa ver
+// isso na tela, não um "API 400" seco.
+export const apiVendedorCriarPedido = async (pedido: VendedorNovoPedido) => {
+  const baseUrl = API_BASE.startsWith("http") ? API_BASE : window.location.origin + API_BASE;
+  const res = await fetch(`${baseUrl}/api/vendedor/pedidos`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
+    body: JSON.stringify(pedido),
+  });
+  const dados = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(dados?.error || `Erro ${res.status} ao enviar.`);
+  return dados as { sucesso: boolean; especie: string; numero: string | null; total: number };
+};

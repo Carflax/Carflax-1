@@ -30,10 +30,16 @@
   <script>
     (function () {
       var gestor = location.pathname.indexOf('/gestor') === 0;
+      var vendedor = location.pathname.indexOf('/vendedor') === 0;
+      var travaZoom = 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover';
       var c = gestor
         ? { manifest: '/gestor.webmanifest', icon: '/gestor/icon-192.png', apple: '/gestor/apple-touch-icon.png',
             nome: 'Carflax Gestor', appleTitulo: 'Gestor', tema: '#020617', titulo: 'Carflax Gestor',
-            viewport: 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover' }
+            viewport: travaZoom }
+        : vendedor
+        ? { manifest: '/vendedor.webmanifest', icon: '/vendedor/icon-192.png', apple: '/vendedor/apple-touch-icon.png',
+            nome: 'Carflax Vendas', appleTitulo: 'Vendas', tema: '#065f46', titulo: 'Carflax Vendas',
+            viewport: travaZoom }
         : { manifest: '/manifest.webmanifest', icon: '/favicon.png', apple: '/favicon.png',
             nome: 'Carflax Hub', appleTitulo: 'Carflax', tema: '#0f172a', titulo: 'Carflax | Tudo em um só lugar',
             viewport: 'width=device-width, initial-scale=1.0, viewport-fit=cover' };

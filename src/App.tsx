@@ -39,6 +39,7 @@ import { RelatoriosScrumView } from "@/components/scrum/RelatoriosScrumView";
 import { EntregasView } from "@/components/entregas";
 import { MotoristaView } from "@/components/entregas/motorista/MotoristaView";
 import { GestorView } from "@/components/gestor/GestorView";
+import { VendedorView } from "@/components/vendedor/VendedorView";
 import { assinarPush } from "@/lib/push-subscription";
 import { UsersView } from "@/components/users/UsersView";
 import { LoginView } from "@/components/auth/LoginView";
@@ -1764,8 +1765,8 @@ function App() {
   const [perdidoMap, setPerdidoMap] = useState<Map<string, number>>(new Map());
 
   const fetchVendedorMetrics = useCallback(async (profile: UserProfile) => {
-    // A tela do Gestor não usa o Dashboard Geral: não pesar o ERP à toa.
-    if (window.location.pathname.startsWith("/gestor")) return;
+    // Gestor e Vendedor não usam o Dashboard Geral: não pesar o ERP à toa.
+    if (window.location.pathname.startsWith("/gestor") || window.location.pathname.startsWith("/vendedor")) return;
     try {
       const now = new Date();
       const yyyy = now.getFullYear();
@@ -2164,6 +2165,16 @@ function App() {
     );
   }
 
+  // Vendedor (criar orçamento/pedido pelo celular): tela cheia, sem barra lateral.
+  const isVendedorRoute = window.location.pathname.startsWith("/vendedor");
+  if (isVendedorRoute && !loading && session) {
+    return (
+      <ThemeProvider defaultTheme="light" storageKey="carflax-theme">
+        <VendedorView userProfile={profile} onLogout={() => supabase.auth.signOut()} />
+      </ThemeProvider>
+    );
+  }
+
   if (loading || (session && geralLoading)) return <LoadingScreen />;
 
 
@@ -2182,8 +2193,8 @@ function App() {
         ) : (
           <LoginView onLogin={() => {}} />
         )}
-        {/* No /gestor (tela de login) o aviso do HUB não faz sentido. */}
-        {!isGestorRoute && <PwaInstallPrompt />}
+        {/* No /gestor e /vendedor (tela de login) o aviso do HUB não faz sentido. */}
+        {!isGestorRoute && !isVendedorRoute && <PwaInstallPrompt />}
       </NotificationProvider>
     </ThemeProvider>
   );

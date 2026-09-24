@@ -1,0 +1,22 @@
+{
+  "name": "Carflax Vendas",
+  "short_name": "Vendas",
+  "description": "Orçamentos e pedidos da Carflax direto do celular.",
+  "id": "/vendedor",
+  "start_url": "/vendedor",
+  "scope": "/vendedor",
+  "display": "standalone",
+  "display_override": ["standalone"],
+  "orientation": "portrait",
+  "background_color": "#065f46",
+  "theme_color": "#065f46",
+  "lang": "pt-BR",
+  "dir": "ltr",
+  "categories": ["business", "productivity"],
+  "icons": [
+    { "src": "/vendedor/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/vendedor/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/vendedor/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/vendedor/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

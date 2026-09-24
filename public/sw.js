@@ -1,6 +1,6 @@
 // Service Worker — Carflax Hub (PWA: cache + Web Push)
 
-const CACHE = 'carflax-hub-v4';
+const CACHE = 'carflax-hub-v5';
 const APP_SHELL = ['/', '/index.html', '/manifest.webmanifest', '/favicon.png'];
 
 // Caminhos dinâmicos (dados ao vivo) que NUNCA devem ser cacheados.
