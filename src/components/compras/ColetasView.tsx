@@ -21,10 +21,12 @@ import {
   Check,
   Ban,
   RotateCcw,
+  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
 import type { UserProfile } from "@/App";
+import { apiComprasPedidosAbertos, type PedidoCompraAberto } from "@/lib/api";
 
 export interface Coleta {
   id: string;
@@ -134,6 +136,47 @@ export function ColetasView({ userProfile }: { userProfile?: UserProfile }) {
   const [aberto, setAberto] = useState(false);
   const [filtro, setFiltro] = useState<"abertas" | "todas">("abertas");
   const [form, setForm] = useState({ ...FORM_VAZIO });
+  const [pedidos, setPedidos] = useState<PedidoCompraAberto[] | null>(null);
+  const [buscaPedido, setBuscaPedido] = useState("");
+  const [pedidoSel, setPedidoSel] = useState<PedidoCompraAberto | null>(null);
+  const [editarDados, setEditarDados] = useState(false);
+  const [manual, setManual] = useState(false);
+
+  useEffect(() => {
+    if (!aberto || pedidos) return;
+    apiComprasPedidosAbertos()
+      .then((r) => setPedidos(r.data || []))
+      .catch(() => setPedidos([]));
+  }, [aberto, pedidos]);
+
+  const pedidosFiltrados = useMemo(() => {
+    const q = semAcento(buscaPedido);
+    const lista = pedidos || [];
+    if (!q) return lista;
+    return lista.filter((p) =>
+      semAcento(`${Number(p.pedido)} ${p.fornecedor} ${p.cliente ?? ""} ${p.cidade ?? ""} ${p.itens.map((i) => i.descricao).join(" ")}`).includes(q),
+    );
+  }, [pedidos, buscaPedido]);
+
+  function escolherPedido(p: PedidoCompraAberto) {
+    setPedidoSel(p);
+    setManual(false);
+    setEditarDados(false);
+    setForm((f) => ({
+      ...f,
+      fornecedor: p.fornecedor,
+      contato: p.contato || "",
+      endereco: p.endereco || "",
+      bairro: p.bairro || "",
+      cidade: p.cidade || "",
+      uf: p.uf || "SP",
+      tipo: p.pedido_venda ? "venda_casada" : "reposicao",
+      referencia: p.pedido_venda
+        ? `Pedido ${Number(p.pedido)} (emp. ${p.empresa}) · venda ${Number(p.pedido_venda)}${p.cliente ? ` · ${p.cliente}` : ""}`
+        : `Pedido ${Number(p.pedido)} (emp. ${p.empresa})`,
+      itens: p.itens.map((i) => `${i.pendente} × ${i.descricao} (${i.cod})`).join("\n"),
+    }));
+  }
 
   const carregar = useCallback(async () => {
     const { data, error } = await supabase
@@ -217,6 +260,11 @@ export function ColetasView({ userProfile }: { userProfile?: UserProfile }) {
       return;
     }
     setForm({ ...FORM_VAZIO });
+    setPedidoSel(null);
+    setEditarDados(false);
+    setManual(false);
+    setBuscaPedido("");
+    setPedidos(null);
     setAberto(false);
     carregar();
   }
@@ -281,6 +329,135 @@ export function ColetasView({ userProfile }: { userProfile?: UserProfile }) {
 
       {aberto && (
         <form onSubmit={salvar} className="rounded-2xl border border-border bg-card p-4 sm:p-5 space-y-4">
+          {pedidoSel ? (
+            <div className="rounded-2xl border border-border bg-muted/20 overflow-hidden">
+              <div className="flex flex-wrap items-start justify-between gap-3 p-4 border-b border-border">
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className="shrink-0 rounded-xl bg-primary/10 p-2.5 text-primary">
+                    <Package className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[11px] font-black uppercase tracking-wider text-muted-foreground">
+                      Pedido {Number(pedidoSel.pedido)} · emp. {pedidoSel.empresa} · {brData(pedidoSel.data_pedido)}
+                    </p>
+                    <p className="text-lg font-black leading-tight">{pedidoSel.fornecedor}</p>
+                    {pedidoSel.pedido_venda && (
+                      <p className="mt-1 inline-flex flex-wrap items-center gap-1.5 rounded-lg border border-violet-500/20 bg-violet-500/10 px-2 py-0.5 text-xs font-bold text-violet-600 dark:text-violet-400">
+                        Venda casada · pedido de venda {Number(pedidoSel.pedido_venda)}
+                        {pedidoSel.cliente && <span className="font-semibold">· {pedidoSel.cliente}</span>}
+                      </p>
+                    )}
+                    <p className="mt-0.5 text-xs text-muted-foreground flex items-center gap-1">
+                      <MapPin className="w-3 h-3 shrink-0" />
+                      <span className="truncate">
+                        {[pedidoSel.endereco, pedidoSel.bairro, [pedidoSel.cidade, pedidoSel.uf].filter(Boolean).join("/")]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </span>
+                    </p>
+                    {pedidoSel.contato && <p className="text-xs text-muted-foreground">{pedidoSel.contato}</p>}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setEditarDados((v) => !v)} className={BOTAO_SEC}>
+                    {editarDados ? "Ocultar dados" : "Editar dados"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPedidoSel(null);
+                      setEditarDados(false);
+                      setForm({ ...FORM_VAZIO });
+                    }}
+                    className={BOTAO_SEC}
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" /> Trocar pedido
+                  </button>
+                </div>
+              </div>
+              {!editarDados && (
+                <div className="p-4">
+                  <p className="mb-2 text-[11px] font-black uppercase tracking-wider text-muted-foreground">
+                    {pedidoSel.itens.length} ite{pedidoSel.itens.length > 1 ? "ns" : "m"} a coletar
+                  </p>
+                  <ul className="grid gap-1.5 md:grid-cols-2 max-h-72 overflow-y-auto">
+                    {pedidoSel.itens.map((i) => (
+                      <li key={i.cod} className="flex items-center gap-3 rounded-lg bg-background/60 border border-border px-3 py-2">
+                        <span className="shrink-0 min-w-9 rounded-md bg-primary/10 px-2 py-0.5 text-center text-xs font-black text-primary">
+                          {i.pendente}
+                        </span>
+                        <span className="text-sm leading-tight">{i.descricao}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          ) : (
+          <>
+          <Campo label="Pedido de compra">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <input
+                value={buscaPedido}
+                onChange={(e) => setBuscaPedido(e.target.value)}
+                placeholder="buscar por nº do pedido, fornecedor, cidade ou item"
+                className={cn(INPUT, "pl-9")}
+              />
+            </div>
+          </Campo>
+          <div className="max-h-64 overflow-y-auto rounded-xl border border-border divide-y divide-border">
+            {pedidos === null ? (
+              <p className="flex items-center gap-2 px-3 py-3 text-sm text-muted-foreground">
+                <Loader2 className="w-4 h-4 animate-spin" /> Carregando pedidos em aberto…
+              </p>
+            ) : pedidosFiltrados.length === 0 ? (
+              <p className="px-3 py-3 text-sm text-muted-foreground">Nenhum pedido em aberto encontrado.</p>
+            ) : (
+              pedidosFiltrados.map((p) => {
+                const chave = `${p.empresa}-${p.pedido}`;
+                return (
+                  <button
+                    key={chave}
+                    type="button"
+                    onClick={() => escolherPedido(p)}
+                    className={cn(
+                      "w-full text-left px-3 py-2 text-sm hover:bg-muted",
+                    )}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold">
+                        Pedido {Number(p.pedido)} · {p.fornecedor}
+                        {p.pedido_venda && (
+                          <span className="ml-2 rounded-md border border-violet-500/20 bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-black uppercase text-violet-600 dark:text-violet-400">
+                            Venda casada{p.cliente ? ` · ${p.cliente}` : ""}
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-xs text-muted-foreground shrink-0">
+                        emp. {p.empresa} · {brData(p.data_pedido)}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {[p.cidade, p.uf].filter(Boolean).join("/")} · {p.itens.length} ite{p.itens.length > 1 ? "ns" : "m"} pendente{p.itens.length > 1 ? "s" : ""}:{" "}
+                      {p.itens.map((i) => i.descricao).join(", ")}
+                    </p>
+                  </button>
+                );
+              })
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setManual((v) => !v)}
+            className="text-xs font-semibold text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            {manual ? "Ocultar preenchimento manual" : "Coleta sem pedido de compra? Preencher à mão"}
+          </button>
+          </>
+          )}
+
+          {(manual || editarDados) && (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <Campo label="Fornecedor" obrigatorio>
               <input required value={form.fornecedor} onChange={(e) => setForm({ ...form, fornecedor: e.target.value })} className={INPUT} />
@@ -306,7 +483,10 @@ export function ColetasView({ userProfile }: { userProfile?: UserProfile }) {
               </Campo>
             </div>
           </div>
+          )}
 
+          {(pedidoSel || manual) && (
+          <>
           {form.cidade.trim().length > 2 && (
             <div className="rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm">
               {rotas.length ? (
@@ -344,45 +524,51 @@ export function ColetasView({ userProfile }: { userProfile?: UserProfile }) {
             </div>
           )}
 
-          <Campo label="O que coletar" obrigatorio>
-            <textarea required rows={3} value={form.itens} onChange={(e) => setForm({ ...form, itens: e.target.value })} placeholder="itens e quantidades" className={INPUT} />
-          </Campo>
+          {(manual || editarDados) && (
+            <Campo label="O que coletar" obrigatorio>
+              <textarea required rows={3} value={form.itens} onChange={(e) => setForm({ ...form, itens: e.target.value })} placeholder="itens e quantidades" className={INPUT} />
+            </Campo>
+          )}
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-3">
             <Campo label="Tipo" obrigatorio>
-              <select value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value as Coleta["tipo"] })} className={INPUT}>
-                <option value="reposicao">Reposição</option>
-                <option value="venda_casada">Venda casada</option>
-              </select>
+              <div className="grid grid-cols-2 gap-1 rounded-xl border border-border bg-background p-1">
+                {(Object.keys(TIPOS) as (keyof typeof TIPOS)[]).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setForm({ ...form, tipo: t })}
+                    className={cn(
+                      "rounded-lg px-3 py-1.5 text-xs font-bold uppercase tracking-wide transition-colors",
+                      form.tipo === t ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    {TIPOS[t].label}
+                  </button>
+                ))}
+              </div>
             </Campo>
             <Campo label="Coletar até" obrigatorio>
               <input required type="date" min={hojeISO()} value={form.coletar_ate} onChange={(e) => setForm({ ...form, coletar_ate: e.target.value })} className={INPUT} />
             </Campo>
-            <Campo label="Volumes">
-              <input inputMode="numeric" value={form.volumes} onChange={(e) => setForm({ ...form, volumes: e.target.value.replace(/\D/g, "") })} className={INPUT} />
-            </Campo>
-            <Campo label="Peso (kg)">
-              <input inputMode="decimal" value={form.peso_kg} onChange={(e) => setForm({ ...form, peso_kg: e.target.value })} className={INPUT} />
+            <Campo label="Urgência" obrigatorio>
+              <div className="grid grid-cols-3 gap-1 rounded-xl border border-border bg-background p-1">
+                {(Object.keys(URGENCIAS) as (keyof typeof URGENCIAS)[]).map((u) => (
+                  <button
+                    key={u}
+                    type="button"
+                    onClick={() => setForm({ ...form, urgencia: u })}
+                    className={cn(
+                      "rounded-lg border px-3 py-1.5 text-xs font-bold uppercase tracking-wide transition-colors",
+                      form.urgencia === u ? URGENCIAS[u].cls : "border-transparent text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    {URGENCIAS[u].label}
+                  </button>
+                ))}
+              </div>
             </Campo>
           </div>
-
-          <Campo label="Urgência" obrigatorio>
-            <div className="flex flex-wrap gap-2">
-              {(Object.keys(URGENCIAS) as (keyof typeof URGENCIAS)[]).map((u) => (
-                <button
-                  key={u}
-                  type="button"
-                  onClick={() => setForm({ ...form, urgencia: u })}
-                  className={cn(
-                    "rounded-lg border px-4 py-1.5 text-xs font-bold uppercase tracking-wide",
-                    form.urgencia === u ? URGENCIAS[u].cls : "border-border hover:bg-muted",
-                  )}
-                >
-                  {URGENCIAS[u].label}
-                </button>
-              ))}
-            </div>
-          </Campo>
 
           {form.urgencia === "alta" && (
             <Campo label="Por que é urgente" obrigatorio>
@@ -398,10 +584,10 @@ export function ColetasView({ userProfile }: { userProfile?: UserProfile }) {
           )}
 
           <Campo label="Observação">
-            <input value={form.observacao} onChange={(e) => setForm({ ...form, observacao: e.target.value })} className={INPUT} />
+            <input value={form.observacao} onChange={(e) => setForm({ ...form, observacao: e.target.value })} placeholder="opcional" className={INPUT} />
           </Campo>
 
-          <div className="flex justify-end">
+          <div className="flex justify-end border-t border-border pt-4">
             <button
               type="submit"
               disabled={salvando}
@@ -411,6 +597,8 @@ export function ColetasView({ userProfile }: { userProfile?: UserProfile }) {
               Solicitar coleta
             </button>
           </div>
+          </>
+          )}
         </form>
       )}
 

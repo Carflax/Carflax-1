@@ -1410,6 +1410,25 @@ export const apiComprasBuscarProdutos = (q: string) =>
 export const apiComprasProdutoFornecedores = (cod: string) =>
   get<ProdutoFornecedoresResponse>(`/api/compras/produtos/${encodeURIComponent(cod)}/fornecedores`);
 
+export interface PedidoCompraAberto {
+  empresa: string;
+  pedido: string;
+  cod_fornecedor: string;
+  fornecedor: string;
+  data_pedido: string;
+  data_entrega: string | null;
+  pedido_venda: string | null;
+  cliente: string | null;
+  contato: string | null;
+  endereco: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  uf: string | null;
+  itens: { cod: string; descricao: string; pendente: number }[];
+}
+export const apiComprasPedidosAbertos = () =>
+  get<{ success: boolean; data: PedidoCompraAberto[] }>("/api/compras/pedidos-abertos");
+
 // ── Automação: campanha de avaliação no Google (Evolution API) ────────────────
 export interface AvaliacaoCampanhaConfig {
   id: number;
