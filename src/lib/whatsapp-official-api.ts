@@ -254,7 +254,22 @@ export const whatsappOfficialApi = {
         case "location": {
           // Reconstrói o locationMessage a partir do texto codificado: "📍 lat:-23.5 lng:-46.6 | Nome"
           const locMatch = caption.match(/^📍 lat:([\d.-]+) lng:([\d.-]+)(?:\s*\|\s*(.*))?$/);
-          if (locMatch) {
+          // Formato gravado pelo webhook da Cloud API:
+          // "📍 Localização\n<nome — endereço>\n<link maps com query=lat,lng>"
+          const linkMatch = caption.match(/[?&](?:query|q)=(-?[\d.]+),\s*(-?[\d.]+)/);
+          if (!locMatch && linkMatch) {
+            const descricao = caption
+              .split("\n")
+              .map((l: string) => l.trim())
+              .find((l: string) => l && !l.startsWith("📍") && !/^https?:\/\//.test(l));
+            message = {
+              locationMessage: {
+                degreesLatitude: parseFloat(linkMatch[1]),
+                degreesLongitude: parseFloat(linkMatch[2]),
+                name: descricao || undefined,
+              },
+            };
+          } else if (locMatch) {
             message = {
               locationMessage: {
                 degreesLatitude: parseFloat(locMatch[1]),

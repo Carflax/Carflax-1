@@ -954,6 +954,23 @@ function normalizeMsgFromDb(m: {
         locationData: hasCoords ? { latitude, longitude, name } : undefined,
       };
     }
+    // Formato da Cloud API: "📍 Localização\n<nome — endereço>\n<link maps com query=lat,lng>"
+    const linkMatch = raw.match(/[?&](?:query|q)=(-?[\d.]+),\s*(-?[\d.]+)/);
+    if (linkMatch) {
+      const latitude = parseFloat(linkMatch[1]);
+      const longitude = parseFloat(linkMatch[2]);
+      const descricao = raw
+        .split("\n")
+        .map((l) => l.trim())
+        .find((l) => l && !l.startsWith("📍") && !/^https?:\/\//.test(l));
+      if (Number.isFinite(latitude) && Number.isFinite(longitude) && (latitude !== 0 || longitude !== 0)) {
+        return {
+          text: `📍 Localização${descricao ? `: ${descricao}` : ""}`,
+          tipo: "location",
+          locationData: { latitude, longitude, name: descricao },
+        };
+      }
+    }
     // tipo=location mas sem coords codificadas (webhook antigo)
     return { text: "📍 Localização", tipo: "location" };
   }
