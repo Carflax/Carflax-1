@@ -191,6 +191,14 @@ async function buscarStatusErp(documentos: string[]): Promise<Map<string, Status
 const brl = (v: number) =>
   v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", minimumFractionDigits: 2 });
 
+/** Minutos de espera legíveis: "8 min", "1h 20min", "2d 3h". */
+const fmtEspera = (min: number): string => {
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h}h${min % 60 ? ` ${min % 60}min` : ""}`;
+  return `${Math.floor(h / 24)}d${h % 24 ? ` ${h % 24}h` : ""}`;
+};
+
 const diasAtras = (iso: string | null): number | null => {
   if (!iso) return null;
   const dias = (Date.now() - new Date(iso).getTime()) / 86400000;
@@ -525,6 +533,64 @@ export function FunilView({
     return mapa;
   }, [clientes, busca, filtroAtendente, statusErp, donoDe, comIsabela]);
 
+  // Espera do Novo Lead: desde a 1ª mensagem do cliente sem resposta nossa.
+  // `ultima_conversa_em` não serve — anda a cada nova mensagem do cliente, e
+  // quem insiste ("oi?", "alguém?") pareceria estar esperando menos.
+  const [esperaDesde, setEsperaDesde] = useState<Map<string, number>>(new Map());
+  const [agora, setAgora] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setAgora(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  const jidsNovos = useMemo(
+    () => (porEtapa.get("NOVO") || []).map((c) => c.remote_jid).sort().join(","),
+    [porEtapa],
+  );
+  useEffect(() => {
+    const jids = jidsNovos ? jidsNovos.split(",") : [];
+    if (jids.length === 0) {
+      setEsperaDesde(new Map());
+      return;
+    }
+    let cancelado = false;
+    supabase
+      .from("marketing_whatsapp")
+      .select("remote_jid, sender, timestamp")
+      .in("remote_jid", jids)
+      .neq("tipo", "internal_note")
+      .order("timestamp", { ascending: false })
+      .limit(jids.length * 40)
+      .then(({ data }) => {
+        if (cancelado || !data) return;
+        const mapa = new Map<string, number>();
+        const fechado = new Set<string>();
+        // Da mais nova para a mais antiga: cada mensagem do cliente recua o
+        // início da espera, até achar uma resposta nossa.
+        for (const m of data) {
+          const jid = String(m.remote_jid);
+          if (fechado.has(jid)) continue;
+          if (m.sender === "me") {
+            fechado.add(jid);
+            continue;
+          }
+          const t = new Date(m.timestamp).getTime();
+          if (!isNaN(t)) mapa.set(jid, t);
+        }
+        setEsperaDesde(mapa);
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [jidsNovos]);
+
+  const minutosEsperando = (c: ClienteFunil): number | null => {
+    const desde =
+      esperaDesde.get(c.remote_jid) ??
+      (c.ultima_conversa_em ? new Date(c.ultima_conversa_em).getTime() : NaN);
+    if (isNaN(desde)) return null;
+    return Math.max(0, Math.floor((agora - desde) / 60_000));
+  };
+
   const mover = async (clienteId: string, destino: EtapaId) => {
     const atual = clientes.find((c) => c.id === clienteId);
     if (!atual || etapaDoCliente(atual, statusErp, comIsabela.has(atual.remote_jid)) === destino)
@@ -654,6 +720,23 @@ export function FunilView({
                     </span>
                   </div>
                   <div className={cn("h-0.5 rounded-full mt-2", etapa.barra, "opacity-40")} />
+                  {/* Alerta de espera: cada minuto de lead sem resposta entra
+                      no tempo médio de atendimento do time. */}
+                  {etapa.id === "NOVO" && lista.length > 0 && (() => {
+                    const total = lista.reduce((acc, c) => acc + (minutosEsperando(c) ?? 0), 0);
+                    const maior = Math.max(...lista.map((c) => minutosEsperando(c) ?? 0));
+                    return (
+                      <div className="mt-2.5 px-2.5 py-2 rounded-lg bg-rose-500/10 border border-rose-500/30 animate-pulse">
+                        <p className="text-[10px] font-black text-rose-500 leading-tight">
+                          {lista.length} {lista.length === 1 ? "cliente esperando" : "clientes esperando"} resposta
+                        </p>
+                        <p className="text-[9px] font-bold text-rose-400/90 leading-tight mt-0.5">
+                          Aumentando o tempo médio em {fmtEspera(total)}
+                          {lista.length > 1 ? ` · maior espera ${fmtEspera(maior)}` : ""}
+                        </p>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="flex-1 overflow-y-auto px-3 pb-3 space-y-2">
@@ -777,6 +860,17 @@ export function FunilView({
                           )}
 
                           <div className="flex items-center gap-1.5 text-muted-foreground">
+                            {etapa.id === "NOVO" && minutosEsperando(c) !== null ? (
+                              <span
+                                className={cn(
+                                  "text-[9px] font-black uppercase tracking-wider shrink-0 tabular-nums",
+                                  (minutosEsperando(c) ?? 0) >= 5 ? "text-rose-500" : "text-amber-500",
+                                )}
+                                title="Tempo desde a primeira mensagem do cliente sem resposta"
+                              >
+                                ⏱ esperando {fmtEspera(minutosEsperando(c)!)}
+                              </span>
+                            ) : (
                             <span className="text-[9px] font-bold uppercase tracking-wider shrink-0">
                               {dias === null
                                 ? "sem conversa"
@@ -784,6 +878,7 @@ export function FunilView({
                                   ? "hoje"
                                   : `há ${dias}d`}
                             </span>
+                            )}
 
                             {/* Quem está atendendo. Sem isto, num quadro do time
                                 inteiro não dava para saber de quem é o card sem

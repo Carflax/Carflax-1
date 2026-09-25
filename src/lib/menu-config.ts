@@ -92,8 +92,6 @@ export const NAV_SECTIONS: NavSection[] = [
     subItems: [
       // value "Compras" mantido: é a chave de permissão já gravada nos usuários.
       { label: "Produtos", value: "Compras" },
-      // Solicitação de coleta em fornecedor; a expedição programa em Entregas › Romaneios.
-      { label: "Coletas", value: "Coletas" },
       { label: "Relatórios", value: "Relatórios Compras" },
     ],
   },
@@ -102,6 +100,9 @@ export const NAV_SECTIONS: NavSection[] = [
     permGroup: "LOGÍSTICA",
     subItems: [
       { label: "Romaneios" },
+      // Solicitação de coleta em fornecedor. Veio de Compras: quem programa é a
+      // expedição, junto dos romaneios. Compras continua acessando pela permissão.
+      { label: "Coletas", value: "Coletas" },
       { label: "Ocorrências", value: "Ocorrências Entregas" },
       { label: "Relatórios", value: "Relatórios Entregas" },
       { label: "Mapa ao Vivo", value: "Mapa Entregas" },

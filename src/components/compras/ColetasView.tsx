@@ -22,6 +22,8 @@ import {
   Ban,
   RotateCcw,
   Search,
+  ChevronDown,
+  Pencil,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/lib/supabase";
@@ -141,6 +143,11 @@ export function ColetasView({ userProfile }: { userProfile?: UserProfile }) {
   const [pedidoSel, setPedidoSel] = useState<PedidoCompraAberto | null>(null);
   const [editarDados, setEditarDados] = useState(false);
   const [manual, setManual] = useState(false);
+  // Coleta sendo editada: o mesmo formulário da "Nova coleta", já preenchido.
+  const [editandoId, setEditandoId] = useState<string | null>(null);
+  // Cards com a lista de itens aberta. Fechado, o card mostra só os 3 primeiros
+  // para todos terem a mesma altura.
+  const [expandidas, setExpandidas] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!aberto || pedidos) return;
@@ -151,12 +158,23 @@ export function ColetasView({ userProfile }: { userProfile?: UserProfile }) {
 
   const pedidosFiltrados = useMemo(() => {
     const q = semAcento(buscaPedido);
-    const lista = pedidos || [];
+    // Pedido que já virou coleta (não cancelada) sai da busca: pedir de novo
+    // gerava coleta duplicada no mesmo fornecedor.
+    const jaSolicitados = new Set(
+      coletas
+        .filter((c) => c.status !== "cancelada" && c.referencia)
+        .map((c) => c.referencia!.match(/^Pedido (\d+) \(emp\. (\w+)\)/))
+        .filter((m): m is RegExpMatchArray => !!m)
+        .map((m) => `${m[2]}-${Number(m[1])}`),
+    );
+    const lista = (pedidos || []).filter(
+      (p) => !jaSolicitados.has(`${p.empresa}-${Number(p.pedido)}`),
+    );
     if (!q) return lista;
     return lista.filter((p) =>
       semAcento(`${Number(p.pedido)} ${p.fornecedor} ${p.cliente ?? ""} ${p.cidade ?? ""} ${p.itens.map((i) => i.descricao).join(" ")}`).includes(q),
     );
-  }, [pedidos, buscaPedido]);
+  }, [pedidos, buscaPedido, coletas]);
 
   function escolherPedido(p: PedidoCompraAberto) {
     setPedidoSel(p);
@@ -235,9 +253,7 @@ export function ColetasView({ userProfile }: { userProfile?: UserProfile }) {
       return;
     }
     setSalvando(true);
-    const { error } = await supabase.from("coletas").insert([{
-      criado_por: userProfile?.id ?? null,
-      criado_por_nome: userProfile?.name ?? null,
+    const dados = {
       fornecedor: form.fornecedor.trim(),
       contato: form.contato.trim() || null,
       endereco: form.endereco.trim() || null,
@@ -253,13 +269,21 @@ export function ColetasView({ userProfile }: { userProfile?: UserProfile }) {
       urgencia: form.urgencia,
       justificativa: form.justificativa.trim() || null,
       observacao: form.observacao.trim() || null,
-    }]);
+    };
+    const { error } = editandoId
+      ? await supabase.from("coletas").update(dados).eq("id", editandoId)
+      : await supabase.from("coletas").insert([{
+          criado_por: userProfile?.id ?? null,
+          criado_por_nome: userProfile?.name ?? null,
+          ...dados,
+        }]);
     setSalvando(false);
     if (error) {
       setErro(error.message);
       return;
     }
     setForm({ ...FORM_VAZIO });
+    setEditandoId(null);
     setPedidoSel(null);
     setEditarDados(false);
     setManual(false);
@@ -267,6 +291,42 @@ export function ColetasView({ userProfile }: { userProfile?: UserProfile }) {
     setPedidos(null);
     setAberto(false);
     carregar();
+  }
+
+  function editar(c: Coleta) {
+    setForm({
+      fornecedor: c.fornecedor,
+      contato: c.contato ?? "",
+      endereco: c.endereco ?? "",
+      bairro: c.bairro ?? "",
+      cidade: c.cidade,
+      uf: c.uf,
+      tipo: c.tipo,
+      referencia: c.referencia ?? "",
+      itens: c.itens,
+      volumes: c.volumes != null ? String(c.volumes) : "",
+      peso_kg: c.peso_kg != null ? String(c.peso_kg) : "",
+      coletar_ate: c.coletar_ate,
+      urgencia: c.urgencia,
+      justificativa: c.justificativa ?? "",
+      observacao: c.observacao ?? "",
+    });
+    setEditandoId(c.id);
+    setPedidoSel(null);
+    setManual(true);
+    setErro(null);
+    setAberto(true);
+    // O formulário fica no topo; sem rolar, o clique parecia não fazer nada.
+    setTimeout(() => {
+      document.getElementById("form-coleta")?.closest(".overflow-y-auto")?.scrollTo({ top: 0, behavior: "smooth" });
+    }, 0);
+  }
+
+  function fecharFormulario() {
+    setAberto(false);
+    setEditandoId(null);
+    setForm({ ...FORM_VAZIO });
+    setManual(false);
   }
 
   async function cancelar(c: Coleta) {
@@ -295,7 +355,7 @@ export function ColetasView({ userProfile }: { userProfile?: UserProfile }) {
   }
 
   return (
-    <div className="p-4 sm:p-6 space-y-5">
+    <div className="h-full overflow-y-auto p-4 sm:p-6 space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-black uppercase tracking-tight flex items-center gap-2">
@@ -306,7 +366,7 @@ export function ColetasView({ userProfile }: { userProfile?: UserProfile }) {
           </p>
         </div>
         <button
-          onClick={() => setAberto((v) => !v)}
+          onClick={() => (aberto ? fecharFormulario() : setAberto(true))}
           className="inline-flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground hover:opacity-90"
         >
           {aberto ? <X className="w-4 h-4" /> : <Plus className="w-4 h-4" />}
@@ -328,8 +388,12 @@ export function ColetasView({ userProfile }: { userProfile?: UserProfile }) {
       )}
 
       {aberto && (
-        <form onSubmit={salvar} className="rounded-2xl border border-border bg-card p-4 sm:p-5 space-y-4">
-          {pedidoSel ? (
+        <form id="form-coleta" onSubmit={salvar} className="rounded-2xl border border-border bg-card p-4 sm:p-5 space-y-4">
+          {editandoId ? (
+            <p className="text-sm font-black uppercase tracking-wide">
+              Editando coleta · {form.fornecedor}
+            </p>
+          ) : pedidoSel ? (
             <div className="rounded-2xl border border-border bg-muted/20 overflow-hidden">
               <div className="flex flex-wrap items-start justify-between gap-3 p-4 border-b border-border">
                 <div className="flex items-start gap-3 min-w-0">
@@ -594,7 +658,7 @@ export function ColetasView({ userProfile }: { userProfile?: UserProfile }) {
               className="inline-flex items-center gap-2 rounded-xl bg-primary px-5 py-2 text-sm font-bold text-primary-foreground disabled:opacity-60"
             >
               {salvando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-              Solicitar coleta
+              {editandoId ? "Salvar alterações" : "Solicitar coleta"}
             </button>
           </div>
           </>
@@ -626,7 +690,7 @@ export function ColetasView({ userProfile }: { userProfile?: UserProfile }) {
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {visiveis.map((c) => (
-            <article key={c.id} className="rounded-2xl border border-border bg-card p-4 space-y-3">
+            <article key={c.id} className="rounded-2xl border border-border bg-card p-4 flex flex-col gap-3 h-full">
               <div className="flex items-start justify-between gap-2">
                 <div>
                   <h2 className="font-bold leading-tight">{c.fornecedor}</h2>
@@ -656,7 +720,35 @@ export function ColetasView({ userProfile }: { userProfile?: UserProfile }) {
                 </span>
               </div>
 
-              <p className="text-sm whitespace-pre-wrap">{c.itens}</p>
+              {(() => {
+                const linhas = c.itens.split("\n").filter((l) => l.trim());
+                const aberto = expandidas.has(c.id);
+                const MAX = 3;
+                return (
+                  <div>
+                    <p className="text-sm whitespace-pre-wrap">
+                      {(aberto ? linhas : linhas.slice(0, MAX)).join("\n")}
+                    </p>
+                    {linhas.length > MAX && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandidas((prev) => {
+                            const n = new Set(prev);
+                            if (n.has(c.id)) n.delete(c.id);
+                            else n.add(c.id);
+                            return n;
+                          })
+                        }
+                        className="mt-1 inline-flex items-center gap-1 text-xs font-bold text-primary hover:underline"
+                      >
+                        <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", aberto && "rotate-180")} />
+                        {aberto ? "Ver menos" : `Ver todos os ${linhas.length} itens`}
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
 
               {c.urgencia === "alta" && c.justificativa && (
                 <p className="rounded-lg bg-red-500/10 px-3 py-2 text-xs text-red-600 dark:text-red-400">
@@ -680,15 +772,20 @@ export function ColetasView({ userProfile }: { userProfile?: UserProfile }) {
               </div>
 
               {c.status !== "coletada" && (
-                <div className="flex gap-2 pt-1">
+                <div className="flex gap-2 pt-1 mt-auto">
                   {c.status === "cancelada" ? (
                     <button onClick={() => reabrir(c)} className={BOTAO_SEC}>
                       <RotateCcw className="w-3.5 h-3.5" /> Reabrir
                     </button>
                   ) : (
-                    <button onClick={() => cancelar(c)} className={BOTAO_SEC}>
-                      <Ban className="w-3.5 h-3.5" /> Cancelar
-                    </button>
+                    <>
+                      <button onClick={() => editar(c)} className={BOTAO_SEC}>
+                        <Pencil className="w-3.5 h-3.5" /> Editar
+                      </button>
+                      <button onClick={() => cancelar(c)} className={BOTAO_SEC}>
+                        <Ban className="w-3.5 h-3.5" /> Cancelar
+                      </button>
+                    </>
                   )}
                 </div>
               )}

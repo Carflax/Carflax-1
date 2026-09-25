@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Plus,
   Clock,
+  PackageCheck,
   Link2,
   ChevronRight,
   User as UserIcon,
@@ -72,7 +73,7 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
   const [nfInput, setNfInput] = useState("");
   const [driverAvatars, setDriverAvatars] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<"pending" | "completed">("pending");
+  const [activeTab, setActiveTab] = useState<"pending" | "completed" | "coletas">("pending");
   const isReordering = useRef(false);
   const reorderDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingOrder = useRef<Delivery[] | null>(null);
@@ -92,7 +93,9 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
       // 1. Buscar entregas diretamente (Hoje se pendente, ou Histórico se concluído)
       const query = supabase.from("entregas").select("*");
       
-      if (activeTab === "pending") {
+      // A aba Coletas não lista romaneios; carrega os de hoje só para a troca
+      // de volta para "Em andamento" não piscar vazia.
+      if (activeTab !== "completed") {
         query.eq("rom_date", hoje).eq("rom_status", "em_andamento");
       } else {
         query.eq("rom_status", "concluido");
@@ -408,6 +411,18 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
               <CheckCircle2 className="w-3.5 h-3.5" />
               Concluídos
             </button>
+            {/* Coletas em fornecedor: aba própria em vez de um bloco em cima
+                dos romaneios, que empurrava a montagem para fora da tela. */}
+            <button 
+              onClick={() => setActiveTab("coletas")}
+              className={cn(
+                "px-4 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2",
+                activeTab === "coletas" ? "bg-white dark:bg-slate-800 text-amber-600 shadow-sm" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              <PackageCheck className="w-3.5 h-3.5" />
+              Coletas
+            </button>
           </div>
         </div>
 
@@ -487,14 +502,14 @@ export function RomaneiosView({ userProfile }: { userProfile?: UserProfile }) {
       </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-hide space-y-4">
-        {activeTab === "pending" && (
+        {activeTab === "coletas" ? (
           <ColetasDoDia
             motoristaCod={selectedMotorista || undefined}
             motoristaNome={motoristas.find(m => m.COD === selectedMotorista)?.NOME}
             usuarioId={userProfile?.id}
+            modoAba
           />
-        )}
-        {loading ? (
+        ) : loading ? (
           <div className="space-y-3">
             <div className="bg-card border border-border rounded-xl p-4 animate-pulse">
               <div className="flex items-center gap-4 mb-4">
