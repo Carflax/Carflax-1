@@ -1,20 +1,38 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   Plus,
   Trash2,
   Pencil,
   Calendar,
-  Tag,
   User,
   Check,
   X,
-  Eye,
-  ArrowRight,
   ChevronDown,
-  ChevronUp,
   Users,
   Lock,
   Repeat,
+  Circle,
+  Zap,
+  CheckCircle2,
+  AlignLeft,
+  AlignJustify,
+  Bold,
+  Italic,
+  List,
+  ListOrdered,
+  Link2,
+  Code,
+  SquareCheck,
+  MoreHorizontal,
+  Sun,
+  CalendarDays,
+  Flag,
+  Paperclip,
+  CloudUpload,
+  Loader2,
+  FileText,
+  Tag as TagIcon,
+  Clock,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "@/lib/supabase";
@@ -34,6 +52,22 @@ interface KanbanCard {
   // Recorrente: ao ser concluído, volta sozinho para "A FAZER" no dia seguinte.
   recurring?: boolean;
   completed_at?: string | null;
+  attachments?: Anexo[];
+  labels?: Etiqueta[];
+}
+
+interface Anexo {
+  name: string;
+  url: string;
+  /** Caminho no bucket esteira-anexos; nulo quando é link colado. */
+  path: string | null;
+  type: string;
+  size?: number;
+}
+
+interface Etiqueta {
+  name: string;
+  color: string;
 }
 
 interface UserProfile {
@@ -109,6 +143,83 @@ const TAG_OPTIONS = [
     color: "bg-red-500/10 text-red-400 border-red-500/20 hover:bg-red-500/20",
   },
 ];
+
+// Cor do ponto da prioridade no card (o chip colorido virou só um ponto).
+const COR_TAG: Record<string, string> = {
+  Baixa: "bg-slate-400",
+  Média: "bg-amber-400",
+  Alta: "bg-orange-500",
+  Urgente: "bg-red-500",
+};
+
+function MiniAvatar({
+  user,
+  label,
+  tamanho = "sm",
+}: {
+  user?: EsteiraUser;
+  label: string;
+  tamanho?: "sm" | "lg";
+}) {
+  const [quebrou, setQuebrou] = useState(false);
+  const dim = tamanho === "lg" ? "w-9 h-9 text-[12px]" : "w-6 h-6 text-[9px]";
+  if (user?.avatar && !quebrou) {
+    return (
+      <img
+        src={user.avatar}
+        alt={label}
+        title={label}
+        onError={() => setQuebrou(true)}
+        className={`${dim} rounded-full object-cover ring-2 ring-card shrink-0`}
+      />
+    );
+  }
+  return (
+    <div
+      title={label}
+      className={`${dim} rounded-full bg-secondary ring-2 ring-card flex items-center justify-center font-bold text-muted-foreground shrink-0`}
+    >
+      {(user?.name || "?").slice(0, 1).toUpperCase()}
+    </div>
+  );
+}
+
+/** Cores das etiquetas: bolinha (seletor) e chip (card e modal). */
+const COR_ETIQUETA: Record<string, { ponto: string; chip: string }> = {
+  violet: { ponto: "bg-violet-500", chip: "bg-violet-500/15 text-violet-500 border-violet-500/30" },
+  blue: { ponto: "bg-blue-500", chip: "bg-blue-500/15 text-blue-500 border-blue-500/30" },
+  emerald: { ponto: "bg-emerald-500", chip: "bg-emerald-500/15 text-emerald-500 border-emerald-500/30" },
+  amber: { ponto: "bg-amber-400", chip: "bg-amber-400/15 text-amber-500 border-amber-400/30" },
+  orange: { ponto: "bg-orange-500", chip: "bg-orange-500/15 text-orange-500 border-orange-500/30" },
+  red: { ponto: "bg-red-500", chip: "bg-red-500/15 text-red-500 border-red-500/30" },
+};
+
+const tamanhoArquivo = (bytes: number) =>
+  bytes < 1024 * 1024 ? `${Math.max(1, Math.round(bytes / 1024))} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+
+/** Rótulo de seção do modal: ícone + texto (+ asterisco) e o controle abaixo. */
+function RotuloModal({
+  icone,
+  texto,
+  obrigatorio,
+  children,
+}: {
+  icone: React.ReactNode;
+  texto: string;
+  obrigatorio?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2 text-[13px] font-semibold text-foreground">
+        <span className="text-foreground/80">{icone}</span>
+        {texto}
+        {obrigatorio && <span className="text-muted-foreground -ml-1.5">*</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
 
 const SEM_SETOR = "Sem setor";
 
@@ -241,6 +352,9 @@ export function EsteiraView({ userProfile, subquadroId }: EsteiraViewProps) {
   const [cards, setCards] = useState<KanbanCard[]>([]);
   const [usersList, setUsersList] = useState<EsteiraUser[]>([]);
   const [isViewOnly, setIsViewOnly] = useState(false);
+  // Card acabou de ser marcado: mostra o check verde um instante antes de ir
+  // para Concluídos, em vez de sumir da coluna no mesmo clique.
+  const [marcandoIds, setMarcandoIds] = useState<Set<string>>(new Set());
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>(
     {},
   );
@@ -270,6 +384,29 @@ export function EsteiraView({ userProfile, subquadroId }: EsteiraViewProps) {
     "top" | "bottom" | null
   >(null);
   const [newSubtaskText, setNewSubtaskText] = useState("");
+  // Modal: textarea da descrição (barra de formatação), input do checklist,
+  // input de data (botão do calendário) e o menu "..." aberto de um item.
+  const descRef = useRef<HTMLTextAreaElement | null>(null);
+  const checklistInputRef = useRef<HTMLInputElement>(null);
+  const prazoRef = useRef<HTMLInputElement>(null);
+  const [menuItemAberto, setMenuItemAberto] = useState<number | null>(null);
+  const [enviandoAnexo, setEnviandoAnexo] = useState(false);
+  const [arrastandoArquivo, setArrastandoArquivo] = useState(false);
+  const [linkAnexo, setLinkAnexo] = useState("");
+  const [etiquetaTexto, setEtiquetaTexto] = useState("");
+  const [etiquetaCor, setEtiquetaCor] = useState("violet");
+  const [mostrarEtiquetas, setMostrarEtiquetas] = useState(false);
+  const anexoInputRef = useRef<HTMLInputElement>(null);
+  // Etiquetas já usadas nos cards do quadro, para sugerir e manter a mesma cor.
+  const etiquetasUsadas = useMemo(() => {
+    const mapa = new Map<string, Etiqueta>();
+    for (const c of cards) {
+      for (const l of c.labels ?? []) {
+        if (!mapa.has(l.name.toLowerCase())) mapa.set(l.name.toLowerCase(), l);
+      }
+    }
+    return [...mapa.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [cards]);
 
   const role = userProfile?.role?.toUpperCase() || "";
   const isManager = role === "ADMIN" || role.includes("GERENTE");
@@ -543,6 +680,8 @@ export function EsteiraView({ userProfile, subquadroId }: EsteiraViewProps) {
           owner_id: cardData.owner_id,
           created_by: userProfile?.id || null,
           recurring: cardData.recurring ?? false,
+          attachments: cardData.attachments ?? [],
+          labels: cardData.labels ?? [],
           completed_at: insertCol === "CONCLUIDOS" ? new Date().toISOString() : null,
         };
 
@@ -569,6 +708,8 @@ export function EsteiraView({ userProfile, subquadroId }: EsteiraViewProps) {
           due_date: cardData.due_date || null,
           owner_id: cardData.owner_id,
           recurring: cardData.recurring ?? false,
+          attachments: cardData.attachments ?? [],
+          labels: cardData.labels ?? [],
           ...completionPatch(origCard?.column_id, cardData.column_id),
         };
 
@@ -919,6 +1060,344 @@ export function EsteiraView({ userProfile, subquadroId }: EsteiraViewProps) {
     setIsCardModalOpen(true);
   };
 
+  // O quadro fica memorizado: sem isto, cada tecla digitada no modal
+  // (título, descrição, busca de responsável) redesenhava todos os cards por
+  // trás, e o modal ficava lento. Só o que muda o quadro entra nas dependências.
+  const quadro = useMemo(
+    () => (
+      <>
+      {/* KANBAN BOARD — visual enxuto: colunas sem fundo colorido, cards com
+          só o essencial (título, prazo, prioridade, progresso e quem faz). */}
+      <div className="flex-1 overflow-x-auto min-h-0 flex gap-5 pb-4 select-none custom-scrollbar">
+        {COLUMNS.map((col) => {
+          const colCards = cards.filter((c) => c.column_id === col.id);
+          const isOver = draggedOverColumn === col.id;
+
+          return (
+            <div
+              key={col.id}
+              onDragOver={(e) => handleDragOver(e, col.id)}
+              onDragLeave={handleDragLeave}
+              onDrop={(e) => handleDrop(e, col.id)}
+              className={`flex-1 min-w-[280px] h-full flex flex-col rounded-2xl border transition-colors duration-200 ${
+                isOver ? "bg-primary/5 border-primary/40" : "bg-secondary/40 border-border/50"
+              }`}
+            >
+              {/* Column Header */}
+              <div className="px-4 pt-4 pb-2 flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-2">
+                  <span className={`w-1.5 h-1.5 rounded-full bg-current ${col.textClass}`} />
+                  <h3 className="text-[13px] font-semibold text-foreground">{col.title}</h3>
+                  <span className="text-[12px] font-medium text-muted-foreground tabular-nums">
+                    {colCards.length}
+                  </span>
+                </div>
+                <button
+                  onClick={() => openNewCard(col.id)}
+                  className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                  title="Nova atividade"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Cards */}
+              <div className="flex-1 overflow-y-auto px-2.5 pb-1 pt-1 flex flex-col gap-2 custom-scrollbar min-h-[48px]">
+                {loading ? (
+                  Array.from({ length: 2 }).map((_, idx) => (
+                    <div
+                      key={idx}
+                      className="bg-card border border-border/50 p-3.5 rounded-xl animate-pulse h-[92px] shrink-0 space-y-2.5"
+                    >
+                      <div className="h-3.5 bg-secondary rounded w-3/4" />
+                      <div className="h-3 bg-secondary rounded w-1/2" />
+                    </div>
+                  ))
+                ) : colCards.length > 0 ? (
+                  colCards.map((card) => {
+                    const expired = isOverdue(card.due_date, card.column_id);
+                    const stats = getChecklistStats(card.description);
+                    const subtasks = parseSubtasks(card.description);
+                    const visibleSubtasks = subtasks.slice(0, 5);
+                    const remainingCount = subtasks.length - 5;
+                    const cleanDesc = getCleanDescriptionText(card.description).trim();
+                    const isExpanded = expandedCards[card.id] || false;
+                    const concluido = card.column_id === "CONCLUIDOS";
+                    const creatorUser = usersList.find((u) => u.id === card.created_by);
+                    const responsibleUser = usersList.find((u) => u.id === card.owner_id);
+                    const creatorName = toTitleCase(creatorUser?.name) || "Marketing";
+                    const responsibleName = toTitleCase(responsibleUser?.name) || "Marketing";
+                    const selfAssigned = !!card.created_by && card.created_by === card.owner_id;
+
+                    return (
+                      <div
+                        key={card.id}
+                        draggable
+                        onDragStart={(e) => handleDragStart(e, card.id)}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const isBottom = e.clientY - rect.top > rect.height / 2;
+                          setDraggedOverCardId(card.id);
+                          setDraggedOverCardPart(isBottom ? "bottom" : "top");
+                        }}
+                        onDragLeave={() => {
+                          setDraggedOverCardId(null);
+                          setDraggedOverCardPart(null);
+                        }}
+                        onDrop={(e) => {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          const isBottom = e.clientY - rect.top > rect.height / 2;
+                          setDraggedOverCardId(null);
+                          setDraggedOverCardPart(null);
+                          handleCardDrop(e, card.id, isBottom ? "bottom" : "top");
+                        }}
+                        onClick={() => {
+                          setSelectedCard(card);
+                          setIsViewOnly(!canManageCard(card));
+                          setIsCardModalOpen(true);
+                        }}
+                        className={`group relative shrink-0 bg-card rounded-xl border overflow-hidden cursor-pointer active:cursor-grabbing transition-all duration-150 hover:ring-2 hover:ring-primary/60 ${
+                          "border-border/60"
+                        } ${
+                          draggedOverCardId === card.id && draggedOverCardPart === "top"
+                            ? "border-t-2 border-t-primary"
+                            : draggedOverCardId === card.id && draggedOverCardPart === "bottom"
+                              ? "border-b-2 border-b-primary"
+                              : ""
+                        }`}
+                      >
+                        {/* Capa: primeira imagem anexada, na largura toda do card */}
+                        {(() => {
+                          const capa = card.attachments?.find((a) => a.type.startsWith("image/"));
+                          if (!capa) return null;
+                          return (
+                            <div className="h-36 bg-secondary">
+                              <img
+                                src={capa.url}
+                                alt=""
+                                loading="lazy"
+                                draggable={false}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                          );
+                        })()}
+
+                        {/* Editar/excluir: só no hover, no canto */}
+                        {canManageCard(card) && (
+                          <div className="absolute top-1.5 right-1.5 z-10 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedCard(card);
+                                setIsViewOnly(false);
+                                setIsCardModalOpen(true);
+                              }}
+                              className="p-1.5 rounded-full bg-card/90 backdrop-blur text-muted-foreground hover:text-foreground shadow-sm"
+                              title="Editar"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteCard(card.id);
+                              }}
+                              className="p-1.5 rounded-full bg-card/90 backdrop-blur text-muted-foreground hover:text-red-500 shadow-sm"
+                              title="Excluir"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )}
+
+                        <div className="px-3 pt-2.5 pb-2.5 flex flex-col gap-2">
+                          {/* Etiquetas e prioridade como barrinhas; o nome aparece no hover */}
+                          {((card.labels?.length ?? 0) > 0 || card.tag_name) && (
+                            <div className="flex flex-wrap gap-1">
+                              {card.tag_name && (
+                                <span
+                                  title={`Prioridade: ${card.tag_name}`}
+                                  className={`h-2 w-10 rounded-full ${COR_TAG[card.tag_name] || "bg-slate-400"}`}
+                                />
+                              )}
+                              {card.labels?.map((l) => (
+                                <span
+                                  key={l.name}
+                                  title={l.name}
+                                  className={`h-2 w-10 rounded-full ${COR_ETIQUETA[l.color]?.ponto ?? COR_ETIQUETA.violet.ponto}`}
+                                />
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Bolinha de concluir + título */}
+                          <div className="flex items-start gap-2 pr-1">
+                            <button
+                              type="button"
+                              disabled={!canManageCard(card)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (marcandoIds.has(card.id)) return;
+                                // Reaproveita o mesmo caminho do arrastar entre colunas
+                                // (reindexa, grava completed_at e notifica).
+                                const mover = () =>
+                                  handleDrop(
+                                    {
+                                      preventDefault: () => {},
+                                      dataTransfer: { getData: () => card.id },
+                                    } as unknown as React.DragEvent,
+                                    concluido ? "A FAZER" : "CONCLUIDOS",
+                                  );
+                                if (concluido) {
+                                  mover();
+                                  return;
+                                }
+                                setMarcandoIds((prev) => new Set(prev).add(card.id));
+                                setTimeout(() => {
+                                  mover();
+                                  setMarcandoIds((prev) => {
+                                    const n = new Set(prev);
+                                    n.delete(card.id);
+                                    return n;
+                                  });
+                                }, 700);
+                              }}
+                              className={`mt-[1px] w-[18px] h-[18px] rounded-full flex items-center justify-center shrink-0 transition-all duration-200 disabled:cursor-default ${
+                                concluido || marcandoIds.has(card.id)
+                                  ? "bg-emerald-500 text-card scale-100"
+                                  : "border-[1.5px] border-muted-foreground/60 text-transparent hover:border-emerald-500"
+                              }`}
+                              title={concluido ? "Voltar para A Fazer" : "Marcar como concluída"}
+                            >
+                              <Check className="w-3 h-3 stroke-[3.5]" />
+                            </button>
+                            <h4
+                              className={`flex-1 text-[14px] leading-snug break-words transition-colors ${
+                                concluido || marcandoIds.has(card.id) ? "text-muted-foreground" : "text-foreground"
+                              }`}
+                              title={card.title}
+                            >
+                              {card.title}
+                            </h4>
+                          </div>
+
+                          {/* Selos: prazo, descrição, checklist, anexos, repetição, pessoas */}
+                          {(card.due_date || cleanDesc || stats.total > 0 || (card.attachments?.length ?? 0) > 0 || card.recurring || card.owner_id) && (
+                            <div className="flex items-center gap-2.5 flex-wrap text-[12px] text-muted-foreground">
+                              {card.due_date && (
+                                <span
+                                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md transition-colors duration-200 ${
+                                    // Concluída: selo verde cheio, como no Trello
+                                    concluido || marcandoIds.has(card.id)
+                                      ? "bg-emerald-500 text-card font-medium"
+                                      : expired
+                                        ? "bg-red-500/20 text-red-400"
+                                        : ""
+                                  }`}
+                                  title="Prazo"
+                                >
+                                  <Clock className="w-3.5 h-3.5" />
+                                  {formatDate(card.due_date)}
+                                </span>
+                              )}
+                              {cleanDesc && (
+                                <span title="Tem descrição">
+                                  <AlignLeft className="w-3.5 h-3.5" />
+                                </span>
+                              )}
+                              {stats.total > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    toggleCardExpanded(card.id);
+                                  }}
+                                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md hover:bg-secondary ${
+                                    stats.completed === stats.total ? "bg-emerald-500/15 text-emerald-500" : ""
+                                  }`}
+                                  title={isExpanded ? "Esconder checklist" : "Ver checklist"}
+                                >
+                                  <SquareCheck className="w-3.5 h-3.5" />
+                                  {stats.completed}/{stats.total}
+                                </button>
+                              )}
+                              {(card.attachments?.length ?? 0) > 0 && (
+                                <span className="flex items-center gap-1" title="Anexos">
+                                  <Paperclip className="w-3.5 h-3.5" />
+                                  {card.attachments!.length}
+                                </span>
+                              )}
+                              {card.recurring && (
+                                <span title="Repete todo dia">
+                                  <Repeat className="w-3.5 h-3.5" />
+                                </span>
+                              )}
+                              <div className="ml-auto flex items-center -space-x-1.5">
+                                {!selfAssigned && <MiniAvatar user={creatorUser} label={`Criado por ${creatorName}`} />}
+                                <MiniAvatar user={responsibleUser} label={`Responsável: ${responsibleName}`} />
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Checklist aberto pelo selo */}
+                          {isExpanded && visibleSubtasks.length > 0 && (
+                            <div className="space-y-1.5 pt-1 border-t border-border/50" onClick={(e) => e.stopPropagation()}>
+                              {visibleSubtasks.map((task) => (
+                                <div key={task.index} className="flex items-start gap-2 pt-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleSubtaskInViewMode(card.id, task.index)}
+                                    className={`w-3.5 h-3.5 rounded-[4px] border flex items-center justify-center mt-0.5 transition-colors shrink-0 ${
+                                      task.completed
+                                        ? "bg-emerald-500 border-emerald-500 text-white"
+                                        : "border-border hover:border-muted-foreground text-transparent"
+                                    }`}
+                                  >
+                                    <Check className="w-2.5 h-2.5 stroke-[3]" />
+                                  </button>
+                                  <span
+                                    className={`text-[12px] leading-tight break-words ${
+                                      task.completed ? "line-through text-muted-foreground/60" : "text-foreground/90"
+                                    }`}
+                                  >
+                                    {task.text}
+                                  </span>
+                                </div>
+                              ))}
+                              {remainingCount > 0 && (
+                                <div className="text-[11px] text-muted-foreground pl-5.5">
+                                  + {remainingCount} item{remainingCount > 1 ? "s" : ""}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="py-3 text-center text-[12px] text-muted-foreground/50">Nada por aqui</div>
+                )}
+              </div>
+              <button
+                onClick={() => openNewCard(col.id)}
+                className="m-2 mt-1 flex items-center gap-2 px-2.5 py-2 rounded-lg text-[13px] font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-colors shrink-0"
+              >
+                <Plus className="w-4 h-4" />
+                Adicionar um cartão
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      </>
+    ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cards, loading, draggedOverColumn, draggedOverCardId, draggedOverCardPart, expandedCards, marcandoIds, usersList, userProfile?.id, isManager, boardOwnerId],
+  );
+
   // ── Render ────────────────────────────────────────────────────────────────
   if (isSubquadroView && subquadro && !isAllowedToViewSubquadro) {
     return (
@@ -1088,890 +1567,801 @@ export function EsteiraView({ userProfile, subquadroId }: EsteiraViewProps) {
         </div>
       )}
 
-      {/* KANBAN BOARD */}
-      <div className="flex-1 overflow-x-auto min-h-0 flex gap-4 pr-1 pb-4 select-none custom-scrollbar">
-        {COLUMNS.map((col) => {
-          const colCards = cards.filter((c) => c.column_id === col.id);
-          const isOver = draggedOverColumn === col.id;
+      {quadro}
+
+      {/* CARD MODAL — conteúdo à esquerda (título, descrição, checklist) e
+          propriedades à direita. */}
+      <AnimatePresence>
+        {isCardModalOpen && selectedCard && (() => {
+          const fechar = () => {
+            setIsCardModalOpen(false);
+            setSelectedCard(null);
+            setMenuItemAberto(null);
+          };
+          const podeSalvar = !saving && !!selectedCard.title?.trim() && !!selectedCard.owner_id;
+          const subtasks = parseSubtasks(selectedCard.description || "");
+          const descTexto = getCleanDescriptionText(selectedCard.description || "");
+          const anexos = selectedCard.attachments ?? [];
+          const etiquetas = selectedCard.labels ?? [];
+
+          // Sobe para o bucket e já grava no card aberto. Card novo ainda não
+          // tem id, então a pasta é aleatória; o vínculo é a lista no card.
+          const enviarArquivos = async (arquivos: FileList) => {
+            setEnviandoAnexo(true);
+            const novos: Anexo[] = [];
+            const pasta = selectedCard.id || `novo-${crypto.randomUUID()}`;
+            for (const f of Array.from(arquivos)) {
+              const limpo = f.name.normalize("NFD").replace(/[^\w.-]+/g, "_");
+              const path = `${pasta}/${Date.now()}-${limpo}`;
+              const { error } = await supabase.storage.from("esteira-anexos").upload(path, f, {
+                contentType: f.type || undefined,
+              });
+              if (error) {
+                alert(`Não foi possível anexar ${f.name}: ${error.message}`);
+                continue;
+              }
+              const { data } = supabase.storage.from("esteira-anexos").getPublicUrl(path);
+              novos.push({ name: f.name, url: data.publicUrl, path, type: f.type || "application/octet-stream", size: f.size });
+            }
+            setSelectedCard((prev) => (prev ? { ...prev, attachments: [...(prev.attachments ?? []), ...novos] } : prev));
+            setEnviandoAnexo(false);
+          };
+          const adicionarLink = () => {
+            let url = linkAnexo.trim();
+            if (!url) return;
+            if (!/^https?:\/\//i.test(url)) url = `https://${url}`;
+            let nome = url;
+            try {
+              const u = new URL(url);
+              nome = u.hostname.replace(/^www\./, "") + (u.pathname !== "/" ? u.pathname : "");
+            } catch {
+              // link fora do padrão: guarda como veio
+            }
+            setSelectedCard({ ...selectedCard, attachments: [...anexos, { name: nome, url, path: null, type: "link" }] });
+            setLinkAnexo("");
+          };
+          const removerAnexo = (i: number) => {
+            const alvo = anexos[i];
+            if (alvo?.path) supabase.storage.from("esteira-anexos").remove([alvo.path]);
+            setSelectedCard({ ...selectedCard, attachments: anexos.filter((_, j) => j !== i) });
+          };
+          const adicionarEtiqueta = (nome: string, cor: string) => {
+            const n = nome.trim();
+            if (!n || etiquetas.some((l) => l.name.toLowerCase() === n.toLowerCase())) {
+              setEtiquetaTexto("");
+              return;
+            }
+            // Etiqueta que já existe em outro card mantém a cor de lá.
+            const existente = etiquetasUsadas.find((l) => l.name.toLowerCase() === n.toLowerCase());
+            setSelectedCard({ ...selectedCard, labels: [...etiquetas, existente ?? { name: n, color: cor }] });
+            setEtiquetaTexto("");
+          };
+          const setDesc = (texto: string) =>
+            setSelectedCard({
+              ...selectedCard,
+              description: updateDescriptionText(selectedCard.description || "", texto),
+            });
+          const addSubtask = () => {
+            if (!newSubtaskText.trim()) return;
+            setSelectedCard({
+              ...selectedCard,
+              description: addSubtaskToDescription(selectedCard.description || "", newSubtaskText),
+            });
+            setNewSubtaskText("");
+          };
+
+          // Barra de formatação: envolve a seleção (ou insere no cursor) com a
+          // marcação em Markdown. A descrição é texto puro no banco.
+          const formatar = (antes: string, depois = "", porLinha = false) => {
+            const el = descRef.current;
+            if (!el || isViewOnly) return;
+            const ini = el.selectionStart;
+            const fim = el.selectionEnd;
+            const sel = descTexto.slice(ini, fim);
+            let novo: string;
+            if (porLinha) {
+              const linhas = (sel || "").split("\n");
+              novo = linhas
+                .map((l, i) => (antes === "1. " ? `${i + 1}. ` : antes) + l)
+                .join("\n");
+            } else {
+              novo = antes + sel + depois;
+            }
+            setDesc(descTexto.slice(0, ini) + novo + descTexto.slice(fim));
+            requestAnimationFrame(() => {
+              el.focus();
+              const pos = sel ? ini + novo.length : ini + antes.length;
+              el.setSelectionRange(pos, pos);
+            });
+          };
+
+          const isoDia = (offset: number) => {
+            const d = new Date();
+            d.setDate(d.getDate() + offset);
+            return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+          };
+          // "Esta semana" = sexta desta semana (ou hoje, se já for sexta/fim de semana).
+          const diasAteSexta = Math.max(0, 5 - new Date().getDay());
+          const prazoAtual = selectedCard.due_date ? selectedCard.due_date.split("T")[0] : "";
+          const atalhosPrazo = [
+            { label: "Hoje", valor: isoDia(0) },
+            { label: "Amanhã", valor: isoDia(1) },
+            { label: "Esta semana", valor: isoDia(diasAteSexta) },
+          ];
+          const responsavel = usersList.find((u) => u.id === selectedCard.owner_id);
+          const colunaAtual = selectedCard.column_id || "A FAZER";
+          const ICONE_STATUS: Record<string, React.ReactNode> = {
+            "A FAZER": <Circle className="w-4 h-4" />,
+            FAZENDO: <Zap className="w-4 h-4" />,
+            CONCLUIDOS: <CheckCircle2 className="w-4 h-4" />,
+          };
+
+          const CAMPO = "w-full rounded-xl border border-border bg-secondary/40 px-3.5 py-2.5 text-[14px] text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-primary/60 focus:ring-2 focus:ring-primary/15 transition-all disabled:cursor-default";
 
           return (
-            <div
-              key={col.id}
-              onDragOver={(e) => handleDragOver(e, col.id)}
-              onDragLeave={handleDragLeave}
-              onDrop={(e) => handleDrop(e, col.id)}
-              className={`flex-1 min-w-[280px] flex flex-col rounded-2xl border transition-all duration-200 ${col.bgClass} ${col.borderClass} ${
-                isOver
-                  ? "ring-2 ring-primary/20 scale-[0.99] border-primary/40"
-                  : ""
-              }`}
-            >
-              {/* Column Header */}
-              <div className="p-4 border-b border-border/40 flex items-center justify-between shrink-0">
-                <div className="flex items-center gap-2">
-                  <div
-                    className={`w-2 h-2 rounded-full ${col.textClass} bg-current`}
-                  />
-                  <h3 className="font-bold text-sm text-foreground uppercase tracking-tight">
-                    {col.title}
-                  </h3>
-                </div>
-                <span className="px-2 py-0.5 rounded-md bg-secondary/80 border border-border/50 text-[10px] font-black text-muted-foreground uppercase">
-                  {colCards.length}
-                </span>
-              </div>
-
-              {/* Cards */}
-              <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-3 custom-scrollbar min-h-[150px]">
-                {loading ? (
-                  Array.from({ length: 2 }).map((_, idx) => (
-                    <div
-                      key={idx}
-                      className="bg-card border border-border/50 p-4 rounded-xl animate-pulse relative h-[145px] shrink-0"
-                    >
-                      <div className="space-y-3">
-                        <div className="h-4 bg-secondary rounded w-3/4" />
-                        <div className="h-3 bg-secondary rounded w-5/6" />
-                      </div>
-                      <div className="absolute bottom-4 left-4 right-4 flex justify-between items-center pt-2 border-t border-border/30">
-                        <div className="h-5 bg-secondary rounded w-20" />
-                        <div className="h-5 bg-secondary rounded-full w-5" />
-                      </div>
-                    </div>
-                  ))
-                ) : colCards.length > 0 ? (
-                  colCards.map((card) => {
-                    const expired = isOverdue(card.due_date, card.column_id);
-                    const tagStyle =
-                      TAG_OPTIONS.find((t) => t.name === card.tag_name)
-                        ?.color ||
-                      "bg-secondary text-muted-foreground border-border/50";
-                    const stats = getChecklistStats(card.description);
-                    const subtasks = parseSubtasks(card.description);
-                    const visibleSubtasks = subtasks.slice(0, 5);
-                    const remainingCount = subtasks.length - 5;
-                    const cleanDesc = getCleanDescriptionText(card.description).trim();
-                    const isExpanded = expandedCards[card.id] || false;
-
-                    return (
-                      <div
-                        key={card.id}
-                        draggable
-                        onDragStart={(e) => handleDragStart(e, card.id)}
-                        onDragOver={(e) => {
-                          e.preventDefault();
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const relativeY = e.clientY - rect.top;
-                          const isBottom = relativeY > rect.height / 2;
-                          setDraggedOverCardId(card.id);
-                          setDraggedOverCardPart(isBottom ? "bottom" : "top");
-                        }}
-                        onDragLeave={() => {
-                          setDraggedOverCardId(null);
-                          setDraggedOverCardPart(null);
-                        }}
-                        onDrop={(e) => {
-                          const rect = e.currentTarget.getBoundingClientRect();
-                          const relativeY = e.clientY - rect.top;
-                          const isBottom = relativeY > rect.height / 2;
-                          setDraggedOverCardId(null);
-                          setDraggedOverCardPart(null);
-                          handleCardDrop(
-                            e,
-                            card.id,
-                            isBottom ? "bottom" : "top",
-                          );
-                        }}
-                        className={`bg-card hover:shadow-md border border-border hover:border-border/80 transition-all duration-150 hover:-translate-y-0.5 rounded-xl p-3.5 flex flex-col gap-2.5 justify-between cursor-grab active:cursor-grabbing relative overflow-hidden group shrink-0 min-h-[160px] h-auto ${
-                          draggedOverCardId === card.id &&
-                          draggedOverCardPart === "top"
-                            ? "border-t-primary border-t-2 scale-[1.01] shadow-md"
-                            : draggedOverCardId === card.id &&
-                                draggedOverCardPart === "bottom"
-                              ? "border-b-primary border-b-2 scale-[1.01] shadow-md"
-                              : ""
-                        }`}
-                      >
-                        {/* Card top row */}
-                        <div className="flex items-start justify-between gap-2 mb-0.5 shrink-0">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            {card.tag_name ? (
-                              <span
-                                className={`px-2.5 py-0.5 rounded-full border text-[9px] font-black uppercase tracking-wider ${tagStyle}`}
-                              >
-                                {card.tag_name}
-                              </span>
-                            ) : (
-                              <span className="text-[10px] text-muted-foreground/30 font-bold italic">
-                                Sem tag
-                              </span>
-                            )}
-
-                            {card.due_date && (
-                              <span
-                                className={`px-2 py-0.5 rounded-full border text-[9px] font-black uppercase tracking-wider flex items-center gap-1 shrink-0 ${
-                                  expired
-                                    ? "text-red-500 bg-red-500/5 border-red-500/10 animate-pulse"
-                                    : "bg-secondary/80 text-muted-foreground/80 border-border/50"
-                                }`}
-                              >
-                                <Calendar className="w-3 h-3 shrink-0" />
-                                <span>{formatDate(card.due_date)}</span>
-                              </span>
-                            )}
-
-                            {card.recurring && (
-                              <span
-                                className="px-2 py-0.5 rounded-full border text-[9px] font-black uppercase tracking-wider flex items-center gap-1 shrink-0 bg-primary/5 text-primary border-primary/20"
-                                title="Tarefa recorrente: volta para A Fazer no dia seguinte"
-                              >
-                                <Repeat className="w-3 h-3 shrink-0" />
-                                <span>Diária</span>
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                            {canManageCard(card) ? (
-                              <>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    setSelectedCard(card);
-                                    setIsViewOnly(false);
-                                    setIsCardModalOpen(true);
-                                  }}
-                                  className="p-1 hover:bg-secondary rounded-md text-muted-foreground hover:text-primary transition-colors"
-                                  title="Editar"
-                                >
-                                  <Pencil className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    deleteCard(card.id);
-                                  }}
-                                  className="p-1 hover:bg-red-500/10 rounded-md text-muted-foreground hover:text-red-500 transition-colors"
-                                  title="Excluir"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </>
-                            ) : (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  setSelectedCard(card);
-                                  setIsViewOnly(true);
-                                  setIsCardModalOpen(true);
-                                }}
-                                className="p-1 hover:bg-secondary rounded-md text-muted-foreground hover:text-primary transition-colors"
-                                title="Visualizar Detalhes"
-                              >
-                                <Eye className="w-3.5 h-3.5" />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Title & Description & Checklist */}
-                        <div className="flex-1 flex flex-col gap-1.5">
-                          <h4
-                            className="text-xs font-bold text-foreground leading-snug break-words"
-                            title={card.title}
-                          >
-                            {card.title}
-                          </h4>
-
-                          {cleanDesc && (
-                            <p 
-                              onClick={(e) => { e.stopPropagation(); toggleCardExpanded(card.id); }}
-                              className={`text-[11px] text-muted-foreground/85 leading-relaxed break-words whitespace-pre-line font-medium hover:text-primary cursor-pointer transition-colors ${
-                                isExpanded ? "line-clamp-6" : "line-clamp-1"
-                              }`}
-                              title={isExpanded ? "Clique para recolher a descrição" : "Clique para ver a descrição completa"}
-                            >
-                              {cleanDesc}
-                            </p>
-                          )}
-
-                          {isExpanded && visibleSubtasks.length > 0 && (
-                            <div className="mt-1 space-y-1.5 bg-secondary/35 border border-border/30 rounded-xl p-2.5">
-                              {visibleSubtasks.map((task) => (
-                                <div
-                                  key={task.index}
-                                  onClick={(e) => e.stopPropagation()}
-                                  className="flex items-start gap-2 py-0.5 group/subtask cursor-default"
-                                >
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      handleToggleSubtaskInViewMode(
-                                        card.id,
-                                        task.index,
-                                      )
-                                    }
-                                    className={`w-3.5 h-3.5 rounded border flex items-center justify-center mt-0.5 transition-colors shrink-0 ${
-                                      task.completed
-                                        ? "bg-emerald-500/25 border-emerald-500/50 text-emerald-500 hover:bg-emerald-500/35"
-                                        : "bg-background border-border hover:border-muted-foreground/50 text-transparent hover:text-muted-foreground/50"
-                                    }`}
-                                  >
-                                    <Check className="w-2.5 h-2.5 stroke-[3]" />
-                                  </button>
-                                  <span
-                                    className={`text-[10px] leading-tight break-all select-none ${
-                                      task.completed
-                                        ? "line-through text-muted-foreground/50 opacity-60 font-medium"
-                                        : "text-muted-foreground/95 font-semibold"
-                                    }`}
-                                  >
-                                    {task.text}
-                                  </span>
-                                </div>
-                              ))}
-                              {remainingCount > 0 && (
-                                <div className="text-[9px] text-muted-foreground/50 italic pl-5.5 mt-0.5 font-bold">
-                                  + {remainingCount} sub-tarefa
-                                  {remainingCount > 1 ? "s" : ""}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-
-                        {/* Footer */}
-                        <div className="pt-2 border-t border-border/30 flex items-center justify-between gap-2 text-[10px] font-bold text-muted-foreground mt-auto shrink-0">
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            {stats.total > 0 && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  toggleCardExpanded(card.id);
-                                }}
-                                className={`flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[9px] font-black transition-all shrink-0 ${
-                                  stats.completed === stats.total
-                                    ? "text-emerald-500 bg-emerald-500/5 border-emerald-500/10 hover:bg-emerald-500/15"
-                                    : "text-sky-500 bg-sky-500/5 border-sky-500/10 hover:bg-sky-500/15"
-                                }`}
-                                title={
-                                  isExpanded
-                                    ? "Esconder sub-tarefas"
-                                    : "Mostrar sub-tarefas"
-                                }
-                              >
-                                <Check className="w-3 h-3 text-current" />
-                                <span>
-                                  {stats.completed}/{stats.total}
-                                </span>
-                                {isExpanded ? (
-                                  <ChevronUp className="w-3.5 h-3.5 text-current ml-0.5" />
-                                ) : (
-                                  <ChevronDown className="w-3.5 h-3.5 text-current ml-0.5" />
-                                )}
-                              </button>
-                            )}
-                          </div>
-
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            {(() => {
-                              const creatorUser = usersList.find(
-                                (u) => u.id === card.created_by,
-                              );
-                              const responsibleUser = usersList.find(
-                                (u) => u.id === card.owner_id,
-                              );
-                              const creatorDisplayName =
-                                toTitleCase(creatorUser?.name) || "Marketing";
-                              const responsibleDisplayName =
-                                toTitleCase(responsibleUser?.name) || "Marketing";
-                              const selfAssigned =
-                                !!card.created_by && card.created_by === card.owner_id;
-
-                              const ResponsibleBadge = (
-                                <div
-                                  className="flex items-center gap-1.5 bg-primary/10 pl-1.5 pr-2 py-0.5 rounded-lg border border-primary/20 shrink-0"
-                                  title={
-                                    selfAssigned
-                                      ? `Criado por: ${responsibleDisplayName}`
-                                      : `Responsável: ${responsibleDisplayName}`
-                                  }
-                                >
-                                  {responsibleUser?.avatar ? (
-                                    <img
-                                      src={responsibleUser.avatar}
-                                      alt={responsibleDisplayName}
-                                      className="w-4.5 h-4.5 rounded-full object-cover border border-border/40 shrink-0"
-                                      onError={(e) => {
-                                        e.currentTarget.style.display = "none";
-                                      }}
-                                    />
-                                  ) : (
-                                    <User className="w-3.5 h-3.5 text-primary/70 shrink-0" />
-                                  )}
-                                  <span className="truncate max-w-[50px] text-[9.5px] uppercase tracking-wider text-primary/95 font-black">
-                                    {responsibleDisplayName.split(" ")[0]}
-                                  </span>
-                                </div>
-                              );
-
-                              // Criador === responsável: mostra só um avatar, sem o "X -> X" redundante.
-                              if (selfAssigned) return ResponsibleBadge;
-
-                              return (
-                                <>
-                                  <div
-                                    className="flex items-center gap-1.5 bg-secondary/50 pl-1.5 pr-2 py-0.5 rounded-lg border border-border/30 shrink-0"
-                                    title={`Criado por: ${creatorDisplayName}`}
-                                  >
-                                    {creatorUser?.avatar ? (
-                                      <img
-                                        src={creatorUser.avatar}
-                                        alt={creatorDisplayName}
-                                        className="w-4.5 h-4.5 rounded-full object-cover border border-border/40 shrink-0"
-                                        onError={(e) => {
-                                          e.currentTarget.style.display = "none";
-                                        }}
-                                      />
-                                    ) : (
-                                      <User className="w-3.5 h-3.5 text-muted-foreground/60 shrink-0" />
-                                    )}
-                                    <span className="truncate max-w-[50px] text-[9.5px] uppercase tracking-wider text-muted-foreground/85 font-bold">
-                                      {creatorDisplayName.split(" ")[0]}
-                                    </span>
-                                  </div>
-                                  <ArrowRight className="w-3.5 h-3.5 text-muted-foreground/35 shrink-0" />
-                                  {ResponsibleBadge}
-                                </>
-                              );
-                            })()}
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="flex-1 flex flex-col items-center justify-center p-6 border-2 border-dashed border-border/30 rounded-xl min-h-[120px] text-center opacity-30">
-                    <Plus className="w-6 h-6 text-muted-foreground mb-1" />
-                    <span className="text-[10px] font-black uppercase tracking-widest">
-                      Coluna Vazia
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Column footer */}
-              <div className="p-3 border-t border-border/40 shrink-0">
-                <button
-                  onClick={() => openNewCard(col.id)}
-                  className="w-full py-2 bg-secondary/20 hover:bg-secondary/60 text-muted-foreground hover:text-foreground font-bold text-xs rounded-xl border border-dashed border-border/60 hover:border-border transition-all flex items-center justify-center gap-1.5 active:scale-95"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  Criar Atividade
-                </button>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* CARD MODAL */}
-      <AnimatePresence>
-        {isCardModalOpen && selectedCard && (
-          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <div
+            className="fixed inset-0 z-[110] flex items-center justify-center p-3 sm:p-6"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") fechar();
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && !isViewOnly && podeSalvar) {
+                e.preventDefault();
+                saveCard(selectedCard);
+              }
+            }}
+          >
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => {
-                setIsCardModalOpen(false);
-                setSelectedCard(null);
-              }}
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+              onClick={fechar}
+              transition={{ duration: 0.1 }}
+              className="absolute inset-0 bg-black/70"
             />
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-md bg-card border border-border rounded-3xl shadow-2xl flex flex-col max-h-[82vh] overflow-hidden"
+              initial={{ opacity: 0, scale: 0.99 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.99 }}
+              transition={{ duration: 0.1, ease: "easeOut" }}
+              className="relative w-full max-w-5xl bg-card border border-border rounded-2xl shadow-2xl flex flex-col max-h-[92vh] overflow-hidden"
             >
-              {/* Modal Header - Fixed */}
-              <div className="p-6 pb-4 border-b border-border/30 flex items-center justify-between shrink-0">
-                <div className="flex items-center gap-2">
-                  <Tag className="w-5 h-5 text-primary" />
-                  <h3 className="text-lg font-black uppercase tracking-tighter">
-                    {isViewOnly
-                      ? "Detalhes da Atividade"
-                      : selectedCard.id
-                        ? "Editar Card"
-                        : "Novo Card"}
-                  </h3>
-                </div>
-                <button
-                  onClick={() => {
-                    setIsCardModalOpen(false);
-                    setSelectedCard(null);
-                  }}
-                  className="p-1.5 hover:bg-secondary rounded-full transition-colors"
-                >
-                  <X className="w-5 h-5 text-muted-foreground" />
-                </button>
-              </div>
+              <button
+                onClick={fechar}
+                className="absolute top-3 right-3 z-20 p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                title="Fechar (Esc)"
+              >
+                <X className="w-4 h-4" />
+              </button>
 
-              {/* Scrollable Content Body */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
-                {/* Title */}
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                    Título *
-                  </label>
-                  <input
-                    required
-                    disabled={isViewOnly}
-                    type="text"
-                    placeholder="Ex: Criar banner de Dia dos Pais"
-                    className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-semibold disabled:opacity-75 disabled:cursor-not-allowed"
-                    value={selectedCard.title || ""}
-                    onChange={(e) =>
-                      setSelectedCard({
-                        ...selectedCard,
-                        title: e.target.value,
-                      })
-                    }
-                  />
-                </div>
+              <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar lg:overflow-hidden lg:flex">
+                {/* ── Coluna esquerda: conteúdo ─────────────── */}
+                <div className="flex-1 min-w-0 px-5 sm:px-6 py-5 space-y-4 lg:overflow-y-auto custom-scrollbar">
+                  <RotuloModal icone={<AlignLeft className="w-4 h-4" />} texto="Título da tarefa" obrigatorio={!isViewOnly}>
+                    <input
+                      autoFocus={!selectedCard.id}
+                      disabled={isViewOnly}
+                      type="text"
+                      placeholder="Ex: Criar campanha para Instagram"
+                      className={CAMPO}
+                      value={selectedCard.title || ""}
+                      onChange={(e) => setSelectedCard({ ...selectedCard, title: e.target.value })}
+                    />
+                  </RotuloModal>
 
-                {/* Description */}
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                    Descrição / Tarefas
-                  </label>
-                  {isViewOnly ? (
-                    <div className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-sm min-h-[80px] max-h-[160px] overflow-y-auto custom-scrollbar whitespace-pre-line">
-                      {getCleanDescriptionText(selectedCard.description || "").trim() || (
-                        <span className="text-muted-foreground italic text-xs">
-                          Nenhuma descrição informada.
-                        </span>
+                  <RotuloModal icone={<AlignJustify className="w-4 h-4" />} texto="Descrição">
+                    <div className="rounded-xl border border-border bg-secondary/40 overflow-hidden focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/15 transition-all">
+                      {!isViewOnly && (
+                        <div className="flex items-center gap-0.5 px-2 py-1.5 border-b border-border">
+                          {[
+                            { icone: <Bold className="w-4 h-4" />, t: "Negrito", f: () => formatar("**", "**") },
+                            { icone: <Italic className="w-4 h-4" />, t: "Itálico", f: () => formatar("_", "_") },
+                            null,
+                            { icone: <List className="w-4 h-4" />, t: "Lista", f: () => formatar("- ", "", true) },
+                            { icone: <ListOrdered className="w-4 h-4" />, t: "Lista numerada", f: () => formatar("1. ", "", true) },
+                            null,
+                            { icone: <Link2 className="w-4 h-4" />, t: "Link", f: () => formatar("[", "](https://)") },
+                            { icone: <Code className="w-4 h-4" />, t: "Código", f: () => formatar("`", "`") },
+                          ].map((b, i) =>
+                            b ? (
+                              <button
+                                key={i}
+                                type="button"
+                                title={b.t}
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={b.f}
+                                className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                              >
+                                {b.icone}
+                              </button>
+                            ) : (
+                              <span key={i} className="w-px h-5 bg-border mx-1" />
+                            ),
+                          )}
+                        </div>
+                      )}
+                      {isViewOnly ? (
+                        <p className="px-4 py-3 min-h-[96px] text-[14px] leading-relaxed text-foreground/90 whitespace-pre-line">
+                          {descTexto.trim() || <span className="italic text-muted-foreground/60">Sem descrição.</span>}
+                        </p>
+                      ) : (
+                        <textarea
+                          ref={(el) => {
+                            descRef.current = el;
+                            if (el) {
+                              el.style.height = "auto";
+                              el.style.height = Math.min(Math.max(el.scrollHeight, 110), 320) + "px";
+                            }
+                          }}
+                          placeholder="Adicione detalhes, links de referência ou o roteiro..."
+                          className="block w-full resize-none bg-transparent border-none outline-none px-4 py-3 text-[14px] leading-relaxed text-foreground placeholder:text-muted-foreground/60"
+                          value={descTexto}
+                          onChange={(e) => setDesc(e.target.value)}
+                        />
                       )}
                     </div>
-                  ) : (
-                    <textarea
-                      rows={3}
-                      placeholder="Detalhes, links de referências ou roteiros..."
-                      className="w-full bg-secondary border border-border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all resize-vertical font-semibold min-h-[80px] max-h-[300px]"
-                      value={getCleanDescriptionText(selectedCard.description || "")}
-                      onChange={(e) => {
-                        setSelectedCard({
-                          ...selectedCard,
-                          description: updateDescriptionText(
-                            selectedCard.description || "",
-                            e.target.value
-                          ),
-                        });
-                        e.target.style.height = "auto";
-                        e.target.style.height = Math.min(e.target.scrollHeight, 300) + "px";
-                      }}
-                      onFocus={(e) => {
-                        e.target.style.height = "auto";
-                        e.target.style.height = Math.min(e.target.scrollHeight, 300) + "px";
-                      }}
-                    />
-                  )}
-                </div>
+                  </RotuloModal>
 
-                {/* View-Only Subtasks list */}
-                {isViewOnly && (() => {
-                  const subtasks = parseSubtasks(selectedCard.description || "");
-                  return subtasks.length > 0 && (
-                    <div className="space-y-2 pt-1">
-                      <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block">
-                        Sub-tarefas
-                      </label>
-                      <div className="space-y-1.5 bg-secondary/35 border border-border/30 rounded-xl p-3 max-h-[160px] overflow-y-auto custom-scrollbar">
-                        {subtasks.map((task) => (
-                          <div
-                            key={task.index}
-                            className="flex items-center gap-2.5 py-1 border-b border-border/20 last:border-b-0"
-                          >
-                            <button
-                              type="button"
-                              onClick={() =>
-                                handleToggleSubtaskInViewMode(
-                                  selectedCard.id!,
-                                  task.index,
-                                )
-                              }
-                              className={`w-4 h-4 rounded border flex items-center justify-center mt-0.5 transition-colors shrink-0 ${
-                                task.completed 
-                                  ? "bg-emerald-500/25 border-emerald-500/50 text-emerald-500 hover:bg-emerald-500/35" 
-                                  : "bg-background border-border hover:border-muted-foreground/50 text-transparent hover:text-muted-foreground/50"
-                              }`}
-                            >
-                              <Check className="w-2.5 h-2.5 stroke-[3]" />
-                            </button>
-                            <span
-                              className={`text-xs select-none break-all ${task.completed ? "line-through text-muted-foreground/50 opacity-60 font-medium" : "text-foreground font-semibold"}`}
-                            >
-                              {task.text}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* Visual Subtasks Builder (Only in Create/Edit Mode) */}
-                {!isViewOnly && (
-                  <div className="space-y-2 pt-1">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block">
-                      Sub-tarefas
-                    </label>
-
-                    {/* Subtasks List */}
-                    {(() => {
-                      const subtasks = parseSubtasks(
-                        selectedCard.description || "",
-                      );
-                      return (
-                        <>
+                  {/* Checklist */}
+                  {(subtasks.length > 0 || !isViewOnly) && (
+                    <div>
+                      <div className="flex items-center justify-between gap-3 mb-2">
+                        <span className="flex items-center gap-2.5 text-[15px] font-semibold text-foreground">
+                          <SquareCheck className="w-4 h-4" /> Checklist
                           {subtasks.length > 0 && (
-                            <div className="space-y-1.5 bg-secondary/35 border border-border/30 rounded-xl p-3 max-h-[160px] overflow-y-auto custom-scrollbar">
-                              {subtasks.map((task) => (
-                                <div
-                                  key={task.index}
-                                  className="flex items-center justify-between gap-3 py-1 border-b border-border/20 last:border-b-0 group/item"
-                                >
-                                  <div className="flex items-start gap-2.5 flex-1 min-w-0">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        const updated =
-                                          toggleSubtaskInDescription(
-                                            selectedCard.description || "",
-                                            task.index,
-                                          );
-                                        setSelectedCard({
-                                          ...selectedCard,
-                                          description: updated,
-                                        });
-                                      }}
-                                      className={`w-4 h-4 rounded border flex items-center justify-center mt-0.5 transition-colors shrink-0 ${
-                                        task.completed 
-                                          ? "bg-emerald-500/25 border-emerald-500/50 text-emerald-500 hover:bg-emerald-500/35" 
-                                          : "bg-background border-border hover:border-muted-foreground/50 text-transparent hover:text-muted-foreground/50"
-                                      }`}
-                                    >
-                                      <Check className="w-2.5 h-2.5 stroke-[3]" />
-                                    </button>
-                                    <span
-                                      className={`text-xs select-none break-all ${task.completed ? "line-through text-muted-foreground/50 opacity-60 font-medium" : "text-foreground font-semibold"}`}
-                                    >
-                                      {task.text}
-                                    </span>
-                                  </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      const updated =
-                                        deleteSubtaskFromDescription(
-                                          selectedCard.description || "",
-                                          task.index,
-                                        );
-                                      setSelectedCard({
-                                        ...selectedCard,
-                                        description: updated,
-                                      });
-                                    }}
-                                    className="p-1 text-muted-foreground hover:text-red-500 hover:bg-red-500/10 rounded transition-colors opacity-0 group-hover/item:opacity-100 focus:opacity-100"
-                                    title="Excluir sub-tarefa"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              ))}
-                            </div>
+                            <span className="text-[12px] font-medium text-muted-foreground tabular-nums">
+                              {subtasks.filter((t) => t.completed).length}/{subtasks.length}
+                            </span>
                           )}
+                        </span>
+                        {!isViewOnly && (
+                          <button
+                            type="button"
+                            onClick={() => checklistInputRef.current?.focus()}
+                            className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg border border-primary/30 bg-primary/10 text-primary text-[13px] font-medium hover:bg-primary/15 transition-colors"
+                          >
+                            <Plus className="w-4 h-4" /> Adicionar item
+                          </button>
+                        )}
+                      </div>
 
-                          {/* Add Subtask Input Form */}
-                          <div className="flex gap-2">
-                            <input
-                              type="text"
-                              placeholder="Adicionar sub-tarefa..."
-                              className="flex-1 bg-secondary border border-border rounded-xl px-4 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-semibold"
-                              value={newSubtaskText}
-                              onChange={(e) =>
-                                setNewSubtaskText(e.target.value)
-                              }
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  if (newSubtaskText.trim()) {
-                                    const updated = addSubtaskToDescription(
-                                      selectedCard.description || "",
-                                      newSubtaskText,
-                                    );
-                                    setSelectedCard({
-                                      ...selectedCard,
-                                      description: updated,
-                                    });
-                                    setNewSubtaskText("");
-                                  }
-                                }
-                              }}
-                            />
+                      <div className="divide-y divide-border border-y border-border">
+                        {subtasks.map((task) => (
+                          <div key={task.index} className="relative flex items-center gap-3 py-2.5 px-1">
                             <button
                               type="button"
                               onClick={() => {
-                                  if (newSubtaskText.trim()) {
-                                    const updated = addSubtaskToDescription(
-                                      selectedCard.description || "",
-                                      newSubtaskText,
-                                    );
-                                    setSelectedCard({
-                                      ...selectedCard,
-                                      description: updated,
-                                    });
-                                    setNewSubtaskText("");
-                                  }
+                                if (isViewOnly) {
+                                  handleToggleSubtaskInViewMode(selectedCard.id!, task.index);
+                                } else {
+                                  setSelectedCard({
+                                    ...selectedCard,
+                                    description: toggleSubtaskInDescription(selectedCard.description || "", task.index),
+                                  });
+                                }
                               }}
-                              disabled={!newSubtaskText.trim()}
-                              className="px-3 bg-primary text-primary-foreground font-bold rounded-xl hover:opacity-90 transition-all shadow disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                              className={`w-[18px] h-[18px] rounded-[5px] border-[1.5px] flex items-center justify-center transition-colors shrink-0 ${
+                                task.completed
+                                  ? "bg-primary border-primary text-primary-foreground"
+                                  : "border-muted-foreground/50 hover:border-primary text-transparent"
+                              }`}
                             >
-                              <Plus className="w-4 h-4" />
+                              <Check className="w-3 h-3 stroke-[3]" />
                             </button>
+                            <span
+                              className={`flex-1 text-[14px] break-words ${
+                                task.completed ? "line-through text-muted-foreground" : "text-foreground"
+                              }`}
+                            >
+                              {task.text}
+                            </span>
+                            {!isViewOnly && (
+                              <>
+                                <button
+                                  type="button"
+                                  onClick={() => setMenuItemAberto(menuItemAberto === task.index ? null : task.index)}
+                                  className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                                  title="Opções"
+                                >
+                                  <MoreHorizontal className="w-4 h-4" />
+                                </button>
+                                {menuItemAberto === task.index && (
+                                  <div className="absolute right-0 top-full z-20 -mt-1 w-40 rounded-xl border border-border bg-card shadow-xl p-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedCard({
+                                          ...selectedCard,
+                                          description: deleteSubtaskFromDescription(selectedCard.description || "", task.index),
+                                        });
+                                        setMenuItemAberto(null);
+                                      }}
+                                      className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[13px] text-red-500 hover:bg-red-500/10"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" /> Remover item
+                                    </button>
+                                  </div>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        ))}
+                        {!isViewOnly && (
+                          <div className="flex items-center gap-3 py-2.5 px-1">
+                            <Plus className="w-[18px] h-[18px] text-primary shrink-0" />
+                            <input
+                              ref={checklistInputRef}
+                              type="text"
+                              placeholder="Adicionar item"
+                              className="flex-1 bg-transparent border-none outline-none text-[14px] text-foreground placeholder:text-primary"
+                              value={newSubtaskText}
+                              onChange={(e) => setNewSubtaskText(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
+                                  e.preventDefault();
+                                  addSubtask();
+                                }
+                              }}
+                            />
+                            {newSubtaskText.trim() && (
+                              <span className="text-[11px] text-muted-foreground">Enter ↵</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Anexos */}
+                  {(anexos.length > 0 || !isViewOnly) && (
+                    <RotuloModal icone={<Paperclip className="w-4 h-4" />} texto="Anexos">
+                      {!isViewOnly && (
+                        <>
+                          <input
+                            ref={anexoInputRef}
+                            type="file"
+                            multiple
+                            className="hidden"
+                            onChange={(e) => {
+                              if (e.target.files?.length) enviarArquivos(e.target.files);
+                              e.target.value = "";
+                            }}
+                          />
+                          <div
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => anexoInputRef.current?.click()}
+                            onDragOver={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setArrastandoArquivo(true);
+                            }}
+                            onDragLeave={() => setArrastandoArquivo(false)}
+                            onDrop={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              setArrastandoArquivo(false);
+                              if (e.dataTransfer.files?.length) enviarArquivos(e.dataTransfer.files);
+                            }}
+                            className={`flex items-center justify-center gap-4 rounded-xl border-2 border-dashed px-4 py-5 cursor-pointer transition-colors ${
+                              arrastandoArquivo
+                                ? "border-primary bg-primary/10"
+                                : "border-border hover:border-primary/50 hover:bg-secondary/30"
+                            }`}
+                          >
+                            {enviandoAnexo ? (
+                              <Loader2 className="w-7 h-7 text-primary animate-spin" />
+                            ) : (
+                              <CloudUpload className="w-8 h-8 text-primary" />
+                            )}
+                            <div className="text-center">
+                              <p className="text-[14px] text-foreground">
+                                {enviandoAnexo ? "Enviando…" : "Arraste arquivos aqui ou clique para anexar"}
+                              </p>
+                              <p className="text-[12px] text-muted-foreground">Imagens, PDFs, documentos ou links</p>
+                            </div>
+                          </div>
+                          <div className="flex gap-2 mt-2">
+                            <div className="flex-1 flex items-center gap-2 rounded-xl border border-border bg-secondary/40 px-3 py-2 focus-within:border-primary/60">
+                              <Link2 className="w-4 h-4 text-muted-foreground shrink-0" />
+                              <input
+                                type="url"
+                                placeholder="Ou cole um link e aperte Enter"
+                                className="flex-1 bg-transparent border-none outline-none text-[13px] placeholder:text-muted-foreground/60"
+                                value={linkAnexo}
+                                onChange={(e) => setLinkAnexo(e.target.value)}
+                                onKeyDown={(e) => {
+                                  if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
+                                    e.preventDefault();
+                                    adicionarLink();
+                                  }
+                                }}
+                              />
+                            </div>
                           </div>
                         </>
-                      );
-                    })()}
-                  </div>
-                )}
-
-                {/* Responsável Autocomplete search dropdown */}
-                <div className="space-y-1 relative">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                    Responsável
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="text"
-                      disabled={isViewOnly}
-                      placeholder="Pesquisar responsável..."
-                      className="w-full bg-secondary border border-border rounded-xl pl-4 pr-10 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-semibold disabled:opacity-75 disabled:cursor-not-allowed text-foreground"
-                      value={responsibleSearch}
-                      onChange={(e) => {
-                        setResponsibleSearch(e.target.value);
-                        setShowUserDropdown(true);
-                        // Texto livre não corresponde a um usuário até selecionar na lista.
-                        setSelectedCard(prev => prev ? {
-                          ...prev,
-                          owner_id: null
-                        } : null);
-                      }}
-                      onFocus={() => {
-                        if (!isViewOnly) setShowUserDropdown(true);
-                      }}
-                      onBlur={() => {
-                        setTimeout(() => setShowUserDropdown(false), 200);
-                      }}
-                    />
-                    <User className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-                  </div>
-
-                  {showUserDropdown && !isViewOnly && (
-                    <div className="absolute z-50 left-0 right-0 mt-1 max-h-40 overflow-y-auto bg-card border border-border rounded-xl shadow-xl custom-scrollbar flex flex-col">
-                      {usersList.filter(u => 
-                        u.name.toLowerCase().includes(responsibleSearch.toLowerCase())
-                      ).length > 0 ? (
-                        usersList.filter(u => 
-                          u.name.toLowerCase().includes(responsibleSearch.toLowerCase())
-                        ).map((user) => (
-                          <button
-                            key={user.id}
-                            type="button"
-                            onClick={() => {
-                              setResponsibleSearch(toTitleCase(user.name));
-                              setSelectedCard(prev => prev ? {
-                                ...prev,
-                                owner_id: user.id
-                              } : null);
-                              setShowUserDropdown(false);
-                            }}
-                            className="w-full text-left px-4 py-2 hover:bg-secondary text-sm font-semibold transition-colors flex items-center gap-2"
-                          >
-                            {user.avatar ? (
-                              <img src={user.avatar} alt={user.name} className="w-5 h-5 rounded-full object-cover border border-border/40" />
-                            ) : (
-                              <User className="w-4 h-4 text-muted-foreground" />
-                            )}
-                            <span>{toTitleCase(user.name)}</span>
-                          </button>
-                        ))
-                      ) : (
-                        <div className="px-4 py-3 text-xs text-muted-foreground italic font-semibold">
-                          Nenhum usuário encontrado
+                      )}
+                      {anexos.length > 0 && (
+                        <div className="grid sm:grid-cols-2 gap-2 mt-3">
+                          {anexos.map((a, i) => {
+                            const ehImagem = a.type.startsWith("image/");
+                            return (
+                              <div
+                                key={a.url + i}
+                                className="group/anexo flex items-center gap-3 rounded-xl border border-border bg-secondary/30 p-2 pr-2.5"
+                              >
+                                <a
+                                  href={a.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="w-10 h-10 rounded-lg bg-secondary flex items-center justify-center overflow-hidden shrink-0"
+                                >
+                                  {ehImagem ? (
+                                    <img src={a.url} alt="" className="w-full h-full object-cover" />
+                                  ) : a.type === "link" ? (
+                                    <Link2 className="w-4 h-4 text-primary" />
+                                  ) : (
+                                    <FileText className="w-4 h-4 text-primary" />
+                                  )}
+                                </a>
+                                <a
+                                  href={a.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex-1 min-w-0 hover:underline"
+                                >
+                                  <p className="text-[13px] text-foreground truncate">{a.name}</p>
+                                  <p className="text-[11px] text-muted-foreground">
+                                    {a.type === "link" ? "Link" : a.size ? tamanhoArquivo(a.size) : "Arquivo"}
+                                  </p>
+                                </a>
+                                {!isViewOnly && (
+                                  <button
+                                    type="button"
+                                    onClick={() => removerAnexo(i)}
+                                    className="p-1 rounded-md text-muted-foreground hover:text-red-500 opacity-0 group-hover/anexo:opacity-100 transition-opacity"
+                                    title="Remover anexo"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
-                    </div>
+                    </RotuloModal>
                   )}
                 </div>
 
-                {/* Prazo */}
-                <div className="space-y-1">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">
-                    Prazo
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="date"
-                      disabled={isViewOnly}
-                      style={{ colorScheme: "dark" }}
-                      className="w-full bg-secondary border border-border rounded-xl pl-4 pr-10 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all font-semibold disabled:opacity-75 disabled:cursor-not-allowed text-foreground"
-                      value={
-                        selectedCard.due_date
-                          ? selectedCard.due_date.split("T")[0]
-                          : ""
-                      }
-                      onChange={(e) =>
-                        setSelectedCard({
-                          ...selectedCard,
-                          due_date: e.target.value || undefined,
-                        })
-                      }
-                    />
-                    <Calendar className="absolute right-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+                {/* ── Coluna direita: propriedades ───────────── */}
+                <aside className="lg:w-[400px] shrink-0 border-t lg:border-t-0 lg:border-l border-border px-5 sm:px-6 pt-12 lg:pt-5 pb-5 space-y-4 lg:overflow-y-auto custom-scrollbar">
+                  <div className="lg:pr-8">
+                  <RotuloModal icone={<Sun className="w-4 h-4" />} texto="Status">
+                    <div className="grid grid-cols-3 gap-2">
+                      {COLUMNS.map((c) => {
+                        const ativo = colunaAtual === c.id;
+                        return (
+                          <button
+                            key={c.id}
+                            type="button"
+                            disabled={isViewOnly}
+                            onClick={() => setSelectedCard({ ...selectedCard, column_id: c.id })}
+                            className={`flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl border text-[13px] font-medium whitespace-nowrap transition-colors disabled:cursor-default ${
+                              ativo
+                                ? "border-primary bg-primary text-primary-foreground shadow-md shadow-primary/20"
+                                : "border-border text-foreground/85 hover:border-muted-foreground/50 hover:bg-secondary/50"
+                            }`}
+                          >
+                            {ICONE_STATUS[c.id]}
+                            {c.title}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </RotuloModal>
                   </div>
-                </div>
 
-                {/* Tag / Prioridade */}
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block">
-                    Prioridade
-                  </label>
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    {TAG_OPTIONS.map((opt) => {
-                      const isSelected = selectedCard.tag_name === opt.name;
-                      return (
-                        <button
-                          key={opt.name}
-                          type="button"
+                  <RotuloModal icone={<User className="w-4 h-4" />} texto="Responsável">
+                    <div className="relative">
+                      <div className="flex items-center gap-3 rounded-xl border border-border bg-secondary/40 pl-2.5 pr-3 py-2 focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/15 transition-all">
+                        <MiniAvatar user={responsavel} label={responsavel ? toTitleCase(responsavel.name) : "Sem responsável"} tamanho="lg" />
+                        <input
+                          type="text"
                           disabled={isViewOnly}
-                          onClick={() => {
-                            if (isViewOnly) return;
-                            setSelectedCard({
-                              ...selectedCard,
-                              tag_name: isSelected ? "" : opt.name,
-                              tag_color: isSelected ? "" : opt.color,
-                            });
+                          placeholder="Escolher responsável"
+                          className="flex-1 min-w-0 bg-transparent border-none outline-none text-[15px] text-foreground placeholder:text-muted-foreground/60 disabled:cursor-default"
+                          value={responsibleSearch}
+                          onChange={(e) => {
+                            setResponsibleSearch(e.target.value);
+                            setShowUserDropdown(true);
+                            // Texto livre não corresponde a um usuário até selecionar na lista.
+                            setSelectedCard((prev) => (prev ? { ...prev, owner_id: null } : null));
                           }}
-                          className={`px-3 py-1 text-[10px] font-bold rounded-lg border transition-all flex items-center gap-1.5 ${opt.color} ${
-                            isSelected
-                              ? "ring-2 ring-primary/40 font-black"
-                              : "opacity-75"
-                          } disabled:cursor-not-allowed`}
-                        >
-                          {isSelected && (
-                            <Check className="w-3.5 h-3.5 shrink-0" />
-                          )}
-                          {opt.name}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+                          onFocus={(e) => {
+                            if (!isViewOnly) {
+                              e.target.select();
+                              setShowUserDropdown(true);
+                            }
+                          }}
+                          onBlur={() => setTimeout(() => setShowUserDropdown(false), 200)}
+                        />
+                        <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
+                      </div>
+                      {showUserDropdown && !isViewOnly && (() => {
+                        const busca = selectedCard.owner_id ? "" : responsibleSearch.toLowerCase();
+                        const filtrados = usersList.filter((u) => u.name.toLowerCase().includes(busca));
+                        return (
+                          <div className="absolute z-50 left-0 right-0 mt-1 max-h-60 overflow-y-auto bg-card border border-border rounded-xl shadow-xl custom-scrollbar p-1">
+                            {filtrados.length > 0 ? (
+                              filtrados.map((user) => (
+                                <button
+                                  key={user.id}
+                                  type="button"
+                                  onClick={() => {
+                                    setResponsibleSearch(toTitleCase(user.name));
+                                    setSelectedCard((prev) => (prev ? { ...prev, owner_id: user.id } : null));
+                                    setShowUserDropdown(false);
+                                  }}
+                                  className="w-full text-left px-2.5 py-2 rounded-lg hover:bg-secondary text-[14px] transition-colors flex items-center gap-2.5"
+                                >
+                                  <MiniAvatar user={user} label={toTitleCase(user.name)} />
+                                  <span className="truncate">{toTitleCase(user.name)}</span>
+                                  {user.id === selectedCard.owner_id && <Check className="w-4 h-4 text-primary ml-auto" />}
+                                </button>
+                              ))
+                            ) : (
+                              <div className="px-2.5 py-2 text-[13px] text-muted-foreground">Ninguém encontrado</div>
+                            )}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </RotuloModal>
 
-                {/* Recorrência: card volta sozinho para "A Fazer" no dia seguinte */}
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block">
-                    Recorrência
-                  </label>
-                  <button
-                    type="button"
-                    disabled={isViewOnly}
-                    onClick={() => {
-                      if (isViewOnly) return;
-                      setSelectedCard({
-                        ...selectedCard,
-                        recurring: !selectedCard.recurring,
-                      });
-                    }}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all text-left disabled:cursor-not-allowed ${
-                      selectedCard.recurring
-                        ? "bg-primary/10 border-primary/30 ring-2 ring-primary/20"
-                        : "bg-secondary border-border opacity-80 hover:opacity-100"
-                    }`}
-                  >
-                    <span
-                      className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                        selectedCard.recurring
-                          ? "bg-primary/20 text-primary"
-                          : "bg-muted text-muted-foreground"
-                      }`}
-                    >
-                      <Repeat className="w-4 h-4" />
-                    </span>
-                    <span className="flex-1 min-w-0">
-                      <span className="block text-xs font-black text-foreground">
-                        Tarefa recorrente
-                      </span>
-                      <span className="block text-[10px] font-semibold text-muted-foreground leading-tight">
-                        Ao concluir, volta para "A Fazer" no dia seguinte.
-                      </span>
-                    </span>
-                    {selectedCard.recurring && (
-                      <Check className="w-4 h-4 text-primary shrink-0" />
+                  <RotuloModal icone={<CalendarDays className="w-4 h-4" />} texto="Prazo">
+                    {!isViewOnly && (
+                      <div className="flex flex-wrap gap-2 mb-2.5">
+                        {atalhosPrazo.map((a) => (
+                          <button
+                            key={a.label}
+                            type="button"
+                            onClick={() =>
+                              setSelectedCard({
+                                ...selectedCard,
+                                due_date: prazoAtual === a.valor ? undefined : a.valor,
+                              })
+                            }
+                            className={`px-4 py-2 rounded-xl border text-[14px] transition-all ${
+                              prazoAtual === a.valor
+                                ? "border-primary bg-primary/15 text-primary font-medium"
+                                : "border-border bg-secondary/40 text-foreground/85 hover:border-muted-foreground/50"
+                            }`}
+                          >
+                            {a.label}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          title="Escolher no calendário"
+                          onClick={() => prazoRef.current?.showPicker?.()}
+                          className="px-3 py-2 rounded-xl border border-border bg-secondary/40 text-foreground/85 hover:border-muted-foreground/50 transition-all"
+                        >
+                          <CalendarDays className="w-4 h-4" />
+                        </button>
+                      </div>
                     )}
-                  </button>
-                </div>
+                    <div className="flex items-center gap-3 rounded-xl border border-border bg-secondary/40 px-4 py-2.5 focus-within:border-primary/60 transition-all">
+                      <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
+                      <input
+                        ref={prazoRef}
+                        type="date"
+                        disabled={isViewOnly}
+                        className="relative flex-1 bg-transparent border-none outline-none text-[14px] text-foreground disabled:cursor-default [color-scheme:light] dark:[color-scheme:dark]"
+                        value={prazoAtual}
+                        onChange={(e) => setSelectedCard({ ...selectedCard, due_date: e.target.value || undefined })}
+                      />
+                      {!isViewOnly && prazoAtual && (
+                        <button
+                          type="button"
+                          onClick={() => setSelectedCard({ ...selectedCard, due_date: undefined })}
+                          className="relative z-10 p-0.5 rounded text-muted-foreground hover:text-foreground"
+                          title="Tirar prazo"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </RotuloModal>
+
+                  <RotuloModal icone={<Flag className="w-4 h-4" />} texto="Prioridade">
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {TAG_OPTIONS.map((opt) => {
+                        const isSelected = selectedCard.tag_name === opt.name;
+                        return (
+                          <button
+                            key={opt.name}
+                            type="button"
+                            disabled={isViewOnly}
+                            onClick={() =>
+                              setSelectedCard({
+                                ...selectedCard,
+                                tag_name: isSelected ? "" : opt.name,
+                                tag_color: isSelected ? "" : opt.color,
+                              })
+                            }
+                            className={`flex items-center justify-center gap-1.5 px-1.5 py-2 rounded-xl border text-[13px] transition-colors disabled:cursor-default ${
+                              isSelected
+                                ? "border-primary bg-primary/10 text-foreground font-medium ring-1 ring-primary/40"
+                                : "border-border bg-secondary/40 text-foreground/85 hover:border-muted-foreground/50"
+                            }`}
+                          >
+                            <span className={`w-2.5 h-2.5 rounded-full ${COR_TAG[opt.name]}`} />
+                            {opt.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </RotuloModal>
+
+
+                  {(etiquetas.length > 0 || !isViewOnly) && (
+                  <RotuloModal icone={<TagIcon className="w-4 h-4" />} texto="Etiquetas">
+                    {etiquetas.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-2.5">
+                        {etiquetas.map((l) => (
+                          <span
+                            key={l.name}
+                            className={`flex items-center gap-1.5 pl-2.5 pr-1.5 py-1 rounded-lg border text-[12px] font-medium ${COR_ETIQUETA[l.color]?.chip ?? COR_ETIQUETA.violet.chip}`}
+                          >
+                            {l.name}
+                            {!isViewOnly && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setSelectedCard({
+                                    ...selectedCard,
+                                    labels: etiquetas.filter((x) => x.name !== l.name),
+                                  })
+                                }
+                                className="p-0.5 rounded hover:bg-black/10"
+                                title="Tirar etiqueta"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {!isViewOnly && (
+                      <>
+                        <div className="relative">
+                          <div className="flex items-center gap-2 rounded-xl border border-border bg-secondary/40 pl-4 pr-3 py-2.5 focus-within:border-primary/60 focus-within:ring-2 focus-within:ring-primary/15 transition-all">
+                            <input
+                              type="text"
+                              placeholder="Adicionar etiquetas..."
+                              className="flex-1 min-w-0 bg-transparent border-none outline-none text-[14px] text-foreground placeholder:text-muted-foreground/60"
+                              value={etiquetaTexto}
+                              onChange={(e) => {
+                                setEtiquetaTexto(e.target.value);
+                                setMostrarEtiquetas(true);
+                              }}
+                              onFocus={() => setMostrarEtiquetas(true)}
+                              onBlur={() => setTimeout(() => setMostrarEtiquetas(false), 200)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" && !e.ctrlKey && !e.metaKey) {
+                                  e.preventDefault();
+                                  adicionarEtiqueta(etiquetaTexto, etiquetaCor);
+                                }
+                              }}
+                            />
+                            <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
+                          </div>
+                          {mostrarEtiquetas && (() => {
+                            const q = etiquetaTexto.trim().toLowerCase();
+                            const sugestoes = etiquetasUsadas.filter(
+                              (l) =>
+                                !etiquetas.some((x) => x.name.toLowerCase() === l.name.toLowerCase()) &&
+                                l.name.toLowerCase().includes(q),
+                            );
+                            const podeCriar = q && !etiquetasUsadas.some((l) => l.name.toLowerCase() === q);
+                            if (!sugestoes.length && !podeCriar) return null;
+                            return (
+                              <div className="absolute z-50 left-0 right-0 mt-1 max-h-52 overflow-y-auto bg-card border border-border rounded-xl shadow-xl custom-scrollbar p-1">
+                                {sugestoes.map((l) => (
+                                  <button
+                                    key={l.name}
+                                    type="button"
+                                    onClick={() => adicionarEtiqueta(l.name, l.color)}
+                                    className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-secondary text-[13px] text-left"
+                                  >
+                                    <span className={`w-2.5 h-2.5 rounded-full ${COR_ETIQUETA[l.color]?.ponto ?? COR_ETIQUETA.violet.ponto}`} />
+                                    {l.name}
+                                  </button>
+                                ))}
+                                {podeCriar && (
+                                  <button
+                                    type="button"
+                                    onClick={() => adicionarEtiqueta(etiquetaTexto, etiquetaCor)}
+                                    className="w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg hover:bg-secondary text-[13px] text-left"
+                                  >
+                                    <Plus className="w-3.5 h-3.5 text-primary" />
+                                    Criar “{etiquetaTexto.trim()}”
+                                    <span className={`ml-auto w-2.5 h-2.5 rounded-full ${COR_ETIQUETA[etiquetaCor].ponto}`} />
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </div>
+                        <div className="flex items-center gap-2 mt-2.5">
+                          {Object.entries(COR_ETIQUETA).map(([cor, c]) => (
+                            <button
+                              key={cor}
+                              type="button"
+                              onClick={() => setEtiquetaCor(cor)}
+                              className={`w-7 h-7 rounded-lg ${c.ponto} transition-all ${
+                                etiquetaCor === cor ? "ring-2 ring-offset-2 ring-offset-card ring-foreground/70 scale-105" : "opacity-80 hover:opacity-100"
+                              }`}
+                              title="Cor da nova etiqueta"
+                            />
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => adicionarEtiqueta(etiquetaTexto, etiquetaCor)}
+                            disabled={!etiquetaTexto.trim()}
+                            className="w-7 h-7 rounded-lg border border-border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-muted-foreground/60 disabled:opacity-40 transition-colors"
+                            title="Criar etiqueta"
+                          >
+                            <Plus className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </RotuloModal>
+                  )}
+                </aside>
               </div>
 
-              {/* Modal Actions - Fixed */}
-              <div className="p-6 pt-4 border-t border-border/30 flex gap-3 shrink-0 bg-card">
-                {isViewOnly ? (
+              {/* Rodapé */}
+              <div className="px-5 sm:px-6 py-3 border-t border-border flex items-center gap-3 shrink-0">
+                <button
+                  onClick={fechar}
+                  className="px-6 py-2.5 rounded-xl border border-border text-[14px] font-medium text-foreground hover:bg-secondary transition-colors"
+                >
+                  {isViewOnly ? "Fechar" : "Cancelar"}
+                </button>
+                {!isViewOnly && selectedCard.id && (
                   <button
-                    onClick={() => {
-                      setIsCardModalOpen(false);
-                      setSelectedCard(null);
-                    }}
-                    className="w-full py-3 bg-secondary hover:bg-secondary/80 text-foreground font-bold text-xs rounded-2xl border border-border transition-all flex items-center justify-center"
+                    type="button"
+                    onClick={() => deleteCard(selectedCard.id!)}
+                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-[14px] font-medium text-red-500 hover:bg-red-500/10 transition-colors"
                   >
-                    Fechar
+                    <Trash2 className="w-4 h-4" /> Excluir
                   </button>
-                ) : (
-                  <>
-                    {selectedCard.id && (
-                      <button
-                        type="button"
-                        onClick={() => deleteCard(selectedCard.id!)}
-                        className="px-4 bg-red-500/10 hover:bg-red-500/20 text-red-500 font-bold text-xs rounded-2xl border border-red-500/20 transition-all flex items-center justify-center gap-1.5"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        Excluir
-                      </button>
+                )}
+                {!isViewOnly && (
+                  <div className="ml-auto flex items-center gap-3">
+                    {!selectedCard.owner_id && (
+                      <span className="hidden sm:block text-[12px] text-amber-500">Escolha um responsável</span>
                     )}
                     <button
-                      onClick={() => {
-                        setIsCardModalOpen(false);
-                        setSelectedCard(null);
-                      }}
-                      className="flex-1 py-3 bg-secondary hover:bg-secondary/80 text-foreground font-bold text-xs rounded-2xl border border-border transition-all"
-                    >
-                      Cancelar
-                    </button>
-                    <button
                       onClick={() => saveCard(selectedCard)}
-                      disabled={saving || !selectedCard.title?.trim() || !selectedCard.owner_id}
-                      className="flex-1 py-3 bg-primary text-primary-foreground font-black text-xs rounded-2xl hover:opacity-90 transition-all shadow-lg shadow-primary/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={!podeSalvar}
+                      className="flex items-center gap-2.5 pl-4 pr-2 py-2 rounded-xl bg-primary text-primary-foreground text-[15px] font-semibold shadow-lg shadow-primary/25 hover:opacity-95 active:scale-[0.98] transition-all disabled:opacity-40 disabled:cursor-not-allowed disabled:shadow-none"
                     >
-                      {saving ? "Salvando..." : "Salvar"}
+                      <CheckCircle2 className="w-5 h-5" />
+                      {saving ? "Salvando…" : selectedCard.id ? "Salvar tarefa" : "Criar tarefa"}
+                      <kbd className="hidden sm:inline-block px-2 py-0.5 rounded-md bg-black/20 text-[11px] font-medium">
+                        Ctrl + Enter
+                      </kbd>
                     </button>
-                  </>
+                  </div>
                 )}
               </div>
             </motion.div>
           </div>
-        )}
+          );
+        })()}
       </AnimatePresence>
 
       {isCreateSubquadroOpen && (
